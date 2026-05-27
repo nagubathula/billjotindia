@@ -1,9 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { OrderSource } from "@/lib/types";
+import type { Json } from "@/lib/database.types";
+
+// Order creation runs with the service-role admin client (bypasses RLS).
+// This is intentional: the storefront accepts orders from anonymous customers
+// (no sign-in required), and the POS posts from authenticated cashiers — but
+// both go through this endpoint. Auth/role-based access control lives at the
+// route level (POS layout's requireRole); this handler trusts its payload
+// and validates it server-side.
+//
+// IMPORTANT: never expose this route to user-controlled outlet_id without
+// validating it belongs to the requesting context. Today's clients (kiosk,
+// POS) hardcode it from env / session, but if we ever surface outlet pick to
+// a public form, add a validation step.
 
 type OrderItemInput = {
-  product_config: Record<string, unknown>;
+  product_config: Json;
   quantity: number;
   unit_price: number;
   total_price: number;
@@ -21,7 +34,7 @@ type OrderBody = {
   source?: OrderSource;
   outlet_id?: number;
   external_order_id?: string;
-  external_payload?: Record<string, unknown>;
+  external_payload?: Json;
 };
 
 const FALLBACK_OUTLET_ID = Number(
@@ -38,7 +51,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const outletId = body.outlet_id ?? FALLBACK_OUTLET_ID;
   const source: OrderSource = body.source ?? "web";
 

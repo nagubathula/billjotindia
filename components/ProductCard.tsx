@@ -1,51 +1,112 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
-import { useCart } from "@/components/CartProvider";
+import { Plus, Check, Settings2 } from "lucide-react";
+import { useCart, type SelectedOption } from "@/components/CartProvider";
+import { Button } from "@/components/ui/button";
+import { ModifierDialog } from "@/components/ModifierDialog";
+import { cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function ProductCard({ product }: { product: Product }) {
-  const { add } = useCart();
+  const { add, lines } = useCart();
+  const [modOpen, setModOpen] = useState(false);
   const isVeg = (product.veg_status ?? "Veg").toLowerCase() === "veg";
+  const inCart = lines
+    .filter((l) => l.product.id === product.id)
+    .reduce((s, l) => s + l.quantity, 0);
+  const hasModifiers = !!product.has_addons;
+
+  function handleAdd() {
+    if (hasModifiers) setModOpen(true);
+    else add(product);
+  }
+
+  function handleConfirmModifiers(options: SelectedOption[]) {
+    add(product, options);
+    setModOpen(false);
+  }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
-      <div className="relative aspect-[4/3] w-full bg-neutral-100">
-        {product.image_url ? (
-          <Image
-            src={product.image_url}
-            alt={product.name}
-            fill
-            sizes="(max-width: 768px) 50vw, 25vw"
-            className="object-cover"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-3xl">🍽️</div>
-        )}
-        <span
-          className={`absolute left-2 top-2 inline-block h-3 w-3 rounded-sm border ${
-            isVeg ? "border-green-700 bg-green-500" : "border-red-700 bg-red-500"
-          }`}
-          aria-label={isVeg ? "Veg" : "Non-veg"}
-        />
-      </div>
-      <div className="flex flex-1 flex-col p-3">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-medium leading-tight">{product.name}</h3>
-          <span className="whitespace-nowrap text-sm font-semibold">
-            ₹{Number(product.price).toFixed(0)}
+    <>
+      <div className="group flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition hover:border-primary/40 hover:shadow-md">
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
+          {product.image_url ? (
+            <Image
+              src={product.image_url}
+              alt={product.name}
+              fill
+              sizes="(max-width: 768px) 50vw, 25vw"
+              className="object-cover transition group-hover:scale-[1.03]"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-3xl opacity-50">
+              🍽️
+            </div>
+          )}
+          <span
+            aria-label={isVeg ? "Vegetarian" : "Non-vegetarian"}
+            title={isVeg ? "Vegetarian" : "Non-vegetarian"}
+            className={cn(
+              "absolute left-2 top-2 flex h-4 w-4 items-center justify-center rounded-sm border bg-white shadow",
+              isVeg ? "border-emerald-700" : "border-red-700",
+            )}
+          >
+            <span
+              className={cn(
+                "block h-2 w-2 rounded-full",
+                isVeg ? "bg-emerald-600" : "bg-red-600",
+              )}
+            />
           </span>
         </div>
-        {product.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-neutral-500">{product.description}</p>
-        )}
-        <button
-          onClick={() => add(product)}
-          className="mt-3 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Add
-        </button>
+        <div className="flex flex-1 flex-col gap-2 p-3">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-semibold leading-tight">{product.name}</h3>
+            {product.description && (
+              <p className="line-clamp-2 text-xs text-muted-foreground">
+                {product.description}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+            <span className="text-base font-semibold text-foreground">
+              ₹{Number(product.price).toFixed(0)}
+            </span>
+            <Button
+              size="sm"
+              variant={inCart > 0 ? "secondary" : "default"}
+              onClick={handleAdd}
+              className="gap-1"
+            >
+              {hasModifiers ? (
+                <>
+                  <Settings2 className="h-3 w-3" /> Customize
+                </>
+              ) : inCart > 0 ? (
+                <>
+                  <Check className="h-3 w-3" /> Added · {inCart}
+                </>
+              ) : (
+                <>
+                  <Plus className="h-3 w-3" /> Add
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
-    </div>
+
+      {hasModifiers && (
+        <ModifierDialog
+          product={modOpen ? product : null}
+          open={modOpen}
+          onOpenChange={setModOpen}
+          onConfirm={handleConfirmModifiers}
+        />
+      )}
+    </>
   );
 }

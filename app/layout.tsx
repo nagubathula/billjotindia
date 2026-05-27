@@ -1,22 +1,20 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { CartProvider } from "@/components/CartProvider";
-import { Navbar } from "@/components/Navbar";
+
+// Geist isn't exposed via next/font/google (shadcn's init template assumed it);
+// Inter is the sensible default and matches the shadcn neutral aesthetic.
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "Billjot India",
-  description: "Order food online",
+  description: "POS, kiosk and online ordering for Indian F&B",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <CartProvider>
-          <Navbar />
-          <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
-        </CartProvider>
-      </body>
+    <html lang="en" className={inter.variable}>
+      <body className="min-h-screen bg-background text-foreground">{children}</body>
     </html>
   );
 }
