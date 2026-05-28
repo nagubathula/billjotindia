@@ -41,14 +41,20 @@ import {
 const GST_RATES = ["0", "5", "12", "18"];
 const VEG_OPTIONS = ["Veg", "Non-Veg"];
 
+export type GroupOption = { id: number; display_name: string };
+
 export function ProductManager({
   slug,
   categories,
   products,
+  groups,
+  productGroupIds,
 }: {
   slug: string;
   categories: Category[];
   products: Product[];
+  groups: GroupOption[];
+  productGroupIds: Record<number, number[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -173,6 +179,8 @@ export function ProductManager({
       <ProductDialog
         slug={slug}
         categories={activeCategories}
+        groups={groups}
+        selectedGroupIds={[]}
         open={creating}
         onOpenChange={setCreating}
         product={null}
@@ -186,6 +194,8 @@ export function ProductManager({
       <ProductDialog
         slug={slug}
         categories={activeCategories}
+        groups={groups}
+        selectedGroupIds={editing ? (productGroupIds[editing.id] ?? []) : []}
         open={editing !== null}
         onOpenChange={(o) => {
           if (!o) setEditing(null);
@@ -205,6 +215,8 @@ export function ProductManager({
 function ProductDialog({
   slug,
   categories,
+  groups,
+  selectedGroupIds,
   open,
   onOpenChange,
   product,
@@ -214,6 +226,8 @@ function ProductDialog({
 }: {
   slug: string;
   categories: Category[];
+  groups: GroupOption[];
+  selectedGroupIds: number[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
   product: Product | null;
@@ -226,6 +240,7 @@ function ProductDialog({
   );
   const [gstRate, setGstRate] = useState<string>(String(product?.gst_rate ?? 5));
   const [vegStatus, setVegStatus] = useState<string>(product?.veg_status ?? "Veg");
+  const [groupIds, setGroupIds] = useState<Set<number>>(new Set(selectedGroupIds));
   const [err, setErr] = useState<string | null>(null);
 
   // Reset local state when the dialog opens with a different product.
@@ -234,11 +249,22 @@ function ProductDialog({
     setCategory(product.category);
   }
 
+  // Re-seed group selection when the dialog opens for a different product.
+  const [seedKey, setSeedKey] = useState<number | null>(null);
+  const currentKey = product?.id ?? 0;
+  if (open && seedKey !== currentKey) {
+    setSeedKey(currentKey);
+    setGroupIds(new Set(selectedGroupIds));
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o) setErr(null);
+        if (!o) {
+          setErr(null);
+          setSeedKey(null);
+        }
         onOpenChange(o);
       }}
     >
@@ -257,6 +283,7 @@ function ProductDialog({
             fd.set("category", category);
             fd.set("gst_rate", gstRate);
             fd.set("veg_status", vegStatus);
+            fd.set("group_ids", JSON.stringify([...groupIds]));
             if (product) fd.set("id", String(product.id));
             setErr(null);
             start(async () => {
@@ -353,6 +380,43 @@ function ProductDialog({
               defaultValue={product?.description ?? ""}
               placeholder="Hot, sweet, ginger forward"
             />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Customizations</Label>
+            {groups.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No customization groups yet. Create one in the Customizations
+                section to offer add-ons here.
+              </p>
+            ) : (
+              <div className="grid gap-1.5 rounded-md border p-2 sm:grid-cols-2">
+                {groups.map((g) => {
+                  const checked = groupIds.has(g.id);
+                  return (
+                    <label
+                      key={g.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setGroupIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(g.id)) next.delete(g.id);
+                            else next.add(g.id);
+                            return next;
+                          })
+                        }
+                        className="h-4 w-4"
+                      />
+                      {g.display_name}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {err && (

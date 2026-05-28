@@ -1,14 +1,15 @@
 // Seed a demo restaurant end-to-end: tenant, outlet, three users with known
-// passwords, categories, products, a couple of sample orders. Use to bring
-// a fresh deployment up to a state where the prototype is fully clickable.
+// passwords, a coffee-cafe-that-also-serves-pizza menu, customization groups
+// (sizes / milk / toppings) attached to the relevant products, and a sample
+// order. Brings a fresh deployment to a fully clickable state.
 //
 // Usage (from project root):
 //   node --env-file=.env.local scripts/seed-demo.mjs
 //
-// Idempotent on RE-RUN: if the demo restaurant already exists (by slug
-// 'billjot-demo-cafe'), it skips creation but still ensures users + menu
-// are present. Users are upserted via createUser (errors on duplicate),
-// so the script will surface a clear message if you've already seeded.
+// The restaurant/outlet/users are idempotent (reused + password-reset on
+// re-run). The MENU is declarative: every run WIPES the demo outlet's
+// categories, products, and customization groups, then re-inserts the sample
+// below — so editing this file and re-running always reflects the latest set.
 
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
@@ -45,27 +46,75 @@ const DEMO = {
     { email: "demo-cashier@billjot.test", name: "Priya Cashier", role: "user", password: "Cashier@Demo123" },
   ],
   categories: [
-    { name: "Beverages", emoji: "☕" },
-    { name: "Snacks", emoji: "🥪" },
-    { name: "South Indian", emoji: "🍛" },
-    { name: "Desserts", emoji: "🍮" },
+    { name: "Coffee", emoji: "☕" },
+    { name: "Cakes", emoji: "🍰" },
+    { name: "Pizza", emoji: "🍕" },
+  ],
+  // Reusable add-on sets. `groups` on a product references these by display_name.
+  customizationGroups: [
+    {
+      display_name: "Coffee size",
+      selection_type: "single",
+      is_required: true,
+      options: [
+        { name: "Regular", price: 0 },
+        { name: "Large", price: 40 },
+      ],
+    },
+    {
+      display_name: "Milk",
+      selection_type: "single",
+      is_required: true,
+      options: [
+        { name: "Whole milk", price: 0 },
+        { name: "Skimmed milk", price: 0 },
+        { name: "Oat milk", price: 30 },
+        { name: "Almond milk", price: 30 },
+      ],
+    },
+    {
+      display_name: "Pizza size",
+      selection_type: "single",
+      is_required: true,
+      options: [
+        { name: 'Personal (7")', price: 0 },
+        { name: 'Medium (10")', price: 120 },
+        { name: 'Large (13")', price: 250 },
+      ],
+    },
+    {
+      display_name: "Extra toppings",
+      selection_type: "multi",
+      is_required: false,
+      options: [
+        { name: "Extra cheese", price: 50 },
+        { name: "Mushroom", price: 40 },
+        { name: "Black olives", price: 40 },
+        { name: "Jalapeños", price: 30 },
+        { name: "Grilled chicken", price: 80 },
+      ],
+    },
   ],
   products: [
-    { name: "Masala Chai", category: "Beverages", price: 20, gst_rate: 5, veg_status: "Veg" },
-    { name: "Filter Coffee", category: "Beverages", price: 30, gst_rate: 5, veg_status: "Veg" },
-    { name: "Cold Coffee", category: "Beverages", price: 80, gst_rate: 5, veg_status: "Veg" },
-    { name: "Fresh Lime Soda", category: "Beverages", price: 50, gst_rate: 5, veg_status: "Veg" },
-    { name: "Veg Sandwich", category: "Snacks", price: 60, gst_rate: 5, veg_status: "Veg" },
-    { name: "Samosa (2 pc)", category: "Snacks", price: 30, gst_rate: 5, veg_status: "Veg" },
-    { name: "Chicken Roll", category: "Snacks", price: 120, gst_rate: 5, veg_status: "Non-Veg" },
-    { name: "Masala Dosa", category: "South Indian", price: 90, gst_rate: 5, veg_status: "Veg" },
-    { name: "Idli Sambar (3 pc)", category: "South Indian", price: 70, gst_rate: 5, veg_status: "Veg" },
-    { name: "Veg Biryani", category: "South Indian", price: 180, gst_rate: 5, veg_status: "Veg" },
-    { name: "Chicken Biryani", category: "South Indian", price: 220, gst_rate: 5, veg_status: "Non-Veg" },
-    { name: "Gulab Jamun (2 pc)", category: "Desserts", price: 60, gst_rate: 5, veg_status: "Veg" },
-    { name: "Ice Cream Sundae", category: "Desserts", price: 90, gst_rate: 5, veg_status: "Veg" },
+    // Coffee — size + milk choices
+    { name: "Espresso", category: "Coffee", price: 120, gst_rate: 5, veg_status: "Veg", groups: ["Coffee size", "Milk"] },
+    { name: "Cappuccino", category: "Coffee", price: 150, gst_rate: 5, veg_status: "Veg", groups: ["Coffee size", "Milk"] },
+    { name: "Caffè Latte", category: "Coffee", price: 160, gst_rate: 5, veg_status: "Veg", groups: ["Coffee size", "Milk"] },
+    { name: "Cold Brew", category: "Coffee", price: 180, gst_rate: 5, veg_status: "Veg", groups: ["Coffee size", "Milk"] },
+    // Cakes — no customizations
+    { name: "Chocolate Truffle Slice", category: "Cakes", price: 140, gst_rate: 5, veg_status: "Veg" },
+    { name: "Red Velvet Slice", category: "Cakes", price: 150, gst_rate: 5, veg_status: "Veg" },
+    { name: "New York Cheesecake", category: "Cakes", price: 180, gst_rate: 5, veg_status: "Veg" },
+    // Pizza — size + extra toppings
+    { name: "Margherita Pizza", category: "Pizza", price: 250, gst_rate: 5, veg_status: "Veg", groups: ["Pizza size", "Extra toppings"] },
+    { name: "Farmhouse Pizza", category: "Pizza", price: 320, gst_rate: 5, veg_status: "Veg", groups: ["Pizza size", "Extra toppings"] },
+    { name: "Paneer Tikka Pizza", category: "Pizza", price: 340, gst_rate: 5, veg_status: "Veg", groups: ["Pizza size", "Extra toppings"] },
+    { name: "Pepperoni Pizza", category: "Pizza", price: 360, gst_rate: 5, veg_status: "Non-Veg", groups: ["Pizza size", "Extra toppings"] },
   ],
 };
+
+const slugify = (s) =>
+  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 console.log("Seeding Billjot demo restaurant…\n");
 
@@ -168,16 +217,37 @@ for (const u of DEMO.users) {
   credentials.push({ ...u });
 }
 
-// --- 4. Categories (idempotent on outlet_id + name) ----------------------
+// --- 4. Wipe the existing menu for this outlet ----------------------------
+// product_config in order_items is a JSON snapshot (no FK), so deleting
+// products never orphans past orders.
+{
+  const { data: oldProducts } = await admin
+    .from("products")
+    .select("id")
+    .eq("outlet_id", outlet.id);
+  const oldProductIds = (oldProducts ?? []).map((p) => p.id);
+  if (oldProductIds.length) {
+    await admin.from("product_customizations").delete().in("product_id", oldProductIds);
+  }
+  await admin.from("products").delete().eq("outlet_id", outlet.id);
+
+  const { data: oldGroups } = await admin
+    .from("customization_groups")
+    .select("id")
+    .eq("outlet_id", outlet.id);
+  const oldGroupIds = (oldGroups ?? []).map((g) => g.id);
+  if (oldGroupIds.length) {
+    await admin.from("customization_options").delete().in("group_id", oldGroupIds);
+  }
+  await admin.from("customization_groups").delete().eq("outlet_id", outlet.id);
+
+  await admin.from("categories").delete().eq("outlet_id", outlet.id);
+  console.log("✓ Cleared existing menu (categories, products, customizations)");
+}
+
+// --- 5. Categories ---------------------------------------------------------
 for (let i = 0; i < DEMO.categories.length; i++) {
   const c = DEMO.categories[i];
-  const { data: existing } = await admin
-    .from("categories")
-    .select("id")
-    .eq("outlet_id", outlet.id)
-    .eq("name", c.name)
-    .maybeSingle();
-  if (existing) continue;
   await admin.from("categories").insert({
     outlet_id: outlet.id,
     name: c.name,
@@ -186,35 +256,82 @@ for (let i = 0; i < DEMO.categories.length; i++) {
     status: "active",
   });
 }
-console.log(`✓ ${DEMO.categories.length} categories ensured`);
+console.log(`✓ ${DEMO.categories.length} categories created`);
 
-// --- 5. Products (idempotent on outlet_id + name) ------------------------
+// --- 6. Customization groups + options -------------------------------------
+const groupIdByName = new Map();
+for (let i = 0; i < DEMO.customizationGroups.length; i++) {
+  const g = DEMO.customizationGroups[i];
+  const { data: grp, error } = await admin
+    .from("customization_groups")
+    .insert({
+      outlet_id: outlet.id,
+      display_name: g.display_name,
+      name: slugify(g.display_name),
+      selection_type: g.selection_type,
+      is_required: g.is_required,
+      sort_order: (i + 1) * 10,
+      status: "active",
+    })
+    .select("id")
+    .single();
+  if (error || !grp) {
+    console.error(`Failed to create group ${g.display_name}:`, error?.message);
+    continue;
+  }
+  groupIdByName.set(g.display_name, grp.id);
+  await admin.from("customization_options").insert(
+    g.options.map((o, oi) => ({
+      group_id: grp.id,
+      name: o.name,
+      price: o.price,
+      sort_order: (oi + 1) * 10,
+      status: "active",
+    })),
+  );
+}
+console.log(`✓ ${groupIdByName.size} customization groups created`);
+
+// --- 7. Products (+ attach customization groups) ---------------------------
 let createdProducts = 0;
 for (const p of DEMO.products) {
-  const { data: existing } = await admin
+  const groups = p.groups ?? [];
+  const { data: prod, error } = await admin
     .from("products")
+    .insert({
+      outlet_id: outlet.id,
+      name: p.name,
+      category: p.category,
+      price: p.price,
+      gst_rate: p.gst_rate,
+      veg_status: p.veg_status,
+      status: "active",
+      has_toppings: false,
+      has_addons: groups.length > 0,
+      is_kot_required: true,
+    })
     .select("id")
-    .eq("outlet_id", outlet.id)
-    .eq("name", p.name)
-    .maybeSingle();
-  if (existing) continue;
-  await admin.from("products").insert({
-    outlet_id: outlet.id,
-    name: p.name,
-    category: p.category,
-    price: p.price,
-    gst_rate: p.gst_rate,
-    veg_status: p.veg_status,
-    status: "active",
-    has_toppings: false,
-    has_addons: false,
-    is_kot_required: true,
-  });
+    .single();
+  if (error || !prod) {
+    console.error(`Failed to create product ${p.name}:`, error?.message);
+    continue;
+  }
   createdProducts++;
-}
-console.log(`✓ ${createdProducts} products created (${DEMO.products.length - createdProducts} already existed)`);
 
-// --- 6. A sample order so /admin/orders isn't empty -----------------------
+  const links = groups
+    .map((gn, gi) => ({
+      product_id: prod.id,
+      group_id: groupIdByName.get(gn),
+      sort_order: (gi + 1) * 10,
+    }))
+    .filter((l) => l.group_id);
+  if (links.length) {
+    await admin.from("product_customizations").insert(links);
+  }
+}
+console.log(`✓ ${createdProducts} products created`);
+
+// --- 8. A sample order so /admin/orders isn't empty -----------------------
 const { data: existingOrders } = await admin
   .from("orders")
   .select("id")
