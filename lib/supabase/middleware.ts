@@ -2,8 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/types";
 
-export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request });
+// `rewriteUrl`, when present, internally serves a different path (used for
+// subdomain → /r/<slug> tenant routing) while keeping the user-visible URL.
+// We re-create the response on every cookie write so the rewrite and the
+// refreshed session cookies always travel together.
+export async function updateSession(request: NextRequest, rewriteUrl?: URL) {
+  const makeResponse = () =>
+    rewriteUrl
+      ? NextResponse.rewrite(rewriteUrl, { request })
+      : NextResponse.next({ request });
+
+  let response = makeResponse();
 
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,7 +26,7 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
-          response = NextResponse.next({ request });
+          response = makeResponse();
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
           );
