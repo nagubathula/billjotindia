@@ -48,3 +48,53 @@ export async function updateOutletAction(
   revalidatePath(`/r/${slug}/pos`);
   return { ok: true };
 }
+
+// Normalize user input to a bare lowercase hostname, or null when blank.
+// Accepts "https://Order.Cafe.com/", "order.cafe.com:443", etc.
+function normalizeDomain(raw: string): string | null {
+  let host = raw.trim().toLowerCase();
+  if (!host) return null;
+  host = host.replace(/^https?:\/\//, ""); // strip scheme
+  host = host.split("/")[0]; // strip path
+  host = host.split(":")[0]; // strip port
+  host = host.replace(/\.$/, ""); // strip trailing dot
+  return host || null;
+}
+
+const DOMAIN_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+export async function updateCustomDomainAction(
+  slug: string,
+  formData: FormData,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  // Custom domain is a sensitive routing setting — admins only.
+  await requireRole(["admin"], { restaurantId: restaurant.id });
+
+  const domain = normalizeDomain(String(formData.get("custom_domain") ?? ""));
+  if (domain && !DOMAIN_RE.test(domain)) {
+    return {
+      ok: false,
+      error: "Enter a valid domain like order.yourcafe.com (no http://).",
+    };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("restaurants")
+    .update({ custom_domain: domain })
+    .eq("id", restaurant.id);
+
+  if (error) {
+    // 23505 = unique_violation: another restaurant already claimed it.
+    if (error.code === "23505") {
+      return { ok: false, error: "That domain is already in use by another restaurant." };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath(`/r/${slug}/admin/settings`);
+  return { ok: true };
+}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getRestaurantBySlug } from "@/lib/auth";
+import { getPublicRestaurant } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 type Props = { params: { slug: string; id: string } };
 
 export default async function OrderConfirmationPage({ params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
   const id = Number(params.id);

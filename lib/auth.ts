@@ -115,6 +115,48 @@ export const getRestaurantBySlug = cache(
 );
 
 /**
+ * Public storefront identity for a restaurant — the safe subset a logged-out
+ * customer is allowed to see. Resolved via a SECURITY DEFINER RPC so it works
+ * without a session and without exposing the members-only restaurants table.
+ */
+export type PublicRestaurant = { id: number; slug: string; name: string };
+
+export const getPublicRestaurant = cache(
+  async (slug: string): Promise<PublicRestaurant | null> => {
+    const supabase = createClient();
+    const { data } = await supabase.rpc("public_restaurant_by_slug", {
+      p_slug: slug,
+    });
+    const row = (data as PublicRestaurant[] | null)?.[0];
+    return row ?? null;
+  },
+);
+
+/**
+ * Customer-facing outlet details (no tax/ops fields) for a restaurant, ordered
+ * by id. The first entry is the default outlet. Anon-safe via SECURITY DEFINER.
+ */
+export type PublicOutlet = {
+  id: number;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  phone: string | null;
+};
+
+export const getPublicOutlets = cache(
+  async (restaurantId: number): Promise<PublicOutlet[]> => {
+    const supabase = createClient();
+    const { data } = await supabase.rpc("public_outlets_for_restaurant", {
+      p_restaurant_id: restaurantId,
+    });
+    return (data as PublicOutlet[] | null) ?? [];
+  },
+);
+
+/**
  * All restaurants the current user holds any role in, with their effective
  * role per restaurant (admin > manager > user). Cached per-request.
  */

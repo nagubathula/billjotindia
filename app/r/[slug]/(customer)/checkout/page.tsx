@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getDefaultOutletForRestaurant, getRestaurantBySlug } from "@/lib/auth";
+import { getPublicOutlets, getPublicRestaurant } from "@/lib/auth";
 import { CheckoutForm } from "./CheckoutForm";
 
 export const dynamic = "force-dynamic";
@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic";
 type Props = { params: { slug: string } };
 
 export default async function CheckoutPage({ params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
-  const outlet = await getDefaultOutletForRestaurant(restaurant.id);
+  const outlet = (await getPublicOutlets(restaurant.id))[0] ?? null;
   if (!outlet) {
     return (
       <p className="py-16 text-center text-sm text-muted-foreground">

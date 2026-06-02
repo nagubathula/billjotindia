@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Receipt } from "lucide-react";
-import { getCurrentUser, getRestaurantBySlug } from "@/lib/auth";
+import { getCurrentUser, getPublicRestaurant } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 type Props = { params: { slug: string } };
 
 export default async function MyOrdersPage({ params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
   const user = await getCurrentUser();

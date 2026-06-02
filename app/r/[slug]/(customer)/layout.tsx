@@ -6,7 +6,7 @@
 import { notFound } from "next/navigation";
 import { CartProvider } from "@/components/CartProvider";
 import { StorefrontNavbar } from "@/components/StorefrontNavbar";
-import { getRestaurantBySlug } from "@/lib/auth";
+import { getPublicRestaurant } from "@/lib/auth";
 
 type Props = {
   children: React.ReactNode;
@@ -14,7 +14,7 @@ type Props = {
 };
 
 export default async function CustomerLayout({ children, params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
   return (

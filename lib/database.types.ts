@@ -1054,6 +1054,7 @@ export type Database = {
         Row: {
           brand_id: number | null
           created_at: string
+          custom_domain: string | null
           id: number
           name: string
           owner_user_id: string | null
@@ -1064,6 +1065,7 @@ export type Database = {
         Insert: {
           brand_id?: number | null
           created_at?: string
+          custom_domain?: string | null
           id?: number
           name: string
           owner_user_id?: string | null
@@ -1074,6 +1076,7 @@ export type Database = {
         Update: {
           brand_id?: number | null
           created_at?: string
+          custom_domain?: string | null
           id?: number
           name?: string
           owner_user_id?: string | null
@@ -1162,6 +1165,23 @@ export type Database = {
     }
     Functions: {
       outlet_restaurant_id: { Args: { oid: number }; Returns: number }
+      public_outlets_for_restaurant: {
+        Args: { p_restaurant_id: number }
+        Returns: {
+          id: number
+          name: string
+          address: string | null
+          city: string | null
+          state: string | null
+          pincode: string | null
+          phone: string | null
+        }[]
+      }
+      public_restaurant_by_slug: {
+        Args: { p_slug: string }
+        Returns: { id: number; slug: string; name: string }[]
+      }
+      restaurant_slug_for_domain: { Args: { host: string }; Returns: string }
       user_has_restaurant_access: { Args: { rid: number }; Returns: boolean }
       user_has_restaurant_role: {
         Args: { allowed: string[]; rid: number }

@@ -5,16 +5,21 @@ import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { OutletForm } from "./OutletForm";
+import { DomainForm } from "./DomainForm";
 import type { Outlet } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
 
 type Props = { params: { slug: string } };
 
 export default async function SettingsPage({ params }: Props) {
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
-  await requireRole(["admin", "manager"], { restaurantSlug: params.slug });
+  const { role } = await requireRole(["admin", "manager"], {
+    restaurantSlug: params.slug,
+  });
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
 
@@ -24,6 +29,14 @@ export default async function SettingsPage({ params }: Props) {
         title="Settings"
         description="Outlet details flow into receipts, GST invoices, and the customer storefront."
       />
+
+      {role === "admin" && (
+        <DomainForm
+          slug={params.slug}
+          currentDomain={restaurant.custom_domain}
+          subdomainHost={ROOT_DOMAIN ? `${restaurant.slug}.${ROOT_DOMAIN}` : null}
+        />
+      )}
 
       {outlets.length === 0 ? (
         <p className="text-sm text-muted-foreground">

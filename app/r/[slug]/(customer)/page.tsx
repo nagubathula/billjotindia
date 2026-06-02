@@ -1,25 +1,21 @@
 import { notFound } from "next/navigation";
 import { MapPin, ShoppingBag, UtensilsCrossed } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getDefaultOutletForRestaurant, getRestaurantBySlug } from "@/lib/auth";
+import { getPublicOutlets, getPublicRestaurant } from "@/lib/auth";
 import { ProductCard } from "@/components/ProductCard";
 import { EmptyState } from "@/components/EmptyState";
-import type {
-  Category,
-  Outlet,
-  Product,
-  PromotionalBanner,
-} from "@/lib/types";
+import type { Category, Product, PromotionalBanner } from "@/lib/types";
 
 export const revalidate = 30;
 
 type Props = { params: { slug: string } };
 
 export default async function MenuPage({ params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
-  const defaultOutlet = await getDefaultOutletForRestaurant(restaurant.id);
+  const outlets = await getPublicOutlets(restaurant.id);
+  const defaultOutlet = outlets[0] ?? null;
   if (!defaultOutlet) {
     return (
       <EmptyState
@@ -31,42 +27,33 @@ export default async function MenuPage({ params }: Props) {
   }
 
   const supabase = createClient();
-  const [
-    { data: products },
-    { data: categories },
-    { data: banners },
-    { data: outlet },
-  ] = await Promise.all([
-    supabase
-      .from("products")
-      .select("*")
-      .eq("status", "active")
-      .eq("outlet_id", defaultOutlet.id)
-      .order("category")
-      .order("name"),
-    supabase
-      .from("categories")
-      .select("*")
-      .eq("status", "active")
-      .eq("outlet_id", defaultOutlet.id)
-      .order("sort_order"),
-    supabase
-      .from("promotional_banners")
-      .select("*")
-      .eq("status", "active")
-      .eq("outlet_id", defaultOutlet.id)
-      .order("sort_order"),
-    supabase
-      .from("outlets")
-      .select("*")
-      .eq("id", defaultOutlet.id)
-      .maybeSingle(),
-  ]);
+  const [{ data: products }, { data: categories }, { data: banners }] =
+    await Promise.all([
+      supabase
+        .from("products")
+        .select("*")
+        .eq("status", "active")
+        .eq("outlet_id", defaultOutlet.id)
+        .order("category")
+        .order("name"),
+      supabase
+        .from("categories")
+        .select("*")
+        .eq("status", "active")
+        .eq("outlet_id", defaultOutlet.id)
+        .order("sort_order"),
+      supabase
+        .from("promotional_banners")
+        .select("*")
+        .eq("status", "active")
+        .eq("outlet_id", defaultOutlet.id)
+        .order("sort_order"),
+    ]);
 
   const cats = (categories ?? []) as Category[];
   const prods = (products ?? []) as Product[];
   const promos = (banners ?? []) as PromotionalBanner[];
-  const o = (outlet ?? null) as Outlet | null;
+  const o = defaultOutlet; // public-safe outlet fields for the storefront hero
 
   const grouped = cats.length
     ? cats
