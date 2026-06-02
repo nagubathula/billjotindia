@@ -55,6 +55,18 @@ export async function POST(request: Request) {
   const outletId = body.outlet_id ?? FALLBACK_OUTLET_ID;
   const source: OrderSource = body.source ?? "web";
 
+  // Validate the outlet exists and is active. Required now that the public
+  // storefront posts a user-resolved outlet_id (see header note): never insert
+  // an order against an unknown/inactive outlet.
+  const { data: outletRow } = await supabase
+    .from("outlets")
+    .select("id, status")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outletRow || outletRow.status !== "active") {
+    return NextResponse.json({ error: "Unknown or inactive outlet" }, { status: 400 });
+  }
+
   // Idempotency for aggregator webhooks: if this (outlet, source, external_order_id)
   // already landed, return the existing order rather than inserting a duplicate.
   if (body.external_order_id) {
