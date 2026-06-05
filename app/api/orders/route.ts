@@ -41,7 +41,25 @@ const FALLBACK_OUTLET_ID = Number(
   process.env.NEXT_PUBLIC_DEFAULT_OUTLET_ID ?? "1",
 );
 
+// Shared secret for external storefront clients (the standalone per-tenant
+// storefronts that forward orders here). Authenticates that channel without
+// breaking same-origin browser callers (POS / first-party checkout), which
+// send no token: we only enforce a match when an `x-storefront-token` header
+// is actually present. To later require it for ALL public web orders, gate the
+// anon order path on this too.
+const STOREFRONT_ORDER_TOKEN = process.env.STOREFRONT_ORDER_TOKEN;
+
 export async function POST(request: Request) {
+  const presentedToken = request.headers.get("x-storefront-token");
+  if (presentedToken !== null) {
+    if (!STOREFRONT_ORDER_TOKEN || presentedToken !== STOREFRONT_ORDER_TOKEN) {
+      return NextResponse.json(
+        { error: "Invalid storefront token" },
+        { status: 401 },
+      );
+    }
+  }
+
   const body = (await request.json()) as OrderBody;
 
   if (!body.customer_name || !body.customer_email || !body.items?.length) {
