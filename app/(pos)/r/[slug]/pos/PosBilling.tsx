@@ -15,9 +15,22 @@
 //   - Discount + rounding controls, split tender, hold/recall bills.
 //   - Inter-state IGST when outlet.state_code !== customer state.
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, Receipt, Search, Settings2, ShoppingBag, Trash2 } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  Loader2,
+  Minus,
+  Plus,
+  Receipt,
+  Search,
+  Settings2,
+  ShoppingBag,
+  Smartphone,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +46,7 @@ import { FullscreenToggle } from "@/components/FullscreenToggle";
 import { ModifierDialog } from "@/components/ModifierDialog";
 import type { SelectedOption } from "@/components/CartProvider";
 import type { Category, Outlet, Product } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { setSelectedOutletAction } from "./actions";
 
 type Line = {
@@ -44,6 +58,21 @@ type Line = {
 };
 
 type Tender = "cash" | "upi" | "card";
+
+// A "tab" is an open running bill — like a bar tab the customer settles later.
+// The default "Counter" tab behaves like a normal quick sale.
+type Tab = {
+  id: string;
+  name: string;
+  lines: Line[];
+  createdAt: number;
+};
+
+const DEFAULT_TAB_ID = "counter";
+function makeDefaultTab(): Tab {
+  // createdAt fixed (not Date.now) so server & client first render match.
+  return { id: DEFAULT_TAB_ID, name: "Counter", lines: [], createdAt: 0 };
+}
 
 type Props = {
   outlet: Outlet;
@@ -78,10 +107,75 @@ export function PosBilling({
 
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [lines, setLines] = useState<Line[]>([]);
+  const [tabs, setTabs] = useState<Tab[]>(() => [makeDefaultTab()]);
+  const [activeTabId, setActiveTabId] = useState<string>(DEFAULT_TAB_ID);
+  const [creatingTab, setCreatingTab] = useState(false);
+  const [newTabName, setNewTabName] = useState("");
   const [posting, setPosting] = useState<Tender | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modProduct, setModProduct] = useState<Product | null>(null);
+
+  // Tabs are stored per outlet so an open tab survives a refresh / device sleep.
+  const storageKey = `billjot:pos:tabs:${outletId}`;
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  const lines = activeTab?.lines ?? [];
+
+  // Load saved tabs for this outlet on mount / outlet switch.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const saved = raw ? (JSON.parse(raw) as Tab[]) : null;
+      if (Array.isArray(saved) && saved.length > 0) {
+        setTabs(saved);
+        setActiveTabId(saved[0].id);
+        return;
+      }
+    } catch {
+      /* ignore malformed storage */
+    }
+    setTabs([makeDefaultTab()]);
+    setActiveTabId(DEFAULT_TAB_ID);
+  }, [storageKey]);
+
+  // Persist tabs whenever they change.
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(tabs));
+    } catch {
+      /* ignore quota errors */
+    }
+  }, [storageKey, tabs]);
+
+  const updateActiveLines = (updater: (prev: Line[]) => Line[]) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, lines: updater(t.lines) } : t,
+      ),
+    );
+  };
+
+  const createTab = () => {
+    const name = newTabName.trim() || `Tab ${tabs.length}`;
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `t${Date.now()}`;
+    setTabs((prev) => [...prev, { id, name, lines: [], createdAt: Date.now() }]);
+    setActiveTabId(id);
+    setNewTabName("");
+    setCreatingTab(false);
+  };
+
+  const closeTab = (id: string) => {
+    const tab = tabs.find((t) => t.id === id);
+    if (tab && tab.lines.length > 0 && !confirm(`Discard tab "${tab.name}"?`)) {
+      return;
+    }
+    const remaining = tabs.filter((t) => t.id !== id);
+    const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
+    setTabs(next);
+    if (id === activeTabId) setActiveTabId(next[0].id);
+  };
 
   const visibleCategories = useMemo(() => {
     const withItems = new Set(products.map((p) => p.category));
@@ -102,7 +196,7 @@ export function PosBilling({
   }, [products, activeCategory, search]);
 
   const addLine = (product: Product, selectedOptions: SelectedOption[] = []) => {
-    setLines((prev) => {
+    updateActiveLines((prev) => {
       const configKey = buildConfigKey(product.id, selectedOptions);
       const existing = prev.find((l) => l.configKey === configKey);
       if (existing) {
@@ -129,7 +223,7 @@ export function PosBilling({
   };
 
   const setQty = (configKey: string, qty: number) => {
-    setLines((prev) =>
+    updateActiveLines((prev) =>
       qty <= 0
         ? prev.filter((l) => l.configKey !== configKey)
         : prev.map((l) => (l.configKey === configKey ? { ...l, qty } : l)),
@@ -169,7 +263,7 @@ export function PosBilling({
         body: JSON.stringify({
           outlet_id: outletId,
           source: "pos",
-          customer_name: "Counter",
+          customer_name: activeTab?.name || "Counter",
           customer_email: `pos+${mode}@billjot.local`,
           order_type: "takeaway",
           subtotal: Number(totals.taxable.toFixed(2)),
@@ -194,6 +288,19 @@ export function PosBilling({
 
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Order failed");
+
+      // Settled — drop this tab and persist immediately so it doesn't reappear
+      // when we navigate to the receipt and back.
+      const remaining = tabs.filter((t) => t.id !== activeTabId);
+      const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      setTabs(next);
+      setActiveTabId(next[0].id);
+
       router.push(`/r/${restaurantSlug}/pos/receipt/${json.order.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Order failed");
@@ -342,10 +449,85 @@ export function PosBilling({
 
         {/* Right: bill */}
         <aside className="flex w-96 shrink-0 flex-col border-l bg-background">
+          {/* Tabs strip — open bar tabs the customer settles later */}
+          <div className="flex items-center gap-1.5 overflow-x-auto border-b bg-muted/30 px-2 py-2">
+            {tabs.map((t) => {
+              const count = t.lines.reduce((s, l) => s + l.qty, 0);
+              const isActive = t.id === activeTabId;
+              return (
+                <div
+                  key={t.id}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition",
+                    isActive
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <button
+                    onClick={() => setActiveTabId(t.id)}
+                    className="flex items-center gap-1.5 font-medium"
+                  >
+                    {t.name}
+                    {count > 0 && (
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 text-[10px] tabular-nums",
+                          isActive ? "bg-primary-foreground/20" : "bg-muted",
+                        )}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                  {t.id !== DEFAULT_TAB_ID && (
+                    <button
+                      onClick={() => closeTab(t.id)}
+                      className="opacity-60 transition hover:opacity-100"
+                      aria-label={`Close ${t.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {creatingTab ? (
+              <input
+                autoFocus
+                value={newTabName}
+                onChange={(e) => setNewTabName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createTab();
+                  if (e.key === "Escape") {
+                    setCreatingTab(false);
+                    setNewTabName("");
+                  }
+                }}
+                onBlur={() => {
+                  if (newTabName.trim()) createTab();
+                  else setCreatingTab(false);
+                }}
+                placeholder="Name… e.g. Table 4"
+                className="h-7 w-36 shrink-0 rounded-full border border-primary bg-background px-3 text-xs outline-none placeholder:text-muted-foreground"
+              />
+            ) : (
+              <button
+                onClick={() => setCreatingTab(true)}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-primary hover:text-primary"
+              >
+                <Plus className="h-3 w-3" /> Tab
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
-            <span className="font-semibold">Current bill</span>
+            <span className="truncate font-semibold">
+              {activeTab?.name ?? "Current bill"}
+            </span>
             {lines.length > 0 && (
-              <Badge variant="secondary">
+              <Badge variant="secondary" className="shrink-0">
                 {lines.reduce((s, l) => s + l.qty, 0)} items
               </Badge>
             )}
@@ -420,18 +602,21 @@ export function PosBilling({
             <div className="mt-3 grid grid-cols-3 gap-2">
               <TenderButton
                 label="Cash"
+                icon={Banknote}
                 onClick={() => tender("cash")}
                 disabled={lines.length === 0 || posting !== null}
                 loading={posting === "cash"}
               />
               <TenderButton
                 label="UPI"
+                icon={Smartphone}
                 onClick={() => tender("upi")}
                 disabled={lines.length === 0 || posting !== null}
                 loading={posting === "upi"}
               />
               <TenderButton
                 label="Card"
+                icon={CreditCard}
                 onClick={() => tender("card")}
                 disabled={lines.length === 0 || posting !== null}
                 loading={posting === "card"}
@@ -441,7 +626,7 @@ export function PosBilling({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setLines([])}
+              onClick={() => updateActiveLines(() => [])}
               disabled={lines.length === 0 || posting !== null}
               className="mt-1 w-full text-muted-foreground"
             >
@@ -492,18 +677,31 @@ function Row({
 
 function TenderButton({
   label,
+  icon: Icon,
   onClick,
   disabled,
   loading,
 }: {
   label: string;
+  icon: React.ComponentType<{ className?: string }>;
   onClick: () => void;
   disabled: boolean;
   loading: boolean;
 }) {
   return (
-    <Button onClick={onClick} disabled={disabled} className="h-12 text-base">
-      {loading ? "…" : label}
+    <Button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-16 flex-col gap-1 text-sm font-semibold"
+    >
+      {loading ? (
+        <Loader2 className="h-5 w-5 animate-spin" />
+      ) : (
+        <>
+          <Icon className="h-5 w-5" />
+          <span>{label}</span>
+        </>
+      )}
     </Button>
   );
 }

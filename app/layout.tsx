@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-// Geist isn't exposed via next/font/google (shadcn's init template assumed it);
-// Inter is the sensible default and matches the shadcn neutral aesthetic.
+// Dual-font strategy (per the "Retail Precision" design system):
+// Inter for body/data, Plus Jakarta Sans for headings.
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-display",
+});
 
 export const metadata: Metadata = {
   title: "Billjot India",
@@ -13,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${jakarta.variable}`}>
       <body className="min-h-screen bg-background text-foreground">{children}</body>
     </html>
   );

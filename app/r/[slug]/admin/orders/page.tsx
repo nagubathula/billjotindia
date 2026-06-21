@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ListOrdered } from "lucide-react";
+import { CheckCircle2, Clock, IndianRupee, ListOrdered } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
@@ -11,6 +11,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { OrdersTable } from "./OrdersTable";
 import type { Order, Outlet } from "@/lib/types";
+
+const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,15 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
 
   const orders = (data ?? []) as Order[];
 
+  const activeCount = orders.filter(
+    (o) => o.status != null && ACTIVE_STATUSES.includes(o.status),
+  ).length;
+  const completedCount = orders.filter((o) => o.status === "completed").length;
+  const totalValue = orders.reduce(
+    (sum, o) => sum + Number(o.total_amount ?? 0),
+    0,
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -53,6 +64,29 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
         <p className="text-sm text-destructive">
           Failed to load orders: {error.message}
         </p>
+      )}
+
+      {orders.length > 0 && (
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard label="Total orders" value={orders.length} icon={ListOrdered} />
+          <StatCard
+            label="Active"
+            value={activeCount}
+            icon={Clock}
+            accent="amber"
+          />
+          <StatCard
+            label="Completed"
+            value={completedCount}
+            icon={CheckCircle2}
+            accent="emerald"
+          />
+          <StatCard
+            label="Order value"
+            value={`₹${totalValue.toLocaleString("en-IN")}`}
+            icon={IndianRupee}
+          />
+        </section>
       )}
 
       {orders.length === 0 && !error ? (
@@ -82,5 +116,44 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
         />
       )}
     </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  accent,
+}: {
+  label: string;
+  value: number | string;
+  icon: React.ComponentType<{ className?: string }>;
+  accent?: "amber" | "emerald";
+}) {
+  const accentClass =
+    accent === "amber"
+      ? "bg-amber-500/10 text-amber-600"
+      : accent === "emerald"
+        ? "bg-emerald-500/10 text-emerald-600"
+        : "bg-primary/10 text-primary";
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 pt-6">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+            accentClass,
+          )}
+        >
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            {label}
+          </div>
+          <div className="truncate text-xl font-semibold">{value}</div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

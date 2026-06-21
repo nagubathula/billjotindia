@@ -127,3 +127,79 @@ export async function signUpAction(_prev: State, formData: FormData): Promise<St
   }
   return { ok: true, emailSent: true, email, restaurantSlug: slug };
 }
+
+type CreateState =
+  | { ok: true; restaurantSlug: string }
+  | { ok: false; error: string }
+  | null;
+
+/**
+ * Create an ADDITIONAL restaurant under the *already signed-in* user. No new
+ * auth account — the current user simply becomes the admin/owner of a new
+ * tenant. Used by the dashboard "New restaurant" button and the signup page
+ * when a session already exists.
+ */
+export async function createRestaurantAction(
+  _prev: CreateState,
+  formData: FormData,
+): Promise<CreateState> {
+  const restaurantName = String(formData.get("restaurant_name") ?? "").trim();
+  if (!restaurantName) {
+    return { ok: false, error: "Enter your restaurant's name." };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "You're not signed in. Please sign in again." };
+  }
+
+  const admin = createAdminClient();
+  const slug = slugify(restaurantName);
+
+  const { data: restaurant, error: restErr } = await admin
+    .from("restaurants")
+    .insert({
+      slug,
+      name: restaurantName,
+      status: "active",
+      owner_user_id: user.id,
+    })
+    .select()
+    .single();
+  if (restErr || !restaurant) {
+    return {
+      ok: false,
+      error: `Couldn't create restaurant: ${restErr?.message ?? "unknown"}`,
+    };
+  }
+
+  const { error: outletErr } = await admin.from("outlets").insert({
+    restaurant_id: restaurant.id,
+    slug: "main",
+    name: `${restaurantName} — Main`,
+    status: "active",
+  });
+  if (outletErr) {
+    await admin.from("restaurants").delete().eq("id", restaurant.id);
+    return {
+      ok: false,
+      error: `Couldn't create default outlet: ${outletErr.message}`,
+    };
+  }
+
+  const { error: roleErr } = await admin.from("user_roles").insert({
+    user_id: user.id,
+    restaurant_id: restaurant.id,
+    role: "admin",
+  });
+  if (roleErr) {
+    await admin.from("outlets").delete().eq("restaurant_id", restaurant.id);
+    await admin.from("restaurants").delete().eq("id", restaurant.id);
+    return { ok: false, error: `Couldn't assign role: ${roleErr.message}` };
+  }
+
+  return { ok: true, restaurantSlug: slug };
+}

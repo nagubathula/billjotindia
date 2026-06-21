@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { Order, Outlet } from "@/lib/types";
 
 type Props = {
@@ -35,6 +36,31 @@ type Props = {
 };
 
 const ALL_VALUE = "__all__";
+
+const STATUS_STYLES: Record<string, string> = {
+  pending: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  confirmed: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  preparing: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  ready: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  completed: "bg-muted text-muted-foreground ring-border",
+  cancelled: "bg-destructive/10 text-destructive ring-destructive/20",
+};
+
+function StatusBadge({ status }: { status: string | null }) {
+  const s = status ?? "pending";
+  const style = STATUS_STYLES[s] ?? "bg-muted text-muted-foreground ring-border";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ring-inset",
+        style,
+      )}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+      {s}
+    </span>
+  );
+}
 
 export function OrdersTable({ orders, outlets, restaurantSlug, outletFilter }: Props) {
   const router = useRouter();
@@ -129,7 +155,9 @@ export function OrdersTable({ orders, outlets, restaurantSlug, outletFilter }: P
                   <TableCell className="text-right tabular-nums">
                     ₹{Number(o.total_amount).toFixed(0)}
                   </TableCell>
-                  <TableCell className="capitalize">{o.status}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={o.status} />
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {o.created_at
                       ? new Date(o.created_at).toLocaleString("en-IN")

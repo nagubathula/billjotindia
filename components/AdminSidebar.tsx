@@ -17,6 +17,7 @@ import {
   Store,
   UserCog,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -97,6 +98,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
           active={isActive("reports")}
         >
           Reports
+        </NavItem>
+        <NavItem
+          href={`${base}/customers`}
+          icon={UsersRound}
+          active={isActive("customers")}
+        >
+          Customers
         </NavItem>
         {role === "admin" && (
           <NavItem

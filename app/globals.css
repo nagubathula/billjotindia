@@ -44,34 +44,39 @@ html, body { height: 100%; }
   --font-sans: var(--font-sans);
 }
 
+/*
+ * "Retail Precision" design system — light, airy, green-forward.
+ * Primary = deep retail green (#1e6d00) for actions; brand-vibrant green
+ * (#56d72b) is reserved for brand moments. Neutrals are soft slates.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.587 0.226 17.79);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.587 0.226 17.79);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.587 0.226 17.79);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.587 0.226 17.79);
+  --background: #f7f9fb;
+  --foreground: #191c1e;
+  --card: #ffffff;
+  --card-foreground: #191c1e;
+  --popover: #ffffff;
+  --popover-foreground: #191c1e;
+  --primary: #1e6d00;
+  --primary-foreground: #ffffff;
+  --secondary: #eceef0;
+  --secondary-foreground: #191c1e;
+  --muted: #f2f4f6;
+  --muted-foreground: #5b6b5a;
+  --accent: #e6e8ea;
+  --accent-foreground: #191c1e;
+  --destructive: #ba1a1a;
+  --border: #e0e3e5;
+  --input: #e0e3e5;
+  --ring: #1e6d00;
+  --radius: 0.5rem;
+  --sidebar: #f7f9fb;
+  --sidebar-foreground: #191c1e;
+  --sidebar-primary: #1e6d00;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eceef0;
+  --sidebar-accent-foreground: #191c1e;
+  --sidebar-border: #e0e3e5;
+  --sidebar-ring: #1e6d00;
 }
 
 .dark {
@@ -81,8 +86,8 @@ html, body { height: 100%; }
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.66 0.21 17.79);
-  --primary-foreground: oklch(0.145 0 0);
+  --primary: #60e136;
+  --primary-foreground: #042100;
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -92,15 +97,15 @@ html, body { height: 100%; }
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.66 0.21 17.79);
+  --ring: #60e136;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.66 0.21 17.79);
-  --sidebar-primary-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #60e136;
+  --sidebar-primary-foreground: #042100;
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.66 0.21 17.79);
+  --sidebar-ring: #60e136;
 }
 
 @layer base {
@@ -109,6 +114,14 @@ html, body { height: 100%; }
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Dual-font strategy: Plus Jakarta Sans for headings, Inter for body. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui,
+      sans-serif;
   }
 }
 
@@ -128,17 +141,32 @@ html, body { height: 100%; }
     background: white !important;
     color: black !important;
   }
-  /* Hide everything except the receipt itself */
-  body > *:not(.receipt-print) {
-    display: none !important;
+  /*
+   * Receipt isolation. The receipt is nested deep inside the Next.js App
+   * Router wrapper divs, so the old `body > *:not(.receipt-print)` rule hid
+   * the top-level wrapper — and the receipt with it (blank page). Instead,
+   * hide everything via `visibility`, then reveal only the receipt subtree
+   * and pin it to the page origin. `visibility` keeps ancestors laid out so
+   * the receipt still renders; `position: absolute` pulls it to the corner.
+   */
+  body * {
+    visibility: hidden;
+  }
+  .receipt-print,
+  .receipt-print * {
+    visibility: visible;
   }
   .receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
     width: 80mm !important;
     margin: 0 !important;
     padding: 4mm 2mm !important;
     box-shadow: none !important;
     border: none !important;
   }
+  /* Buttons inside the receipt must stay hidden when printing. */
   .print\:hidden {
     display: none !important;
   }

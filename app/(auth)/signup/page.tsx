@@ -7,9 +7,46 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getCurrentUser } from "@/lib/auth";
 import { SignupForm } from "./SignupForm";
+import { CreateRestaurantForm } from "./CreateRestaurantForm";
 
-export default function SignupPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SignupPage() {
+  const user = await getCurrentUser();
+
+  // Already signed in → adding another restaurant. Don't ask them to make a
+  // new account; just take a restaurant name and create it under this user.
+  if (user) {
+    const name =
+      (user.user_metadata?.display_name as string | undefined) ??
+      (user.user_metadata?.full_name as string | undefined) ??
+      user.email;
+    return (
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Create a new restaurant</CardTitle>
+          <CardDescription>
+            {name ? `Signed in as ${name}. ` : ""}You&apos;ll be the admin of
+            this new restaurant — just give it a name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CreateRestaurantForm />
+        </CardContent>
+        <CardFooter className="text-xs text-muted-foreground">
+          <Link
+            href="/dashboard"
+            className="font-medium text-primary hover:underline"
+          >
+            ← Back to dashboard
+          </Link>
+        </CardFooter>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
