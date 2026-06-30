@@ -8,6 +8,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  ChefHat,
   LayoutDashboard,
   ListOrdered,
   LogOut,
@@ -84,6 +85,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
           active={isActive("orders")}
         >
           Orders
+        </NavItem>
+        <NavItem
+          href={`${base}/kitchen`}
+          icon={ChefHat}
+          active={isActive("kitchen")}
+        >
+          Kitchen
         </NavItem>
         <NavItem
           href={`${base}/menu`}

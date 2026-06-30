@@ -15,7 +15,7 @@
 //   - Discount + rounding controls, split tender, hold/recall bills.
 //   - Inter-state IGST when outlet.state_code !== customer state.
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Banknote,
@@ -48,6 +48,12 @@ import type { SelectedOption } from "@/components/CartProvider";
 import type { Category, Outlet, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { setSelectedOutletAction } from "./actions";
+import {
+  listTabsAction,
+  createTabAction,
+  saveTabAction,
+  deleteTabAction,
+} from "./tab-actions";
 
 type Line = {
   configKey: string;
@@ -66,12 +72,14 @@ type Tab = {
   name: string;
   lines: Line[];
   createdAt: number;
+  // Named tabs are persisted to the DB (shared across terminals). The default
+  // "Counter" tab is a local-only quick sale.
+  persisted?: boolean;
 };
 
 const DEFAULT_TAB_ID = "counter";
 function makeDefaultTab(): Tab {
-  // createdAt fixed (not Date.now) so server & client first render match.
-  return { id: DEFAULT_TAB_ID, name: "Counter", lines: [], createdAt: 0 };
+  return { id: DEFAULT_TAB_ID, name: "Counter", lines: [], createdAt: 0, persisted: false };
 }
 
 type Props = {
@@ -115,58 +123,77 @@ export function PosBilling({
   const [error, setError] = useState<string | null>(null);
   const [modProduct, setModProduct] = useState<Product | null>(null);
 
-  // Tabs are stored per outlet so an open tab survives a refresh / device sleep.
-  const storageKey = `billjot:pos:tabs:${outletId}`;
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const lines = activeTab?.lines ?? [];
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load saved tabs for this outlet on mount / outlet switch.
+  // Load this outlet's open tabs from the DB (shared across terminals). The
+  // walk-in "Counter" tab is local-only — a transient quick sale.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const saved = raw ? (JSON.parse(raw) as Tab[]) : null;
-      if (Array.isArray(saved) && saved.length > 0) {
-        setTabs(saved);
-        setActiveTabId(saved[0].id);
-        return;
-      }
-    } catch {
-      /* ignore malformed storage */
-    }
+    let cancelled = false;
     setTabs([makeDefaultTab()]);
     setActiveTabId(DEFAULT_TAB_ID);
-  }, [storageKey]);
+    listTabsAction(restaurantSlug, outletId)
+      .then((dbTabs) => {
+        if (cancelled || dbTabs.length === 0) return;
+        const mapped: Tab[] = dbTabs.map((t) => ({
+          id: t.id,
+          name: t.name,
+          lines: (t.lines as Line[]) ?? [],
+          createdAt: t.createdAt,
+          persisted: true,
+        }));
+        setTabs([makeDefaultTab(), ...mapped]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantSlug, outletId]);
 
-  // Persist tabs whenever they change.
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(tabs));
-    } catch {
-      /* ignore quota errors */
-    }
-  }, [storageKey, tabs]);
+  // Debounced persistence for a named (DB-backed) tab.
+  const scheduleSave = (tab: Tab) => {
+    if (!tab.persisted) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const snapshot = { id: tab.id, name: tab.name, lines: tab.lines };
+    saveTimer.current = setTimeout(() => {
+      saveTabAction(
+        restaurantSlug,
+        snapshot.id,
+        snapshot.name,
+        snapshot.lines,
+      ).catch(() => {});
+    }, 700);
+  };
 
   const updateActiveLines = (updater: (prev: Line[]) => Line[]) => {
-    setTabs((prev) =>
-      prev.map((t) =>
+    setTabs((prev) => {
+      const next = prev.map((t) =>
         t.id === activeTabId ? { ...t, lines: updater(t.lines) } : t,
-      ),
-    );
+      );
+      const active = next.find((t) => t.id === activeTabId);
+      if (active) scheduleSave(active);
+      return next;
+    });
   };
 
-  const createTab = () => {
+  const createTab = async () => {
     const name = newTabName.trim() || `Tab ${tabs.length}`;
-    const id =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `t${Date.now()}`;
-    setTabs((prev) => [...prev, { id, name, lines: [], createdAt: Date.now() }]);
-    setActiveTabId(id);
     setNewTabName("");
     setCreatingTab(false);
+    const res = await createTabAction(restaurantSlug, outletId, name);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setTabs((prev) => [
+      ...prev,
+      { id: res.tab.id, name: res.tab.name, lines: [], createdAt: res.tab.createdAt, persisted: true },
+    ]);
+    setActiveTabId(res.tab.id);
   };
 
-  const closeTab = (id: string) => {
+  const closeTab = async (id: string) => {
     const tab = tabs.find((t) => t.id === id);
     if (tab && tab.lines.length > 0 && !confirm(`Discard tab "${tab.name}"?`)) {
       return;
@@ -175,6 +202,7 @@ export function PosBilling({
     const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
     setTabs(next);
     if (id === activeTabId) setActiveTabId(next[0].id);
+    if (tab?.persisted) await deleteTabAction(restaurantSlug, id).catch(() => {});
   };
 
   const visibleCategories = useMemo(() => {
@@ -289,17 +317,17 @@ export function PosBilling({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Order failed");
 
-      // Settled — drop this tab and persist immediately so it doesn't reappear
-      // when we navigate to the receipt and back.
-      const remaining = tabs.filter((t) => t.id !== activeTabId);
+      // Settled — drop this tab. Delete the DB-backed tab so it doesn't
+      // reappear on this or any other terminal.
+      const settledId = activeTabId;
+      const wasPersisted = activeTab?.persisted;
+      const remaining = tabs.filter((t) => t.id !== settledId);
       const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
       setTabs(next);
       setActiveTabId(next[0].id);
+      if (wasPersisted) {
+        deleteTabAction(restaurantSlug, settledId).catch(() => {});
+      }
 
       router.push(`/r/${restaurantSlug}/pos/receipt/${json.order.id}`);
     } catch (e) {
