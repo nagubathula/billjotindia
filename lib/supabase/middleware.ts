@@ -23,9 +23,13 @@ export async function updateSession(request: NextRequest, rewriteUrl?: URL) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
+          cookiesToSet.forEach(({ name, value }) => {
+            if (value === "") {
+              request.cookies.delete(name);
+            } else {
+              request.cookies.set(name, value);
+            }
+          });
           response = makeResponse();
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),

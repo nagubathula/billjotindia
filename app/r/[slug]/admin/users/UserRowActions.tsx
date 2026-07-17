@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -108,25 +109,27 @@ export function UserRowActions({
           <MoreHorizontal className="h-4 w-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Set role</DropdownMenuLabel>
-          <DropdownMenuItem
-            disabled={currentRole === "user"}
-            onSelect={() => setRole("user")}
-          >
-            Cashier
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={currentRole === "manager"}
-            onSelect={() => setRole("manager")}
-          >
-            Manager
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={currentRole === "admin" || isSelf}
-            onSelect={() => setRole("admin")}
-          >
-            Admin
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Set role</DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={currentRole === "user"}
+              onSelect={() => setRole("user")}
+            >
+              Cashier
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={currentRole === "manager"}
+              onSelect={() => setRole("manager")}
+            >
+              Manager
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={currentRole === "admin" || isSelf}
+              onSelect={() => setRole("admin")}
+            >
+              Admin
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
 
           <DropdownMenuSeparator />
 

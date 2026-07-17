@@ -10,6 +10,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -89,46 +90,50 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="font-normal">
-          <div className="truncate text-sm font-medium">{displayName}</div>
-          <div className="truncate text-xs text-muted-foreground">{user.email}</div>
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="font-normal">
+            <div className="truncate text-sm font-medium">{displayName}</div>
+            <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
 
         {restaurants.length > 0 && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">
-              {restaurants.length === 1 ? "Your restaurant" : "Your restaurants"}
-            </DropdownMenuLabel>
-            {restaurants.map(({ restaurant: r, role: rRole }) => (
-              <DropdownMenuItem key={r.id} className="flex-col items-start gap-0.5 py-1.5">
-                <Link
-                  href={`/r/${r.slug}/pos`}
-                  className="flex w-full items-center justify-between gap-2"
-                >
-                  <span className="flex items-center gap-1.5 truncate">
-                    <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{r.name}</span>
-                  </span>
-                  <Badge
-                    variant={rRole === "admin" ? "default" : "secondary"}
-                    className="text-[10px]"
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">
+                {restaurants.length === 1 ? "Your restaurant" : "Your restaurants"}
+              </DropdownMenuLabel>
+              {restaurants.map(({ restaurant: r, role: rRole }) => (
+                <DropdownMenuItem key={r.id} className="flex-col items-start gap-0.5 py-1.5">
+                  <Link
+                    href={`/r/${r.slug}/pos`}
+                    className="flex w-full items-center justify-between gap-2"
                   >
-                    {ROLE_LABEL[rRole]}
-                  </Badge>
+                    <span className="flex items-center gap-1.5 truncate">
+                      <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{r.name}</span>
+                    </span>
+                    <Badge
+                      variant={rRole === "admin" ? "default" : "secondary"}
+                      className="text-[10px]"
+                    >
+                      {ROLE_LABEL[rRole]}
+                    </Badge>
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+
+              <DropdownMenuItem>
+                <Link
+                  href="/dashboard"
+                  className="flex w-full items-center gap-1.5 text-muted-foreground"
+                >
+                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  Dashboard
                 </Link>
               </DropdownMenuItem>
-            ))}
-
-            <DropdownMenuItem>
-              <Link
-                href="/dashboard"
-                className="flex w-full items-center gap-1.5 text-muted-foreground"
-              >
-                <LayoutDashboard className="h-3.5 w-3.5" />
-                Dashboard
-              </Link>
-            </DropdownMenuItem>
+            </DropdownMenuGroup>
           </>
         )}
 
