@@ -452,10 +452,9 @@ export function PosBilling({
                       }`}
                     />
                     {p.has_addons && (
-                      <Settings2
-                        className="h-3 w-3 text-muted-foreground"
-                        aria-label="Has modifiers"
-                      />
+                      <span className="flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                        <Settings2 className="h-2.5 w-2.5" /> Customizable
+                      </span>
                     )}
                     {p.code && (
                       <span className="ml-auto text-[10px] text-muted-foreground">
