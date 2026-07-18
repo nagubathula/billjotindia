@@ -75,32 +75,49 @@ export default async function CustomersPage({
     "customer_name" | "customer_email" | "total_amount" | "placed_at" | "source" | "status"
   >[];
 
-  // Aggregate by email. Skip POS walk-ins (no real customer identity).
+  // Aggregate by a stable customer identifier. Skip POS walk-ins (no real customer identity).
   const map = new Map<string, Customer>();
   for (const o of orders) {
-    // Walk-in counter (POS) sales have no customer identity — exclude them.
     if (o.source === "pos") continue;
-    const email = (o.customer_email ?? "").toLowerCase().trim();
-    if (!email || email.startsWith("pos+") || email.startsWith("guest+pos"))
-      continue;
+    
+    const rawEmail = (o.customer_email ?? "").toLowerCase().trim();
+    if (!rawEmail || rawEmail.startsWith("pos+") || rawEmail.startsWith("guest+pos")) continue;
+
+    // For aggregator dummy emails (guest+zomato, guest+swiggy), the email isn't a stable identity.
+    // Try to group by phone number if we have it, otherwise fallback to the customer's name.
+    let identityKey = rawEmail;
+    if (rawEmail.startsWith("guest+")) {
+      const nameKey = (o.customer_name ?? "").toLowerCase().trim();
+      // We don't fetch customer_phone currently in the select, so we rely on name for guest+ emails
+      identityKey = nameKey || rawEmail; 
+    }
+
     const t = o.placed_at ? new Date(o.placed_at).getTime() : 0;
     const cur =
-      map.get(email) ??
+      map.get(identityKey) ??
       ({
-        email,
-        name: o.customer_name ?? email,
+        email: rawEmail,
+        name: o.customer_name ?? rawEmail,
         orders: 0,
         spent: 0,
         last: 0,
         first: Number.MAX_SAFE_INTEGER,
         sources: new Set<string>(),
       } as Customer);
+      
     cur.orders += 1;
     cur.spent += Number(o.total_amount);
     cur.last = Math.max(cur.last, t);
     cur.first = Math.min(cur.first, t);
     cur.sources.add(o.source);
-    map.set(email, cur);
+    
+    // If it's a grouped dummy account, update the display email to show multiple sources if applicable
+    if (identityKey !== rawEmail) {
+      const sourcesArr = Array.from(cur.sources).join(", ");
+      cur.email = `Aggregator (${sourcesArr})`;
+    }
+    
+    map.set(identityKey, cur);
   }
 
   const customers = Array.from(map.values()).sort((a, b) => b.spent - a.spent);
