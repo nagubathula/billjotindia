@@ -74,13 +74,13 @@ export type KotTicketStatus =
 
 // ---------- JSON shapes (stored in jsonb columns, opaque to Postgres) ----------
 export type ProductConfig = {
-  product_id: number;
+  product_id: string;
   name: string;
   base_price: number;
   selected_options?: Array<{
-    group_id: number;
+    group_id: string;
     group_name: string;
-    option_id: number;
+    option_id: string;
     option_name: string;
     price: number;
   }>;
