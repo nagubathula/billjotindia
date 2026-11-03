@@ -151,7 +151,7 @@ export default async function DashboardPage() {
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-2">
                     <Link
-                      href={isOps ? `/r/${r.slug}/admin/orders` : `/r/${r.slug}/pos`}
+                      href={isOps ? `/r/${r.slug}/admin` : `/r/${r.slug}/pos`}
                       className={cn(buttonVariants({ variant: "default", size: "sm" }))}
                     >
                       {isOps ? "Open admin" : "Open POS"}

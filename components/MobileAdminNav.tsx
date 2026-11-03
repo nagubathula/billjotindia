@@ -41,7 +41,7 @@ export function MobileAdminNav({
           <Menu className="h-5 w-5" />
         </Button>
         <Link
-          href={`/r/${restaurant.slug}/admin/orders`}
+          href={`/r/${restaurant.slug}/admin`}
           className="flex min-w-0 items-center gap-1.5"
         >
           <Store className="h-4 w-4 shrink-0 text-primary" />

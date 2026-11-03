@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   ChefHat,
+  Gauge,
   LayoutDashboard,
   ListOrdered,
   LogOut,
@@ -79,6 +80,9 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
+        <NavItem href={base} icon={Gauge} active={pathname === base}>
+          Overview
+        </NavItem>
         <NavItem
           href={`${base}/orders`}
           icon={ListOrdered}
