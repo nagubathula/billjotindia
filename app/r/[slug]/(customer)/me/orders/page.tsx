@@ -53,7 +53,7 @@ export default async function MyOrdersPage({ params }: Props) {
     .from("orders")
     .select("*")
     .eq("customer_email", email)
-    .in("outlet_id", outletIds.length > 0 ? outletIds : [-1])
+    .in("outlet_id", outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"])
     .order("created_at", { ascending: false })
     .limit(50);
 

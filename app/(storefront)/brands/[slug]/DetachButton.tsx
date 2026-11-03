@@ -10,8 +10,8 @@ export function DetachButton({
   brandId,
   restaurantId,
 }: {
-  brandId: number;
-  restaurantId: number;
+  brandId: string;
+  restaurantId: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();

@@ -24,7 +24,7 @@ function randomPassword() {
   return Array.from(bytes, (b) => charset[b % charset.length]).join("");
 }
 
-export function CreateUserForm({ restaurantId }: { restaurantId: number }) {
+export function CreateUserForm({ restaurantId }: { restaurantId: string }) {
   const [pending, startTransition] = useTransition();
   const [role, setRole] = useState("user");
   const [password, setPassword] = useState("");

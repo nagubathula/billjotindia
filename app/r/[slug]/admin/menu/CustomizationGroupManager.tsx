@@ -211,8 +211,8 @@ function GroupDialog({
   const [err, setErr] = useState<string | null>(null);
 
   // Re-seed local state when the dialog opens for a different group.
-  const [seedKey, setSeedKey] = useState<number | null>(null);
-  const currentKey = existing?.group.id ?? 0;
+  const [seedKey, setSeedKey] = useState<string | null>(null);
+  const currentKey = existing?.group.id ?? "";
   if (open && seedKey !== currentKey) {
     setSeedKey(currentKey);
     setSelectionType(existing?.group.selection_type ?? "single");

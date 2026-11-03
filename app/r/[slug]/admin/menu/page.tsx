@@ -78,7 +78,7 @@ export default async function MenuPage({ params }: Props) {
           .order("sort_order")
       : { data: [] as CustomizationOption[] };
 
-  const optsByGroup = new Map<number, CustomizationOption[]>();
+  const optsByGroup = new Map<string, CustomizationOption[]>();
   for (const o of (opts ?? []) as CustomizationOption[]) {
     const arr = optsByGroup.get(o.group_id) ?? [];
     arr.push(o);
@@ -96,7 +96,7 @@ export default async function MenuPage({ params }: Props) {
 
   // product_id → [group_id, …], scoped to this outlet's groups.
   const ownGroupIds = new Set(groupIds);
-  const productGroupIds: Record<number, number[]> = {};
+  const productGroupIds: Record<string, string[]> = {};
   for (const l of (links ?? []) as ProductCustomization[]) {
     if (!ownGroupIds.has(l.group_id)) continue;
     (productGroupIds[l.product_id] ??= []).push(l.group_id);

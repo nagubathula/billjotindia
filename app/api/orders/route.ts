@@ -32,14 +32,12 @@ type OrderBody = {
   items: OrderItemInput[];
   // Optional — present for kiosk/pos clients and aggregator webhooks.
   source?: OrderSource;
-  outlet_id?: number;
+  outlet_id?: string;
   external_order_id?: string;
   external_payload?: Json;
 };
 
-const FALLBACK_OUTLET_ID = Number(
-  process.env.NEXT_PUBLIC_DEFAULT_OUTLET_ID ?? "1",
-);
+const FALLBACK_OUTLET_ID = process.env.NEXT_PUBLIC_DEFAULT_OUTLET_ID ?? "";
 
 // Shared secret for external storefront clients (the standalone per-tenant
 // storefronts that forward orders here). Authenticates that channel without
@@ -94,12 +92,12 @@ export async function OPTIONS(request: Request) {
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 type ConfigShape = {
-  product_id?: number;
+  product_id?: string;
   name?: string;
   selected_options?: Array<{
-    group_id?: number;
+    group_id?: string;
     group_name?: string;
-    option_id?: number;
+    option_id?: string;
     option_name?: string;
     price?: number;
   }>;
@@ -127,13 +125,13 @@ function splitGst(lineTotal: number, ratePct: number) {
 
 async function recomputeFirstParty(
   supabase: ReturnType<typeof createAdminClient>,
-  outletId: number,
+  outletId: string,
   items: OrderItemInput[],
   takeawayCharges: number,
 ): Promise<{ ok: true; totals: Totals } | { ok: false; error: string }> {
   const configs = items.map((it) => (it.product_config ?? {}) as ConfigShape);
   const productIds = [
-    ...new Set(configs.map((c) => c.product_id).filter((x): x is number => !!x)),
+    ...new Set(configs.map((c) => c.product_id).filter((x): x is string => !!x)),
   ];
   if (productIds.length === 0) return { ok: false, error: "No valid products" };
 
@@ -150,11 +148,11 @@ async function recomputeFirstParty(
       configs.flatMap((c) =>
         (c.selected_options ?? [])
           .map((o) => o.option_id)
-          .filter((x): x is number => !!x),
+          .filter((x): x is string => !!x),
       ),
     ),
   ];
-  const optById = new Map<number, { id: number; name: string; price: number }>();
+  const optById = new Map<string, { id: string; name: string; price: number }>();
   if (optionIds.length > 0) {
     const { data: opts } = await supabase
       .from("customization_options")

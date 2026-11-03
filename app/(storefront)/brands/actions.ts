@@ -58,8 +58,8 @@ export async function attachRestaurantToBrandAction(
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sign in first." };
 
-  const brandId = Number(formData.get("brand_id") ?? 0);
-  const restaurantId = Number(formData.get("restaurant_id") ?? 0);
+  const brandId = String(formData.get("brand_id") ?? "");
+  const restaurantId = String(formData.get("restaurant_id") ?? "");
   if (!brandId || !restaurantId) {
     return { ok: false, error: "Missing brand or restaurant." };
   }
@@ -110,8 +110,8 @@ export async function detachRestaurantFromBrandAction(
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sign in first." };
 
-  const brandId = Number(formData.get("brand_id") ?? 0);
-  const restaurantId = Number(formData.get("restaurant_id") ?? 0);
+  const brandId = String(formData.get("brand_id") ?? "");
+  const restaurantId = String(formData.get("restaurant_id") ?? "");
   if (!brandId || !restaurantId) {
     return { ok: false, error: "Missing brand or restaurant." };
   }

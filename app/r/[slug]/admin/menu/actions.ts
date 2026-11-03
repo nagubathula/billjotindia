@@ -48,7 +48,7 @@ export async function createCategoryAction(slug: string, formData: FormData): Pr
 
 export async function toggleCategoryStatusAction(
   slug: string,
-  categoryId: number,
+  categoryId: string,
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };
@@ -136,7 +136,7 @@ export async function updateProductAction(slug: string, formData: FormData): Pro
   const outlet = await getDefaultOutletForRestaurant(restaurant.id);
   if (!outlet) return { ok: false, error: "No outlet configured." };
 
-  const id = Number(formData.get("id") ?? 0);
+  const id = String(formData.get("id") ?? "");
   if (!id) return { ok: false, error: "Missing product id." };
 
   const name = String(formData.get("name") ?? "").trim();
@@ -178,7 +178,7 @@ export async function updateProductAction(slug: string, formData: FormData): Pro
 
 export async function toggleProductStatusAction(
   slug: string,
-  productId: number,
+  productId: string,
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };
@@ -209,12 +209,12 @@ export async function toggleProductStatusAction(
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-function parseGroupIds(raw: FormDataEntryValue | null): number[] {
+function parseGroupIds(raw: FormDataEntryValue | null): string[] {
   if (typeof raw !== "string" || !raw) return [];
   try {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return arr.map(String).filter((s) => s.length > 0);
   } catch {
     return [];
   }
@@ -224,9 +224,9 @@ function parseGroupIds(raw: FormDataEntryValue | null): number[] {
 // outlet are linked, so a forged id can't borrow another tenant's groups.
 async function reconcileProductGroups(
   admin: Admin,
-  productId: number,
-  groupIds: number[],
-  outletId: number,
+  productId: string,
+  groupIds: string[],
+  outletId: string,
 ): Promise<string | null> {
   await admin.from("product_customizations").delete().eq("product_id", productId);
   if (groupIds.length === 0) return null;
@@ -280,7 +280,7 @@ export async function saveCustomizationGroupAction(
   const outlet = await getDefaultOutletForRestaurant(restaurant.id);
   if (!outlet) return { ok: false, error: "No outlet configured." };
 
-  const id = Number(formData.get("id") ?? 0) || null;
+  const id = String(formData.get("id") ?? "") || null;
   const displayName = String(formData.get("display_name") ?? "").trim();
   const selectionType =
     String(formData.get("selection_type") ?? "single") === "multi" ? "multi" : "single";
@@ -363,7 +363,7 @@ export async function saveCustomizationGroupAction(
 
 export async function toggleCustomizationGroupStatusAction(
   slug: string,
-  groupId: number,
+  groupId: string,
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };

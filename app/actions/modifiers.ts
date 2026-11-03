@@ -20,7 +20,7 @@ export type ProductModifiers = {
  * Anon-readable via the anon client + RLS policies (active rows only).
  */
 export async function getProductModifiers(
-  productId: number,
+  productId: string,
 ): Promise<ProductModifiers> {
   const supabase = createClient();
 
@@ -52,7 +52,7 @@ export async function getProductModifiers(
   const groupsById = new Map(
     (groups ?? []).map((g) => [g.id, g as CustomizationGroup]),
   );
-  const optsByGroup = new Map<number, CustomizationOption[]>();
+  const optsByGroup = new Map<string, CustomizationOption[]>();
   for (const o of (options ?? []) as CustomizationOption[]) {
     const arr = optsByGroup.get(o.group_id) ?? [];
     arr.push(o);

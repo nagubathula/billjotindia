@@ -8,7 +8,7 @@ type Result = { ok: true } | { ok: false; error: string };
 
 export async function updateOutletAction(
   slug: string,
-  outletId: number,
+  outletId: string,
   formData: FormData,
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);

@@ -41,7 +41,7 @@ import {
 const GST_RATES = ["0", "5", "12", "18"];
 const VEG_OPTIONS = ["Veg", "Non-Veg"];
 
-export type GroupOption = { id: number; display_name: string };
+export type GroupOption = { id: string; display_name: string };
 
 export function ProductManager({
   slug,
@@ -54,7 +54,7 @@ export function ProductManager({
   categories: Category[];
   products: Product[];
   groups: GroupOption[];
-  productGroupIds: Record<number, number[]>;
+  productGroupIds: Record<string, string[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -227,7 +227,7 @@ function ProductDialog({
   slug: string;
   categories: Category[];
   groups: GroupOption[];
-  selectedGroupIds: number[];
+  selectedGroupIds: string[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
   product: Product | null;
@@ -240,7 +240,7 @@ function ProductDialog({
   );
   const [gstRate, setGstRate] = useState<string>(String(product?.gst_rate ?? 5));
   const [vegStatus, setVegStatus] = useState<string>(product?.veg_status ?? "Veg");
-  const [groupIds, setGroupIds] = useState<Set<number>>(new Set(selectedGroupIds));
+  const [groupIds, setGroupIds] = useState<Set<string>>(new Set(selectedGroupIds));
   const [err, setErr] = useState<string | null>(null);
 
   // Reset local state when the dialog opens with a different product.
@@ -250,8 +250,8 @@ function ProductDialog({
   }
 
   // Re-seed group selection when the dialog opens for a different product.
-  const [seedKey, setSeedKey] = useState<number | null>(null);
-  const currentKey = product?.id ?? 0;
+  const [seedKey, setSeedKey] = useState<string | null>(null);
+  const currentKey = product?.id ?? "";
   if (open && seedKey !== currentKey) {
     setSeedKey(currentKey);
     setGroupIds(new Set(selectedGroupIds));

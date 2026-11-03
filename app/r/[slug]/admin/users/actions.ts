@@ -12,10 +12,9 @@ type ActionResult =
   | { ok: true; password?: string }
   | { ok: false; error: string };
 
-function parseRestaurantId(formData: FormData): number | null {
-  const raw = String(formData.get("restaurant_id") ?? "");
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
+function parseRestaurantId(formData: FormData): string | null {
+  const raw = String(formData.get("restaurant_id") ?? "").trim();
+  return raw || null;
 }
 
 /**

@@ -27,7 +27,7 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
 
-  const outletFilter = searchParams.outlet ? Number(searchParams.outlet) : null;
+  const outletFilter = searchParams.outlet ? String(searchParams.outlet) : null;
   const outletIds = outlets.map((o) => o.id);
   const scopedIds =
     outletFilter && outletIds.includes(outletFilter)
@@ -38,7 +38,7 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
   const { data, error } = await supabase
     .from("orders")
     .select("*")
-    .in("outlet_id", scopedIds.length > 0 ? scopedIds : [-1])
+    .in("outlet_id", scopedIds.length > 0 ? scopedIds : ["00000000-0000-0000-0000-000000000000"])
     .order("created_at", { ascending: false })
     .limit(100);
 

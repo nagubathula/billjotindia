@@ -23,7 +23,7 @@ export default async function KitchenPage({
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
   const outletIds = outlets.map((o) => o.id);
-  const scoped = outletIds.length > 0 ? outletIds : [-1];
+  const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
 
   const supabase = createClient();
   const { data: ordersData } = await supabase
@@ -35,7 +35,7 @@ export default async function KitchenPage({
 
   const orders = (ordersData ?? []) as Order[];
 
-  let itemsByOrder = new Map<number, OrderItem[]>();
+  let itemsByOrder = new Map<string, OrderItem[]>();
   if (orders.length > 0) {
     const { data: itemsData } = await supabase
       .from("order_items")
@@ -45,9 +45,9 @@ export default async function KitchenPage({
         orders.map((o) => o.id),
       );
     for (const it of (itemsData ?? []) as OrderItem[]) {
-      const arr = itemsByOrder.get(it.order_id as number) ?? [];
+      const arr = itemsByOrder.get(it.order_id as string) ?? [];
       arr.push(it);
-      itemsByOrder.set(it.order_id as number, arr);
+      itemsByOrder.set(it.order_id as string, arr);
     }
   }
 

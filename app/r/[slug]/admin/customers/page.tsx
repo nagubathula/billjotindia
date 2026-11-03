@@ -59,7 +59,7 @@ export default async function CustomersPage({
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
   const outletIds = outlets.map((o) => o.id);
-  const scoped = outletIds.length > 0 ? outletIds : [-1];
+  const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
 
   const supabase = createClient();
   const { data } = await supabase

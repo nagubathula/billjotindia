@@ -12,7 +12,7 @@ import { outletCookieName } from "@/lib/outlet-context";
  */
 export async function setSelectedOutletAction(
   restaurantSlug: string,
-  outletId: number,
+  outletId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const restaurant = await getRestaurantBySlug(restaurantSlug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };

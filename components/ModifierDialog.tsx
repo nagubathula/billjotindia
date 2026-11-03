@@ -38,7 +38,7 @@ export function ModifierDialog({ product, open, onOpenChange, onConfirm }: Props
   const [pending, start] = useTransition();
   const [data, setData] = useState<ProductModifiers | null>(null);
   // group_id → set of selected option_ids
-  const [picks, setPicks] = useState<Map<number, Set<number>>>(new Map());
+  const [picks, setPicks] = useState<Map<string, Set<string>>>(new Map());
 
   useEffect(() => {
     if (!open || !product) {
@@ -51,7 +51,7 @@ export function ModifierDialog({ product, open, onOpenChange, onConfirm }: Props
       setData(res);
       // Pre-select first option for single-select required groups so the
       // user can't accidentally submit with nothing picked there.
-      const initial = new Map<number, Set<number>>();
+      const initial = new Map<string, Set<string>>();
       for (const { group, options } of res.groups) {
         if (group.is_required && group.selection_type === "single" && options[0]) {
           initial.set(group.id, new Set([options[0].id]));
@@ -83,7 +83,7 @@ export function ModifierDialog({ product, open, onOpenChange, onConfirm }: Props
         (!picks.get(g.group.id) || picks.get(g.group.id)!.size === 0),
     ) ?? [];
 
-  function togglePick(groupId: number, optionId: number, isSingle: boolean) {
+  function togglePick(groupId: string, optionId: string, isSingle: boolean) {
     setPicks((prev) => {
       const next = new Map(prev);
       const cur = new Set(next.get(groupId) ?? []);

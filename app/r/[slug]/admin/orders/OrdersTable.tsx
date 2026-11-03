@@ -32,7 +32,7 @@ type Props = {
   orders: Order[];
   outlets: Outlet[];
   restaurantSlug: string;
-  outletFilter: number | null;
+  outletFilter: string | null;
 };
 
 const ALL_VALUE = "__all__";

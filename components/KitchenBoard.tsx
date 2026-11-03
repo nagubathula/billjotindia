@@ -65,7 +65,7 @@ export function KitchenBoard({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
 
   // Tick for elapsed-time display (client-only to avoid hydration mismatch).
@@ -98,7 +98,7 @@ export function KitchenBoard({
     };
   }, [router]);
 
-  function bump(orderId: number, status: OrderStatus) {
+  function bump(orderId: string, status: OrderStatus) {
     setBusyId(orderId);
     start(async () => {
       await updateOrderStatusAction(slug, orderId, status);

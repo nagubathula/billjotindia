@@ -18,7 +18,7 @@ export function AttachRestaurantForm({
   brandId,
   restaurants,
 }: {
-  brandId: number;
+  brandId: string;
   restaurants: Restaurant[];
 }) {
   const router = useRouter();

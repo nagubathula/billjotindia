@@ -20,15 +20,15 @@ function cookieName(slug: string) {
  * null if the restaurant has no outlets at all.
  */
 export const getSelectedOutlet = cache(
-  async (restaurantId: number, restaurantSlug: string): Promise<Outlet | null> => {
+  async (restaurantId: string, restaurantSlug: string): Promise<Outlet | null> => {
     const cookieStore = cookies();
     const cookieVal = cookieStore.get(cookieName(restaurantSlug))?.value;
 
     const supabase = createClient();
 
     if (cookieVal) {
-      const cookieOutletId = Number(cookieVal);
-      if (Number.isFinite(cookieOutletId)) {
+      const cookieOutletId = cookieVal;
+      if (cookieOutletId) {
         const { data } = await supabase
           .from("outlets")
           .select("*")
@@ -55,7 +55,7 @@ export const getSelectedOutlet = cache(
  * All outlets belonging to a restaurant. Used by the outlet picker dropdown.
  */
 export const getOutletsForRestaurant = cache(
-  async (restaurantId: number): Promise<Outlet[]> => {
+  async (restaurantId: string): Promise<Outlet[]> => {
     const supabase = createClient();
     const { data } = await supabase
       .from("outlets")

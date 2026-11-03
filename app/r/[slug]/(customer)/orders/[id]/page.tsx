@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { OrderStatusPipeline } from "@/components/OrderStatusPipeline";
 import type { Order, OrderItem, OrderStatus } from "@/lib/types";
+import { isUuid } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +23,8 @@ export default async function OrderConfirmationPage({ params }: Props) {
   const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
-  const id = Number(params.id);
-  if (Number.isNaN(id)) notFound();
+  const id = params.id;
+  if (!isUuid(id)) notFound();
 
   const supabase = createAdminClient();
   const { data: order } = await supabase

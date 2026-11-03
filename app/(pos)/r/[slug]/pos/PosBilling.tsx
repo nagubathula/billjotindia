@@ -93,9 +93,9 @@ type Props = {
   staffRoleLabel: string;
 };
 
-function buildConfigKey(productId: number, options: SelectedOption[]): string {
+function buildConfigKey(productId: string, options: SelectedOption[]): string {
   if (options.length === 0) return `p${productId}`;
-  const ids = options.map((o) => o.option_id).sort((a, b) => a - b);
+  const ids = options.map((o) => o.option_id).sort();
   return `p${productId}:${ids.join("-")}`;
 }
 
@@ -358,7 +358,7 @@ export function PosBilling({
             onValueChange={(v) => {
               if (!v) return;
               startOutletSwitch(async () => {
-                await setSelectedOutletAction(restaurantSlug, Number(v));
+                await setSelectedOutletAction(restaurantSlug, v);
                 router.refresh();
               });
             }}

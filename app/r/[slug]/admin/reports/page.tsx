@@ -104,7 +104,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
   const outletIds = outlets.map((o) => o.id);
-  const scoped = outletIds.length > 0 ? outletIds : [-1];
+  const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
 
   const supabase = createClient();
   const { data: ordersData } = await supabase
@@ -234,7 +234,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const types = Array.from(typeTotals.entries()).sort((a, b) => b[1] - a[1]);
 
   // ---- Sales by category (map product_id -> category via products) ----
-  const prodCat = new Map<number, string>();
+  const prodCat = new Map<string, string>();
   if (items.length > 0) {
     const { data: prods } = await supabase
       .from("products")

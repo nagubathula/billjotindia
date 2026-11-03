@@ -40,7 +40,7 @@ export const getSession = getCurrentUser;
  * not signed in or no roles assigned anywhere.
  */
 export const getCurrentUserRoles = cache(
-  async (): Promise<Array<{ restaurant_id: number; role: AppRole }>> => {
+  async (): Promise<Array<{ restaurant_id: string; role: AppRole }>> => {
     const user = await getCurrentUser();
     if (!user) return [];
 
@@ -62,7 +62,7 @@ export const getCurrentUserRoles = cache(
  * or null if they hold none.
  */
 export async function getRoleInRestaurant(
-  restaurantId: number,
+  restaurantId: string,
 ): Promise<AppRole | null> {
   const roles = await getCurrentUserRoles();
   const scoped = roles.filter((r) => r.restaurant_id === restaurantId);
@@ -82,7 +82,7 @@ export async function getRoleInRestaurant(
  * `slug` option (so this function never has to read request context itself).
  */
 export const getCurrentRestaurant = cache(
-  async (opts?: { slug?: string; id?: number }): Promise<Restaurant | null> => {
+  async (opts?: { slug?: string; id?: string }): Promise<Restaurant | null> => {
     const supabase = createClient();
     let query = supabase.from("restaurants").select("*").limit(1);
 
@@ -119,7 +119,7 @@ export const getRestaurantBySlug = cache(
  * customer is allowed to see. Resolved via a SECURITY DEFINER RPC so it works
  * without a session and without exposing the members-only restaurants table.
  */
-export type PublicRestaurant = { id: number; slug: string; name: string };
+export type PublicRestaurant = { id: string; slug: string; name: string };
 
 export const getPublicRestaurant = cache(
   async (slug: string): Promise<PublicRestaurant | null> => {
@@ -137,7 +137,7 @@ export const getPublicRestaurant = cache(
  * by id. The first entry is the default outlet. Anon-safe via SECURITY DEFINER.
  */
 export type PublicOutlet = {
-  id: number;
+  id: string;
   name: string;
   address: string | null;
   city: string | null;
@@ -147,7 +147,7 @@ export type PublicOutlet = {
 };
 
 export const getPublicOutlets = cache(
-  async (restaurantId: number): Promise<PublicOutlet[]> => {
+  async (restaurantId: string): Promise<PublicOutlet[]> => {
     const supabase = createClient();
     const { data } = await supabase.rpc("public_outlets_for_restaurant", {
       p_restaurant_id: restaurantId,
@@ -166,7 +166,7 @@ export const getUserRestaurants = cache(
     if (roles.length === 0) return [];
 
     // Collapse multiple role rows per restaurant to the highest precedence.
-    const bestRole = new Map<number, AppRole>();
+    const bestRole = new Map<string, AppRole>();
     for (const r of roles) {
       const cur = bestRole.get(r.restaurant_id);
       if (!cur || ROLE_PRECEDENCE[r.role] > ROLE_PRECEDENCE[cur]) {
@@ -202,7 +202,7 @@ export const getPrimaryRestaurant = cache(
  * outlet in that restaurant. Multi-outlet picking lands later.
  */
 export const getDefaultOutletForRestaurant = cache(
-  async (restaurantId: number): Promise<{ id: number } | null> => {
+  async (restaurantId: string): Promise<{ id: string } | null> => {
     const supabase = createClient();
     const { data } = await supabase
       .from("outlets")
@@ -211,7 +211,7 @@ export const getDefaultOutletForRestaurant = cache(
       .order("id")
       .limit(1)
       .maybeSingle();
-    return (data as { id: number } | null) ?? null;
+    return (data as { id: string } | null) ?? null;
   },
 );
 
@@ -219,7 +219,7 @@ type RequireRoleOpts = {
   /** Force a specific restaurant by slug — Phase 3 layouts pass this from URL params. */
   restaurantSlug?: string;
   /** Force a specific restaurant by id — useful in admin actions. */
-  restaurantId?: number;
+  restaurantId?: string;
   /** Where to send the user after sign-in on success (default '/'). */
   redirectTo?: string;
 };

@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -12,37 +12,12 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       brands: {
         Row: {
           created_at: string
-          id: number
+          id: string
           name: string
           owner_user_id: string | null
           slug: string
@@ -51,7 +26,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          id?: number
+          id?: string
           name: string
           owner_user_id?: string | null
           slug: string
@@ -60,7 +35,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          id?: number
+          id?: string
           name?: string
           owner_user_id?: string | null
           slug?: string
@@ -73,9 +48,9 @@ export type Database = {
         Row: {
           created_at: string | null
           emoji: string | null
-          id: number
+          id: string
           name: string
-          outlet_id: number
+          outlet_id: string
           sort_order: number | null
           status: string | null
           updated_at: string | null
@@ -83,9 +58,9 @@ export type Database = {
         Insert: {
           created_at?: string | null
           emoji?: string | null
-          id?: number
+          id?: string
           name: string
-          outlet_id: number
+          outlet_id: string
           sort_order?: number | null
           status?: string | null
           updated_at?: string | null
@@ -93,9 +68,9 @@ export type Database = {
         Update: {
           created_at?: string | null
           emoji?: string | null
-          id?: number
+          id?: string
           name?: string
-          outlet_id?: number
+          outlet_id?: string
           sort_order?: number | null
           status?: string | null
           updated_at?: string | null
@@ -115,7 +90,7 @@ export type Database = {
           category: string
           created_at: string | null
           display_name: string
-          id: number
+          id: string
           is_required: boolean | null
           selection_type: string
           sort_order: number | null
@@ -126,7 +101,7 @@ export type Database = {
           category: string
           created_at?: string | null
           display_name: string
-          id?: number
+          id?: string
           is_required?: boolean | null
           selection_type: string
           sort_order?: number | null
@@ -137,7 +112,7 @@ export type Database = {
           category?: string
           created_at?: string | null
           display_name?: string
-          id?: number
+          id?: string
           is_required?: boolean | null
           selection_type?: string
           sort_order?: number | null
@@ -151,36 +126,36 @@ export type Database = {
           channel: string
           created_at: string
           external_item_id: string
-          id: number
+          id: string
           is_available: boolean
           last_synced_at: string | null
-          outlet_id: number
+          outlet_id: string
           price_override: number | null
-          product_id: number
+          product_id: string
           updated_at: string
         }
         Insert: {
           channel: string
           created_at?: string
           external_item_id: string
-          id?: number
+          id?: string
           is_available?: boolean
           last_synced_at?: string | null
-          outlet_id: number
+          outlet_id: string
           price_override?: number | null
-          product_id: number
+          product_id: string
           updated_at?: string
         }
         Update: {
           channel?: string
           created_at?: string
           external_item_id?: string
-          id?: number
+          id?: string
           is_available?: boolean
           last_synced_at?: string | null
-          outlet_id?: number
+          outlet_id?: string
           price_override?: number | null
-          product_id?: number
+          product_id?: string
           updated_at?: string
         }
         Relationships: [
@@ -204,10 +179,10 @@ export type Database = {
         Row: {
           created_at: string | null
           display_name: string
-          id: number
+          id: string
           is_required: boolean | null
           name: string
-          outlet_id: number
+          outlet_id: string
           selection_type: string
           sort_order: number | null
           status: string | null
@@ -216,10 +191,10 @@ export type Database = {
         Insert: {
           created_at?: string | null
           display_name: string
-          id?: number
+          id?: string
           is_required?: boolean | null
           name: string
-          outlet_id: number
+          outlet_id: string
           selection_type?: string
           sort_order?: number | null
           status?: string | null
@@ -228,10 +203,10 @@ export type Database = {
         Update: {
           created_at?: string | null
           display_name?: string
-          id?: number
+          id?: string
           is_required?: boolean | null
           name?: string
-          outlet_id?: number
+          outlet_id?: string
           selection_type?: string
           sort_order?: number | null
           status?: string | null
@@ -250,8 +225,8 @@ export type Database = {
       customization_options: {
         Row: {
           created_at: string | null
-          group_id: number
-          id: number
+          group_id: string
+          id: string
           name: string
           price: number
           sort_order: number | null
@@ -260,8 +235,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
-          group_id: number
-          id?: number
+          group_id: string
+          id?: string
           name: string
           price?: number
           sort_order?: number | null
@@ -270,8 +245,8 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
-          group_id?: number
-          id?: number
+          group_id?: string
+          id?: string
           name?: string
           price?: number
           sort_order?: number | null
@@ -293,9 +268,9 @@ export type Database = {
           channel: string
           event_type: string
           external_event_id: string | null
-          id: number
-          order_id: number | null
-          outlet_id: number | null
+          id: string
+          order_id: string | null
+          outlet_id: string | null
           payload: Json
           received_at: string
           signature_ok: boolean | null
@@ -304,9 +279,9 @@ export type Database = {
           channel: string
           event_type: string
           external_event_id?: string | null
-          id?: number
-          order_id?: number | null
-          outlet_id?: number | null
+          id?: string
+          order_id?: string | null
+          outlet_id?: string | null
           payload: Json
           received_at?: string
           signature_ok?: boolean | null
@@ -315,9 +290,9 @@ export type Database = {
           channel?: string
           event_type?: string
           external_event_id?: string | null
-          id?: number
-          order_id?: number | null
-          outlet_id?: number | null
+          id?: string
+          order_id?: string | null
+          outlet_id?: string | null
           payload?: Json
           received_at?: string
           signature_ok?: boolean | null
@@ -342,30 +317,30 @@ export type Database = {
       kitchen_stations: {
         Row: {
           created_at: string
-          id: number
+          id: string
           name: string
-          outlet_id: number
-          printer_id: number | null
+          outlet_id: string
+          printer_id: string | null
           sort_order: number
           status: string
           updated_at: string
         }
         Insert: {
           created_at?: string
-          id?: number
+          id?: string
           name: string
-          outlet_id: number
-          printer_id?: number | null
+          outlet_id: string
+          printer_id?: string | null
           sort_order?: number
           status?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
-          id?: number
+          id?: string
           name?: string
-          outlet_id?: number
-          printer_id?: number | null
+          outlet_id?: string
+          printer_id?: string | null
           sort_order?: number
           status?: string
           updated_at?: string
@@ -390,26 +365,26 @@ export type Database = {
       kot_ticket_items: {
         Row: {
           created_at: string
-          id: number
-          kot_ticket_id: number
+          id: string
+          kot_ticket_id: string
           notes: string | null
-          order_item_id: number
+          order_item_id: string
           quantity: number
         }
         Insert: {
           created_at?: string
-          id?: number
-          kot_ticket_id: number
+          id?: string
+          kot_ticket_id: string
           notes?: string | null
-          order_item_id: number
+          order_item_id: string
           quantity: number
         }
         Update: {
           created_at?: string
-          id?: number
-          kot_ticket_id?: number
+          id?: string
+          kot_ticket_id?: string
           notes?: string | null
-          order_item_id?: number
+          order_item_id?: string
           quantity?: number
         }
         Relationships: [
@@ -433,14 +408,14 @@ export type Database = {
         Row: {
           acknowledged_at: string | null
           created_at: string
-          id: number
+          id: string
           notes: string | null
-          order_id: number
-          outlet_id: number
+          order_id: string
+          outlet_id: string
           printed_at: string | null
-          printer_id: number | null
+          printer_id: string | null
           ready_at: string | null
-          station_id: number | null
+          station_id: string | null
           status: string
           ticket_number: number | null
           updated_at: string
@@ -448,14 +423,14 @@ export type Database = {
         Insert: {
           acknowledged_at?: string | null
           created_at?: string
-          id?: number
+          id?: string
           notes?: string | null
-          order_id: number
-          outlet_id: number
+          order_id: string
+          outlet_id: string
           printed_at?: string | null
-          printer_id?: number | null
+          printer_id?: string | null
           ready_at?: string | null
-          station_id?: number | null
+          station_id?: string | null
           status?: string
           ticket_number?: number | null
           updated_at?: string
@@ -463,14 +438,14 @@ export type Database = {
         Update: {
           acknowledged_at?: string | null
           created_at?: string
-          id?: number
+          id?: string
           notes?: string | null
-          order_id?: number
-          outlet_id?: number
+          order_id?: string
+          outlet_id?: string
           printed_at?: string | null
-          printer_id?: number | null
+          printer_id?: string | null
           ready_at?: string | null
-          station_id?: number | null
+          station_id?: string | null
           status?: string
           ticket_number?: number | null
           updated_at?: string
@@ -508,24 +483,24 @@ export type Database = {
       }
       order_items: {
         Row: {
-          id: number
-          order_id: number | null
+          id: string
+          order_id: string | null
           product_config: Json
           quantity: number
           total_price: number
           unit_price: number
         }
         Insert: {
-          id?: number
-          order_id?: number | null
+          id?: string
+          order_id?: string | null
           product_config: Json
           quantity: number
           total_price: number
           unit_price: number
         }
         Update: {
-          id?: number
-          order_id?: number | null
+          id?: string
+          order_id?: string | null
           product_config?: Json
           quantity?: number
           total_price?: number
@@ -553,10 +528,10 @@ export type Database = {
           external_order_id: string | null
           external_payload: Json | null
           external_status: string | null
-          id: number
+          id: string
           igst_amount: number
           order_type: string | null
-          outlet_id: number
+          outlet_id: string
           placed_at: string
           razorpay_order_id: string | null
           rounding_amount: number
@@ -581,10 +556,10 @@ export type Database = {
           external_order_id?: string | null
           external_payload?: Json | null
           external_status?: string | null
-          id?: number
+          id?: string
           igst_amount?: number
           order_type?: string | null
-          outlet_id: number
+          outlet_id: string
           placed_at?: string
           razorpay_order_id?: string | null
           rounding_amount?: number
@@ -609,10 +584,10 @@ export type Database = {
           external_order_id?: string | null
           external_payload?: Json | null
           external_status?: string | null
-          id?: number
+          id?: string
           igst_amount?: number
           order_type?: string | null
-          outlet_id?: number
+          outlet_id?: string
           placed_at?: string
           razorpay_order_id?: string | null
           rounding_amount?: number
@@ -652,11 +627,11 @@ export type Database = {
           email: string | null
           fssai_license: string | null
           gstin: string | null
-          id: number
+          id: string
           name: string
           phone: string | null
           pincode: string | null
-          restaurant_id: number
+          restaurant_id: string
           slug: string
           state: string | null
           state_code: string | null
@@ -672,11 +647,11 @@ export type Database = {
           email?: string | null
           fssai_license?: string | null
           gstin?: string | null
-          id?: number
+          id?: string
           name: string
           phone?: string | null
           pincode?: string | null
-          restaurant_id: number
+          restaurant_id: string
           slug: string
           state?: string | null
           state_code?: string | null
@@ -692,11 +667,11 @@ export type Database = {
           email?: string | null
           fssai_license?: string | null
           gstin?: string | null
-          id?: number
+          id?: string
           name?: string
           phone?: string | null
           pincode?: string | null
-          restaurant_id?: number
+          restaurant_id?: string
           slug?: string
           state?: string | null
           state_code?: string | null
@@ -742,9 +717,9 @@ export type Database = {
         Row: {
           cod_enabled: boolean
           created_at: string
-          id: number
+          id: string
           online_enabled: boolean
-          outlet_id: number | null
+          outlet_id: string | null
           shop_open: boolean
           show_banners: boolean
           sms_enabled: boolean
@@ -753,9 +728,9 @@ export type Database = {
         Insert: {
           cod_enabled?: boolean
           created_at?: string
-          id?: number
+          id?: string
           online_enabled?: boolean
-          outlet_id?: number | null
+          outlet_id?: string | null
           shop_open?: boolean
           show_banners?: boolean
           sms_enabled?: boolean
@@ -764,9 +739,9 @@ export type Database = {
         Update: {
           cod_enabled?: boolean
           created_at?: string
-          id?: number
+          id?: string
           online_enabled?: boolean
-          outlet_id?: number | null
+          outlet_id?: string | null
           shop_open?: boolean
           show_banners?: boolean
           sms_enabled?: boolean
@@ -782,14 +757,49 @@ export type Database = {
           },
         ]
       }
+      pos_tabs: {
+        Row: {
+          created_at: string
+          id: string
+          lines: Json
+          name: string
+          outlet_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lines?: Json
+          name: string
+          outlet_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lines?: Json
+          name?: string
+          outlet_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pos_tabs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       printers: {
         Row: {
           address: string | null
           created_at: string
-          id: number
+          id: string
           interface: string
           name: string
-          outlet_id: number
+          outlet_id: string
           paper_width: number
           purpose: string
           status: string
@@ -798,10 +808,10 @@ export type Database = {
         Insert: {
           address?: string | null
           created_at?: string
-          id?: number
+          id?: string
           interface?: string
           name: string
-          outlet_id: number
+          outlet_id: string
           paper_width?: number
           purpose?: string
           status?: string
@@ -810,10 +820,10 @@ export type Database = {
         Update: {
           address?: string | null
           created_at?: string
-          id?: number
+          id?: string
           interface?: string
           name?: string
-          outlet_id?: number
+          outlet_id?: string
           paper_width?: number
           purpose?: string
           status?: string
@@ -832,23 +842,23 @@ export type Database = {
       product_customizations: {
         Row: {
           created_at: string | null
-          group_id: number
-          id: number
-          product_id: number
+          group_id: string
+          id: string
+          product_id: string
           sort_order: number | null
         }
         Insert: {
           created_at?: string | null
-          group_id: number
-          id?: number
-          product_id: number
+          group_id: string
+          id?: string
+          product_id: string
           sort_order?: number | null
         }
         Update: {
           created_at?: string | null
-          group_id?: number
-          id?: number
-          product_id?: number
+          group_id?: string
+          id?: string
+          product_id?: string
           sort_order?: number | null
         }
         Relationships: [
@@ -878,14 +888,14 @@ export type Database = {
           has_addons: boolean | null
           has_toppings: boolean | null
           hsn_code: string | null
-          id: number
+          id: string
           image_url: string | null
           is_kot_required: boolean
           name: string
-          outlet_id: number
+          outlet_id: string
           price: number | null
           sku: string | null
-          station_id: number | null
+          station_id: string | null
           status: string | null
           type: string | null
           updated_at: string | null
@@ -900,14 +910,14 @@ export type Database = {
           has_addons?: boolean | null
           has_toppings?: boolean | null
           hsn_code?: string | null
-          id?: number
+          id?: string
           image_url?: string | null
           is_kot_required?: boolean
           name: string
-          outlet_id: number
+          outlet_id: string
           price?: number | null
           sku?: string | null
-          station_id?: number | null
+          station_id?: string | null
           status?: string | null
           type?: string | null
           updated_at?: string | null
@@ -922,14 +932,14 @@ export type Database = {
           has_addons?: boolean | null
           has_toppings?: boolean | null
           hsn_code?: string | null
-          id?: number
+          id?: string
           image_url?: string | null
           is_kot_required?: boolean
           name?: string
-          outlet_id?: number
+          outlet_id?: string
           price?: number | null
           sku?: string | null
-          station_id?: number | null
+          station_id?: string | null
           status?: string | null
           type?: string | null
           updated_at?: string | null
@@ -974,9 +984,9 @@ export type Database = {
           cta_link: string | null
           cta_text: string | null
           description: string | null
-          id: number
+          id: string
           image_url: string
-          outlet_id: number
+          outlet_id: string
           sort_order: number | null
           status: string | null
           title: string
@@ -988,9 +998,9 @@ export type Database = {
           cta_link?: string | null
           cta_text?: string | null
           description?: string | null
-          id?: number
+          id?: string
           image_url: string
-          outlet_id: number
+          outlet_id: string
           sort_order?: number | null
           status?: string | null
           title: string
@@ -1002,9 +1012,9 @@ export type Database = {
           cta_link?: string | null
           cta_text?: string | null
           description?: string | null
-          id?: number
+          id?: string
           image_url?: string
-          outlet_id?: number
+          outlet_id?: string
           sort_order?: number | null
           status?: string | null
           title?: string
@@ -1052,10 +1062,10 @@ export type Database = {
       }
       restaurants: {
         Row: {
-          brand_id: number | null
+          brand_id: string | null
           created_at: string
           custom_domain: string | null
-          id: number
+          id: string
           name: string
           owner_user_id: string | null
           slug: string
@@ -1063,10 +1073,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          brand_id?: number | null
+          brand_id?: string | null
           created_at?: string
           custom_domain?: string | null
-          id?: number
+          id?: string
           name: string
           owner_user_id?: string | null
           slug: string
@@ -1074,10 +1084,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          brand_id?: number | null
+          brand_id?: string | null
           created_at?: string
           custom_domain?: string | null
-          id?: number
+          id?: string
           name?: string
           owner_user_id?: string | null
           slug?: string
@@ -1097,7 +1107,7 @@ export type Database = {
       submenu_items: {
         Row: {
           created_at: string | null
-          id: number
+          id: string
           name: string
           price: number
           sort_order: number | null
@@ -1107,7 +1117,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
-          id?: number
+          id?: string
           name: string
           price?: number
           sort_order?: number | null
@@ -1117,7 +1127,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
-          id?: number
+          id?: string
           name?: string
           price?: number
           sort_order?: number | null
@@ -1131,21 +1141,21 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
-          restaurant_id: number
+          restaurant_id: string
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
           created_at?: string | null
           id?: string
-          restaurant_id: number
+          restaurant_id: string
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
           created_at?: string | null
           id?: string
-          restaurant_id?: number
+          restaurant_id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
@@ -1164,27 +1174,70 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      outlet_restaurant_id: { Args: { oid: number }; Returns: number }
-      public_outlets_for_restaurant: {
-        Args: { p_restaurant_id: number }
+      get_my_order: {
+        Args: { p_order_id: string }
         Returns: {
-          id: number
+          cgst_amount: number
+          id: string
+          items: Json
+          order_type: string
+          outlet_name: string
+          outlet_phone: string
+          placed_at: string
+          sgst_amount: number
+          status: string
+          subtotal: number
+          takeaway_charges: number
+          total_amount: number
+          unique_order_id: string
+          updated_at: string
+        }[]
+      }
+      get_my_orders: {
+        Args: { p_restaurant_id: string }
+        Returns: {
+          id: string
+          items: Json
+          order_type: string
+          placed_at: string
+          status: string
+          total_amount: number
+          unique_order_id: string
+        }[]
+      }
+      outlet_restaurant_id: { Args: { oid: string }; Returns: string }
+      public_outlets_for_restaurant: {
+        Args: { p_restaurant_id: string }
+        Returns: {
+          address: string
+          city: string
+          id: string
           name: string
-          address: string | null
-          city: string | null
-          state: string | null
-          pincode: string | null
-          phone: string | null
+          phone: string
+          pincode: string
+          state: string
+        }[]
+      }
+      public_restaurant_by_id: {
+        Args: { p_restaurant_id: string }
+        Returns: {
+          id: string
+          name: string
+          slug: string
         }[]
       }
       public_restaurant_by_slug: {
         Args: { p_slug: string }
-        Returns: { id: number; slug: string; name: string }[]
+        Returns: {
+          id: string
+          name: string
+          slug: string
+        }[]
       }
       restaurant_slug_for_domain: { Args: { host: string }; Returns: string }
-      user_has_restaurant_access: { Args: { rid: number }; Returns: boolean }
+      user_has_restaurant_access: { Args: { rid: string }; Returns: boolean }
       user_has_restaurant_role: {
-        Args: { allowed: string[]; rid: number }
+        Args: { allowed: string[]; rid: string }
         Returns: boolean
       }
     }
@@ -1205,12 +1258,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1234,11 +1287,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1259,11 +1312,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1284,11 +1337,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1301,11 +1354,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1315,9 +1368,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "user", "manager"],

@@ -4,9 +4,9 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import type { Product } from "@/lib/types";
 
 export type SelectedOption = {
-  group_id: number;
+  group_id: string;
   group_name: string;
-  option_id: number;
+  option_id: string;
   option_name: string;
   price: number;
 };
@@ -40,9 +40,9 @@ function storageKey(slug: string) {
   return `billjot.cart.${slug}.v2`;
 }
 
-function buildConfigKey(productId: number, options: SelectedOption[]): string {
+function buildConfigKey(productId: string, options: SelectedOption[]): string {
   if (options.length === 0) return `p${productId}`;
-  const ids = options.map((o) => o.option_id).sort((a, b) => a - b);
+  const ids = options.map((o) => o.option_id).sort();
   return `p${productId}:${ids.join("-")}`;
 }
 

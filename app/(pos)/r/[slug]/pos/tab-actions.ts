@@ -35,8 +35,8 @@ async function authRestaurant(slug: string) {
 
 async function outletInRestaurant(
   db: ReturnType<typeof rawAdmin>,
-  outletId: number,
-  restaurantId: number,
+  outletId: string,
+  restaurantId: string,
 ) {
   const { data } = await db
     .from("outlets")
@@ -48,7 +48,7 @@ async function outletInRestaurant(
 
 export async function listTabsAction(
   slug: string,
-  outletId: number,
+  outletId: string,
 ): Promise<PosTab[]> {
   const restaurant = await authRestaurant(slug);
   if (!restaurant) return [];
@@ -73,7 +73,7 @@ export async function listTabsAction(
 
 export async function createTabAction(
   slug: string,
-  outletId: number,
+  outletId: string,
   name: string,
 ): Promise<{ ok: true; tab: PosTab } | { ok: false; error: string }> {
   const restaurant = await authRestaurant(slug);

@@ -16,6 +16,7 @@
 // above can wire to it without further server changes.
 
 import { NextResponse } from "next/server";
+import { isUuid } from "@/lib/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
 
@@ -62,8 +63,8 @@ export async function GET(
   _req: Request,
   { params }: { params: { orderId: string } },
 ) {
-  const id = Number(params.orderId);
-  if (!Number.isFinite(id)) {
+  const id = params.orderId;
+  if (!isUuid(id)) {
     return new NextResponse("Invalid order id", { status: 400 });
   }
 

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestaurantBySlug } from "@/lib/auth";
+import { isUuid } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -33,8 +34,8 @@ export default async function OrderDetailPage({ params }: Props) {
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
-  const id = Number(params.id);
-  if (!Number.isFinite(id)) notFound();
+  const id = params.id;
+  if (!isUuid(id)) notFound();
 
   const admin = createAdminClient();
   const { data: order } = await admin

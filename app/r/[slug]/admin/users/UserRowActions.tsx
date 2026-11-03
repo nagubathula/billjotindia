@@ -40,7 +40,7 @@ export function UserRowActions({
 }: {
   userId: string;
   userEmail: string;
-  restaurantId: number;
+  restaurantId: string;
   currentRole: AppRole | null;
   isSelf: boolean;
 }) {

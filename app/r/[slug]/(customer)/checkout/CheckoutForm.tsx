@@ -15,7 +15,7 @@ export function CheckoutForm({
   outletId,
 }: {
   restaurantSlug: string;
-  outletId: number;
+  outletId: string;
 }) {
   const router = useRouter();
   const { lines, subtotal, clear } = useCart();

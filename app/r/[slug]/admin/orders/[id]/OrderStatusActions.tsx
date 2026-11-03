@@ -31,7 +31,7 @@ export function OrderStatusActions({
   currentStatus,
 }: {
   slug: string;
-  orderId: number;
+  orderId: string;
   currentStatus: OrderStatus;
 }) {
   const router = useRouter();

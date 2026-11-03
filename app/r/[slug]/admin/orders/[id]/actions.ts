@@ -18,7 +18,7 @@ const ALLOWED_STATUSES: OrderStatus[] = [
 
 export async function updateOrderStatusAction(
   slug: string,
-  orderId: number,
+  orderId: string,
   newStatus: OrderStatus,
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);

@@ -2,14 +2,15 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AutoPrint } from "./AutoPrint";
 import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
+import { isUuid } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: { id: string; slug: string } };
 
 export default async function ReceiptPage({ params }: Params) {
-  const orderId = Number(params.id);
-  if (!Number.isFinite(orderId)) notFound();
+  const orderId = params.id;
+  if (!isUuid(orderId)) notFound();
 
   const supabase = createClient();
   const { data: order } = await supabase
