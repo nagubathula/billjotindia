@@ -8,7 +8,7 @@ import { UserMenu } from "./UserMenu";
 
 export function AppNavbar() {
   return (
-    <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur-xl">
+    <header className="glass sticky top-0 z-30 border-b border-black/5">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <Link
           href="/dashboard"

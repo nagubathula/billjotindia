@@ -56,7 +56,7 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
     .toUpperCase();
 
   return (
-    <aside className="hidden h-screen w-60 shrink-0 flex-col border-r bg-card md:flex md:sticky md:top-0">
+    <aside className="glass hidden h-screen w-60 shrink-0 flex-col border-r border-black/5 md:flex md:sticky md:top-0">
       <div className="border-b px-4 py-4">
         <Link
           href="/dashboard"
@@ -200,10 +200,10 @@ function NavItem({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition",
         active
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          ? "bg-black/[0.06] font-medium text-foreground [&>svg]:text-primary"
+          : "text-foreground/80 hover:bg-black/[0.04] hover:text-foreground [&>svg]:text-primary/80",
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />

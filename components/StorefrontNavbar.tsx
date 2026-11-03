@@ -27,7 +27,7 @@ export function StorefrontNavbar({ restaurantSlug, restaurantName }: Props) {
   const ini = initials(restaurantName) || "🍽";
 
   return (
-    <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="glass sticky top-0 z-30 border-b border-black/5">
       <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
         <Link
           href={`/r/${restaurantSlug}`}

@@ -70,12 +70,15 @@ export default async function MenuPage({ params }: Props) {
   return (
     <div className="space-y-8">
       {/* Hero */}
-      <header className="rounded-2xl border bg-gradient-to-br from-primary/5 via-background to-background p-5 sm:p-7">
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {restaurant.name}
+      <header className="pb-2 pt-6 text-center sm:pt-10">
+        <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-primary">
+          Order online
+        </p>
+        <h1 className="mt-2 text-[40px] font-semibold leading-[1.05] tracking-[-0.03em] sm:text-6xl">
+          {restaurant.name}.
         </h1>
         {o && (
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[15px] text-muted-foreground">
             {(o.address || o.city) && (
               <span className="flex items-center gap-1">
                 <MapPin className="h-3.5 w-3.5" />
@@ -119,12 +122,12 @@ export default async function MenuPage({ params }: Props) {
 
       {/* Sticky category jump nav */}
       {grouped.length > 1 && (
-        <nav className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto border-b bg-background/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6">
+        <nav className="glass-page sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none]">
           {grouped.map(({ category }) => (
             <a
               key={category.name}
               href={`#cat-${slugify(category.name)}`}
-              className="whitespace-nowrap rounded-full border border-transparent bg-muted px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-primary/30 hover:text-foreground"
+              className="whitespace-nowrap rounded-full bg-card px-3.5 py-1.5 text-[13px] font-medium text-foreground/80 shadow-card transition hover:text-foreground active:scale-[0.97]"
             >
               {category.emoji ? `${category.emoji} ` : ""}
               {category.name}
@@ -146,11 +149,11 @@ export default async function MenuPage({ params }: Props) {
             id={`cat-${slugify(category.name)}`}
             className="scroll-mt-28 space-y-3"
           >
-            <h2 className="text-xl font-semibold">
+            <h2 className="text-[28px] font-semibold tracking-[-0.025em]">
               {category.emoji ? `${category.emoji} ` : ""}
               {category.name}
             </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {items.map((p) => (
                 <ProductCard key={p.id} product={p} />
               ))}

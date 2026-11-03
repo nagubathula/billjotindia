@@ -31,7 +31,7 @@ export function MobileAdminNav({
 
   return (
     <>
-      <header className="flex items-center justify-between border-b bg-background px-3 py-2 md:hidden">
+      <header className="glass sticky top-0 z-30 flex items-center justify-between border-b border-black/5 px-3 py-2 md:hidden">
         <Button
           variant="ghost"
           size="icon"

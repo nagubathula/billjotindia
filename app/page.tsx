@@ -64,7 +64,7 @@ export default async function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+      <header className="glass sticky top-0 z-50 border-b border-black/5">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <span className="flex items-center gap-2 text-lg font-semibold tracking-tight">
             <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
@@ -76,7 +76,7 @@ export default async function LandingPage() {
             {user ? (
               <Link
                 href="/dashboard"
-                className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+                className={cn(buttonVariants({ variant: "default", size: "sm", className: "rounded-full" }))}
               >
                 <LayoutDashboard className="mr-1.5 h-4 w-4" /> Dashboard
               </Link>
@@ -84,13 +84,13 @@ export default async function LandingPage() {
               <>
                 <Link
                   href="/login"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm", className: "rounded-full" }))}
                 >
                   Sign in
                 </Link>
                 <Link
                   href="/signup"
-                  className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+                  className={cn(buttonVariants({ variant: "default", size: "sm", className: "rounded-full" }))}
                 >
                   Get started
                 </Link>
@@ -139,7 +139,7 @@ export default async function LandingPage() {
                 {user ? (
                   <Link
                     href="/dashboard"
-                    className={cn(buttonVariants({ size: "lg" }))}
+                    className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
                   >
                     Open your dashboard <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Link>
@@ -147,7 +147,7 @@ export default async function LandingPage() {
                   <>
                     <Link
                       href="/signup"
-                      className={cn(buttonVariants({ size: "lg" }))}
+                      className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
                     >
                       Create your restaurant{" "}
                       <ArrowRight className="ml-1.5 h-4 w-4" />
@@ -155,7 +155,7 @@ export default async function LandingPage() {
                     <Link
                       href="/login"
                       className={cn(
-                        buttonVariants({ variant: "outline", size: "lg" }),
+                        buttonVariants({ variant: "outline", size: "lg", className: "rounded-full" }),
                       )}
                     >
                       I have an account
@@ -249,7 +249,7 @@ export default async function LandingPage() {
               <div className="mt-8 flex justify-center">
                 <Link
                   href={user ? "/dashboard" : "/signup"}
-                  className={cn(buttonVariants({ size: "lg" }))}
+                  className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
                 >
                   {user ? "Open dashboard" : "Create your restaurant"}
                   <ArrowRight className="ml-1.5 h-4 w-4" />
