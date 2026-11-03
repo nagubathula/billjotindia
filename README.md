@@ -20,18 +20,31 @@ Then open http://localhost:3000.
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Same screen, `service_role` key. Server-only — never expose to the browser. |
-| `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | Numeric id of the outlet row to use when a client doesn't specify one. After running `0001_multi_outlet_aggregator_ready.sql` this is the id of the seeded `default` outlet — usually `1`. |
+| `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | **UUID** of the outlet to use when a client doesn't specify one (`select id from outlets where slug = 'main'`). All ids are uuids since the `20260719000000_uuid_refactor` migration. |
+| `STOREFRONT_ORDER_TOKEN` | Optional shared secret that standalone storefronts (e.g. `billjotdemocafe`) send as `x-storefront-token` when forwarding orders. |
+| `STOREFRONT_ALLOWED_ORIGINS` | Optional comma-separated CORS allowlist for `/api/orders`. |
 
 ## Database migrations
 
-There is no migration runner. SQL files in `supabase/migrations/` are applied **manually**, in numeric order, via the Supabase SQL editor.
+Migrations live in `supabase/migrations/` and are applied with the Supabase CLI (v3+) against the linked project (`lyudibtywwsvzpqsfmjb`):
 
-1. Open Supabase → SQL editor → New query.
-2. Paste the contents of the next unapplied file (start with `0001_multi_outlet_aggregator_ready.sql`).
-3. Run it. Each migration is wrapped in a transaction and uses `IF NOT EXISTS` where it can, so it's safe to re-run.
-4. After `0001`, look up the seeded outlet id (`select id from outlets where slug = 'default'`) and set `NEXT_PUBLIC_DEFAULT_OUTLET_ID` in `.env.local`.
+```bash
+supabase migration list --remote        # what's applied vs. local
+supabase db push --remote --dry-run     # preview
+supabase db push --remote               # apply new migrations
+```
 
-Keep `lib/types.ts` in sync with every migration — those types are how the app sees the schema.
+After any schema change, regenerate the types the app compiles against:
+
+```bash
+supabase gen types typescript --remote --schema public > lib/database.types.ts
+```
+
+> On Windows, run that from Git Bash (or `| Out-File -Encoding utf8` in PowerShell) — a plain PowerShell `>` writes UTF-16, which is how a broken `types.ts` once ended up in the repo.
+
+`lib/types.ts` derives every row type from `lib/database.types.ts` and adds the narrowed unions (`OrderStatus`, `OrderSource`, …) on top. Ids are **uuid strings** everywhere — validate route params with `isUuid()` from `lib/utils.ts`, never `Number()`.
+
+See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for what each recent migration does.
 
 ## Supabase row-level security
 

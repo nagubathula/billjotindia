@@ -4,9 +4,9 @@ This document details the exact Row Level Security (RLS) policies that govern da
 
 ## Core Concepts
 All RLS policies rely on three helper functions defined in PostgreSQL:
-1. `user_has_restaurant_access(rid bigint)`: Checks if the current authenticated user (`auth.uid()`) has *any* role for the given restaurant in the `user_roles` table.
-2. `user_has_restaurant_role(rid bigint, allowed text[])`: Checks if the user has a specific role (e.g., `admin` or `manager`).
-3. `outlet_restaurant_id(oid bigint)`: A lookup to map an `outlet_id` back to a `restaurant_id` (since many tables only store `outlet_id`).
+1. `user_has_restaurant_access(rid uuid)`: Checks if the current authenticated user (`auth.uid()`) has *any* role for the given restaurant in the `user_roles` table.
+2. `user_has_restaurant_role(rid uuid, allowed text[])`: Checks if the user has a specific role (e.g., `admin` or `manager`).
+3. `outlet_restaurant_id(oid uuid)`: A lookup to map an `outlet_id` back to a `restaurant_id` (since many tables only store `outlet_id`).
 
 ---
 

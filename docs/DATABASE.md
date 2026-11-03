@@ -83,8 +83,32 @@ Because RLS prevents anonymous users from reading sensitive table data, we use `
 ### `public_restaurant_by_slug(p_slug text)`
 - **Purpose:** Allows the public storefront to fetch basic restaurant details (name, slug) using the URL slug, without leaking owner IDs, GSTINs, or statuses.
 
-### `public_outlets_for_restaurant(p_restaurant_id bigint)`
+### `public_restaurant_by_id(p_restaurant_id uuid)`
+- **Purpose:** Same public identity fields as the slug lookup, keyed by id.
+
+### `public_outlets_for_restaurant(p_restaurant_id uuid)`
 - **Purpose:** Returns the active outlets for a restaurant so a customer can pick where to order from.
 
-### `get_my_orders(p_restaurant_id bigint)`
-- **Purpose:** Securely fetches a customer's past orders. RLS blocks customers from seeing all orders in the system; this function securely filters by the authenticated user's ID/email.
+### `get_my_orders(p_restaurant_id uuid)` — `authenticated` only
+- **Purpose:** The signed-in customer's last 100 orders at this restaurant, matched on the **verified email in their JWT**, with items carrying enough to reorder (`product_id`, `name`, `base_price`, `gst_rate`).
+
+### `get_my_order(p_order_id uuid)` — `authenticated` only
+- **Purpose:** One order, with line items, modifiers, GST split and the outlet's name/phone, for the live order-tracking page. Same email match as `get_my_orders`, so a guessed id returns nothing.
+
+### Access helpers used by RLS policies
+- `user_has_restaurant_access(rid uuid)`, `user_has_restaurant_role(rid uuid, allowed text[])`, `outlet_restaurant_id(oid uuid)`.
+
+---
+
+## 5. POS
+
+### `pos_tabs`
+Open "bar tabs" shared across all POS terminals of an outlet, synced over Supabase Realtime.
+- **Fields:** `id`, `outlet_id`, `name`, `lines` (jsonb cart lines), `created_at`, `updated_at`
+- **Access:** RLS on, staff of the outlet's restaurant only. The POS tab server actions use the service-role client and gate on `requireRole`.
+
+---
+
+## 6. Identifiers
+
+Every `id` and `*_id` column is a **uuid** since migration `20260719000000_uuid_refactor`. That migration truncated all tables and dropped `public_restaurant_by_slug` / `get_my_orders` without recreating them; `20261103090000_restore_storefront_rpcs_and_pos_tabs` restores both. Don't reuse `scripts/create-pos-tabs.sql` — it predates the uuid change.

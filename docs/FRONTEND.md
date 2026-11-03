@@ -34,6 +34,7 @@ The application uses Next.js [Route Groups](https://nextjs.org/docs/app/building
 ### 3. `app/r/[slug]/admin`
 **Purpose**: The back-office dashboard for restaurant managers and admins.
 - **Key Routes**:
+  - `/admin` (Overview: today's sales vs same time yesterday, live order queue, top sellers, menu health)
   - `/admin/menu` (Menu builder)
   - `/admin/orders` (Order management Pipeline)
   - `/admin/kitchen` (Kitchen Display Screen / KDS)
