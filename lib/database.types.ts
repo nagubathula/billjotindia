@@ -175,6 +175,104 @@ export type Database = {
           },
         ]
       }
+      channel_option_mappings: {
+        Row: {
+          channel: string
+          created_at: string
+          external_option_id: string
+          id: string
+          is_available: boolean
+          last_synced_at: string | null
+          option_id: string
+          outlet_id: string
+          price_override: number | null
+          updated_at: string
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          external_option_id: string
+          id?: string
+          is_available?: boolean
+          last_synced_at?: string | null
+          option_id: string
+          outlet_id: string
+          price_override?: number | null
+          updated_at?: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          external_option_id?: string
+          id?: string
+          is_available?: boolean
+          last_synced_at?: string | null
+          option_id?: string
+          outlet_id?: string
+          price_override?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_option_mappings_option_id_fkey"
+            columns: ["option_id"]
+            isOneToOne: false
+            referencedRelation: "customization_options"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_option_mappings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_outlets: {
+        Row: {
+          channel: string
+          created_at: string
+          external_store_id: string
+          id: string
+          is_online: boolean
+          last_synced_at: string | null
+          outlet_id: string
+          prep_time_minutes: number
+          updated_at: string
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          external_store_id: string
+          id?: string
+          is_online?: boolean
+          last_synced_at?: string | null
+          outlet_id: string
+          prep_time_minutes?: number
+          updated_at?: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          external_store_id?: string
+          id?: string
+          is_online?: boolean
+          last_synced_at?: string | null
+          outlet_id?: string
+          prep_time_minutes?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_outlets_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customization_groups: {
         Row: {
           created_at: string | null
@@ -520,19 +618,26 @@ export type Database = {
         Row: {
           cashier_id: string | null
           cgst_amount: number
+          commission_amount: number
           created_at: string | null
           customer_email: string
           customer_name: string
+          customer_phone: string | null
           daily_order_number: number | null
+          delivery_charges: number
+          delivery_partner: Json | null
           discount_amount: number
           external_order_id: string | null
           external_payload: Json | null
           external_status: string | null
+          gst_paid_by_operator: boolean
           id: string
           igst_amount: number
+          net_payout: number | null
           order_type: string | null
           outlet_id: string
           placed_at: string
+          platform_discount: number
           razorpay_order_id: string | null
           rounding_amount: number
           sgst_amount: number
@@ -548,19 +653,26 @@ export type Database = {
         Insert: {
           cashier_id?: string | null
           cgst_amount?: number
+          commission_amount?: number
           created_at?: string | null
           customer_email: string
           customer_name: string
+          customer_phone?: string | null
           daily_order_number?: number | null
+          delivery_charges?: number
+          delivery_partner?: Json | null
           discount_amount?: number
           external_order_id?: string | null
           external_payload?: Json | null
           external_status?: string | null
+          gst_paid_by_operator?: boolean
           id?: string
           igst_amount?: number
+          net_payout?: number | null
           order_type?: string | null
           outlet_id: string
           placed_at?: string
+          platform_discount?: number
           razorpay_order_id?: string | null
           rounding_amount?: number
           sgst_amount?: number
@@ -576,19 +688,26 @@ export type Database = {
         Update: {
           cashier_id?: string | null
           cgst_amount?: number
+          commission_amount?: number
           created_at?: string | null
           customer_email?: string
           customer_name?: string
+          customer_phone?: string | null
           daily_order_number?: number | null
+          delivery_charges?: number
+          delivery_partner?: Json | null
           discount_amount?: number
           external_order_id?: string | null
           external_payload?: Json | null
           external_status?: string | null
+          gst_paid_by_operator?: boolean
           id?: string
           igst_amount?: number
+          net_payout?: number | null
           order_type?: string | null
           outlet_id?: string
           placed_at?: string
+          platform_discount?: number
           razorpay_order_id?: string | null
           rounding_amount?: number
           sgst_amount?: number

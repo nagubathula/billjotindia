@@ -151,7 +151,13 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const aov = totalOrders ? totalRevenue / totalOrders : 0;
   const prevAov = prevOrders ? prevRevenue / prevOrders : 0;
   // GST derived from line items so it's correct even when order rows omit it.
-  const totalGst = gstFromItems(items);
+  // Skip orders whose GST the aggregator pays (Section 9(5)) — not ours.
+  const operatorGstOrders = new Set(
+    orders.filter((o) => o.gst_paid_by_operator).map((o) => o.id),
+  );
+  const totalGst = gstFromItems(
+    items.filter((it) => !operatorGstOrders.has(it.order_id ?? "")),
+  );
 
   const delta = (cur: number, prev: number): number | null =>
     prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;

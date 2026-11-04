@@ -113,9 +113,15 @@ type Totals = {
   subtotal: number;
   cgst: number;
   sgst: number;
+  gst_paid_by_operator: boolean;
   takeaway_charges: number;
   total_amount: number;
 };
+
+// Food aggregators are e-commerce operators that pay the 5% GST on restaurant
+// orders placed through them (Section 9(5), CGST Act). Those orders carry no
+// CGST/SGST of ours, so GST reports don't count tax we never collected.
+const OPERATOR_GST_CHANNELS = new Set<OrderSource>(["zomato", "swiggy"]);
 
 // GST-inclusive helper: the rate is baked into the price (typical Indian QSR).
 function splitGst(lineTotal: number, ratePct: number) {
@@ -222,6 +228,7 @@ async function recomputeFirstParty(
       subtotal: round2(runningTotal - runningGst),
       cgst: round2(runningGst / 2),
       sgst: round2(runningGst / 2),
+      gst_paid_by_operator: false,
       takeaway_charges: packing,
       total_amount: round2(runningTotal + packing),
     },
@@ -229,12 +236,16 @@ async function recomputeFirstParty(
 }
 
 // Aggregator/external path: trust the platform's prices/totals (their menu may
-// be marked up), but still derive GST from the line totals so invoices aren't ₹0.
-function trustExternal(body: OrderBody): Totals {
+// be marked up). Derive GST from the line totals so invoices aren't ₹0 — unless
+// the operator pays it, in which case the order carries none.
+function trustExternal(body: OrderBody, source: OrderSource): Totals {
+  const operatorPaysGst = OPERATOR_GST_CHANNELS.has(source);
   let gst = 0;
   const items = body.items.map((it) => {
     const cfg = (it.product_config ?? {}) as ConfigShape & { gst_rate?: number };
-    gst += splitGst(Number(it.total_price) || 0, Number(cfg.gst_rate ?? 5));
+    if (!operatorPaysGst) {
+      gst += splitGst(Number(it.total_price) || 0, Number(cfg.gst_rate ?? 5));
+    }
     return {
       product_config: it.product_config,
       quantity: it.quantity,
@@ -247,6 +258,7 @@ function trustExternal(body: OrderBody): Totals {
     subtotal: round2(Number(body.subtotal) || 0),
     cgst: round2(gst / 2),
     sgst: round2(gst / 2),
+    gst_paid_by_operator: operatorPaysGst,
     takeaway_charges: Math.max(0, Number(body.takeaway_charges) || 0),
     total_amount: round2(Number(body.total_amount) || 0),
   };
@@ -332,7 +344,7 @@ export async function POST(request: Request) {
     }
     totals = result.totals;
   } else {
-    totals = trustExternal(body);
+    totals = trustExternal(body, source);
   }
 
   const { data: order, error: orderErr } = await supabase
@@ -346,6 +358,7 @@ export async function POST(request: Request) {
       subtotal: totals.subtotal,
       cgst_amount: totals.cgst,
       sgst_amount: totals.sgst,
+      gst_paid_by_operator: totals.gst_paid_by_operator,
       takeaway_charges: totals.takeaway_charges,
       total_amount: totals.total_amount,
       status: "pending",
