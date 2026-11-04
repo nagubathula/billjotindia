@@ -55,7 +55,9 @@ Junction table linking a `product` to a `customization_group`.
 
 ### `orders`
 The top-level record of a transaction.
-- **Fields:** `id`, `unique_order_id`, `outlet_id`, `source` (`web`, `pos`, `aggregator`), `customer_name`, `customer_email`, `customer_phone`, `order_type`, `subtotal`, `cgst_amount`, `sgst_amount`, `takeaway_charges`, `total_amount`, `status`, `payment_status`, `payment_method`
+- **Fields:** `id`, `unique_order_id`, `outlet_id`, `source` (`pos`, `kiosk`, `web`, `zomato`, `swiggy`, `magicpin`, `dunzo`, `ondc`, `uber-eats`, `dotpe`, `other`), `customer_name`, `customer_email`, `customer_phone`, `order_type` (`dine-in`, `takeaway`, `delivery`), `subtotal`, `cgst_amount`, `sgst_amount`, `igst_amount`, `discount_amount`, `takeaway_charges` (packaging), `total_amount`, `status`, `token_number`, `placed_at`
+- **Aggregator fields:** `external_order_id` (unique per outlet + source, so webhook retries can't duplicate), `external_payload` (raw platform payload), `external_status` (platform-side status), `gst_paid_by_operator`, `commission_amount`, `platform_discount`, `delivery_charges`, `net_payout`, `delivery_partner` (`{name, phone, eta_minutes}`)
+- **GST:** Swiggy and Zomato orders have `gst_paid_by_operator = true` and zero CGST/SGST — the platform pays that 5% GST under Section 9(5) of the CGST Act. Reports exclude them from "GST collected".
 
 ### `order_items`
 Line items for an order.
@@ -70,6 +72,18 @@ Configures kitchen display screens (KDS) or physical printers.
 Kitchen Order Tickets sent to specific stations when an order is accepted.
 - **Fields (ticket):** `id`, `order_id`, `station_id`, `status`
 - **Fields (items):** `id`, `ticket_id`, `order_item_id`, `notes`
+
+### Aggregator channels (Swiggy, Zomato, …)
+How a platform order maps onto our data. An adapter for each platform only has to translate its payload into these:
+
+| Table | Maps |
+| --- | --- |
+| `channel_outlets` | The platform's store id → our outlet, with `is_online` (busy switch) and `prep_time_minutes`. Unique per outlet + channel and per channel + store id. |
+| `channel_item_mappings` | The platform's item id → our product, with `price_override` (platform price) and `is_available`. |
+| `channel_option_mappings` | The platform's add-on/variant id → our `customization_options` row, same shape. |
+| `external_order_events` | Every webhook received: `event_type` (`order.placed`, `rider.assigned`, `order.delivered`, `order.cancelled`, …), raw `payload`, `signature_ok`, and `external_event_id` (unique per channel, for de-duplication). |
+
+All are admin/manager-only under RLS; webhook adapters write with the service role.
 
 ---
 

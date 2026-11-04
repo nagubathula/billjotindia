@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-11-04 — Aggregator-ready schema and sample data
+
+### New migrations (applied to production)
+
+| Migration | What it does |
+| --- | --- |
+| `20261104090000_aggregator_channels` | Adds `channel_outlets` (platform store id ↔ outlet, online/busy switch, prep time) and `channel_option_mappings` (platform add-on id ↔ customization option). Adds to `orders`: `gst_paid_by_operator`, `commission_amount`, `platform_discount`, `delivery_charges`, `net_payout`, `customer_phone`, `delivery_partner`. Additive only. |
+| `20261104091000_seed_sample_orders` | Sample data for `billjot-demo-cafe` (see below). Runs only if the demo outlet exists and has no sample orders yet. |
+
+### GST on Swiggy / Zomato orders
+
+Under Section 9(5) of the CGST Act, food aggregators pay the 5% GST on restaurant orders placed through them. `/api/orders` now records Swiggy and Zomato orders with zero CGST/SGST and `gst_paid_by_operator = true`, and Reports leaves them out of "GST collected". Confirm the treatment with your accountant.
+
+### Sample data
+
+Seeded into the live database for `billjot-demo-cafe` (estimated row counts after the push):
+
+- **185 orders** over the last 30 days — POS (cash/UPI/card), web, Swiggy and Zomato — priced from the real menu with real add-ons; about 5% cancelled.
+- **Today's live queue:** new, accepted, preparing, ready, completed and one cancelled order across all four channels, so the admin overview and kitchen board have something to show.
+- **Swiggy/Zomato details:** store mappings (`SWG-DEMO-482137`, `ZOM-DEMO-190725`), item and add-on mappings with ~10% platform pricing, masked customer phones, riders, commission (22% / 20%), net payout, the raw platform payload and 193 webhook events.
+
+All of it is tagged. To remove it:
+
+```sql
+delete from public.orders where unique_order_id like 'DEMO-%';
+delete from public.external_order_events where external_event_id like 'evt_demo_%';
+delete from public.channel_option_mappings where external_option_id like '%-DEMO-%';
+delete from public.channel_item_mappings where external_item_id like '%-DEMO-%';
+delete from public.channel_outlets where external_store_id like '%-DEMO-%';
+```
+
+### Still to do for a live integration
+
+- Webhook routes per platform (`app/api/webhooks/{swiggy,zomato}`) that verify signatures, log to `external_order_events` and translate payloads via the mapping tables.
+- Pushing status changes (accept / ready / handover) and menu/stock changes back to each platform, with retries.
+- Partner credentials: Swiggy and Zomato need approved POS-partner status, or a middleware such as UrbanPiper.
+
 ## 2026-11-03 — UUID repair, demo tenant, overview dashboard, order tracking
 
 Covers `billjotindia` and the `billjotdemocafe` storefront template, which share
