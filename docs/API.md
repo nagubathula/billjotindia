@@ -34,8 +34,10 @@ Allowed origins are dictated by the `STOREFRONT_ALLOWED_ORIGINS` environment var
   "outlet_id": 1,
   "external_order_id": "string", // Used for deduplication
   "external_payload": {}, // Raw aggregator payload
+  "instructions": "string", // Optional. Cooking / packing note for the whole order (max 500 chars)
   "items": [
     {
+      "instructions": "string", // Optional. Note for this item, e.g. "no onion" (max 200 chars)
       "quantity": 1,
       "unit_price": 0.0,
       "total_price": 0.0,

@@ -20,6 +20,8 @@ type OrderItemInput = {
   quantity: number;
   unit_price: number;
   total_price: number;
+  // Optional — what the customer asked for on this item ("no onion").
+  instructions?: string;
 };
 
 type OrderBody = {
@@ -30,6 +32,8 @@ type OrderBody = {
   takeaway_charges: number;
   total_amount: number;
   items: OrderItemInput[];
+  // Optional — cooking / packing instructions for the whole order.
+  instructions?: string;
   // Optional — present for kiosk/pos clients and aggregator webhooks.
   source?: OrderSource;
   outlet_id?: string;
@@ -91,6 +95,16 @@ export async function OPTIONS(request: Request) {
 // ---------------------------------------------------------------------------
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
+// Free text from customers ends up on kitchen tickets: trim it, cap it, and
+// treat blank as absent.
+const ORDER_NOTE_MAX = 500;
+const ITEM_NOTE_MAX = 200;
+function cleanNote(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim().slice(0, max);
+  return text || null;
+}
+
 type ConfigShape = {
   product_id?: string;
   name?: string;
@@ -109,6 +123,7 @@ type Totals = {
     quantity: number;
     unit_price: number;
     total_price: number;
+    instructions: string | null;
   }>;
   subtotal: number;
   cgst: number;
@@ -209,6 +224,7 @@ async function recomputeFirstParty(
       quantity: qty,
       unit_price: round2(unit),
       total_price: round2(lineTotal),
+      instructions: cleanNote(items[i].instructions, ITEM_NOTE_MAX),
       product_config: {
         product_id: product.id,
         name: product.name,
@@ -251,6 +267,7 @@ function trustExternal(body: OrderBody, source: OrderSource): Totals {
       quantity: it.quantity,
       unit_price: it.unit_price,
       total_price: it.total_price,
+      instructions: cleanNote(it.instructions, ITEM_NOTE_MAX),
     };
   });
   return {
@@ -347,6 +364,12 @@ export async function POST(request: Request) {
     totals = trustExternal(body, source);
   }
 
+  // The instructions columns arrive with migration 20261111090000. They are
+  // only named when there is something to store, so orders without
+  // instructions keep working on a database that hasn't had it applied yet.
+  const orderNote = cleanNote(body.instructions, ORDER_NOTE_MAX);
+  const anyItemNote = totals.items.some((it) => it.instructions);
+
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .insert({
@@ -365,6 +388,7 @@ export async function POST(request: Request) {
       unique_order_id: `BJ-${Date.now()}`,
       external_order_id: body.external_order_id ?? null,
       external_payload: body.external_payload ?? null,
+      ...(orderNote ? { instructions: orderNote } : {}),
     })
     .select()
     .single();
@@ -383,6 +407,7 @@ export async function POST(request: Request) {
       quantity: it.quantity,
       unit_price: it.unit_price,
       total_price: it.total_price,
+      ...(anyItemNote ? { instructions: it.instructions } : {}),
     })),
   );
 

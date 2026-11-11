@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { parseOpeningHours, type OpeningHours } from "@/lib/opening-hours";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -27,7 +28,25 @@ export async function updateOutletAction(
     return { ok: false, error: "Outlet not in this restaurant." };
   }
 
+  // Blank = the outlet doesn't keep fixed hours (stored as NULL).
+  let openingHours: OpeningHours | null = null;
+  const rawHours = String(formData.get("opening_hours") ?? "");
+  if (rawHours) {
+    try {
+      openingHours = parseOpeningHours(JSON.parse(rawHours));
+    } catch {
+      openingHours = null;
+    }
+    if (!openingHours) {
+      return {
+        ok: false,
+        error: "Check the opening hours: each row needs an opening and a closing time that differ.",
+      };
+    }
+  }
+
   const payload = {
+    opening_hours: openingHours,
     name: String(formData.get("name") ?? "").trim(),
     address: String(formData.get("address") ?? "").trim() || null,
     city: String(formData.get("city") ?? "").trim() || null,

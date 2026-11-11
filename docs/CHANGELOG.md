@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-11-11 — Order handling groundwork for delivery platforms
+
+Nothing here talks to a platform yet. It is the part of a POS integration that doesn't depend on any platform's API: the screens and columns an adapter will read and write.
+
+### New migration (applied to production 2026-11-12)
+
+| Migration | What it does |
+| --- | --- |
+| `20261111090000_aggregator_order_handling` | `orders`: `instructions`, `cancel_reason`, `cancel_note`, `cancelled_by`, `cancelled_at`, `cancel_product_ids`. `order_items`: `instructions`. `channel_outlets`: `offline_reason`, `offline_since`. `outlets`: `opening_hours`. Adds `purge_channel_data()`. Additive only. |
+
+Any other environment needs it before this code runs there: cancelling an order, switching a channel off and saving an outlet all write the new columns. `lib/database.types.ts` was regenerated after the push (which also picked up `public_bestsellers`, missing since `20261104100000`).
+
+### What changed in the app
+
+- **Reject / cancel with a reason.** Cancelling from the order page or the kitchen board now opens a dialog that needs a reason. "Item out of stock" asks which item and can take it off the menu in the same step. The reason shows on the order page.
+- **Order bell.** The kitchen board has a sound switch. Every new order chimes once; an order that didn't come from the POS keeps chiming until it is accepted or rejected. Browsers need one tap on the page before they allow sound.
+- **Kitchen board stays live when empty.** It used to unmount with no tickets, which also stopped it polling, so the first order of a quiet spell never appeared without a manual reload.
+- **Accept step for platform orders.** A pending Zomato/Swiggy ticket shows "Accept order" before "Start cooking". Own orders are unchanged.
+- **Instructions.** `POST /api/orders` accepts `instructions` on the order and on each item; they show on the kitchen board, the order page and the receipt. The storefront and POS don't collect them yet.
+- **Add-ons on the order page.** Selected options now show under each item there, as they already did on the kitchen board.
+- **Admin → Channels.** Link an outlet to its store id per platform, set prep time, and mark it online/offline with a reason. Saved in billjot only until an adapter exists — the page says so.
+- **Opening hours** per outlet under Admin → Settings, with split shifts.
+- **Customers list** now only counts storefront and kiosk orders. Delivery-platform customers are the platform's and are no longer profiled there; their orders still count in Orders and Reports.
+
+### Keeping less platform data
+
+`purge_channel_data(channel, older_than)` strips the customer's name, phone, rider details and the raw payload from a channel's old orders and deletes its old webhook events. It is **not** scheduled automatically because it is irreversible: pick a retention period, then run `scripts/schedule-aggregator-purge.sql` once.
+
 ## 2026-11-04 — Aggregator-ready schema and sample data
 
 ### New migrations (applied to production)

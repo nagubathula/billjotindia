@@ -33,6 +33,7 @@ export type KitchenStation       = Row<"kitchen_stations">;
 export type KotTicket            = Row<"kot_tickets">;
 export type KotTicketItem        = Row<"kot_ticket_items">;
 export type ChannelItemMapping   = Row<"channel_item_mappings">;
+export type ChannelOutlet        = Row<"channel_outlets">;
 export type ExternalOrderEvent   = Row<"external_order_events">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------

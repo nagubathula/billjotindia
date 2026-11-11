@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
-import { ChefHat } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { PageHeader } from "@/components/PageHeader";
-import { EmptyState } from "@/components/EmptyState";
-import { Card, CardContent } from "@/components/ui/card";
 import { KitchenBoard } from "@/components/KitchenBoard";
 import type { Order, OrderItem } from "@/lib/types";
 
@@ -63,19 +60,9 @@ export default async function KitchenPage({
         description="Live tickets across all outlets. Bump each order as it's cooked and handed off."
       />
 
-      {withItems.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <EmptyState
-              icon={ChefHat}
-              title="No active tickets"
-              description="New orders from the POS and storefront appear here automatically."
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <KitchenBoard slug={params.slug} orders={withItems} />
-      )}
+      {/* Always mounted, even with no tickets: the board is what polls for
+          new orders and rings the bell, so an empty kitchen must keep it. */}
+      <KitchenBoard slug={params.slug} orders={withItems} />
     </div>
   );
 }

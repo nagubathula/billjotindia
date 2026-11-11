@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderStatusPipeline } from "@/components/OrderStatusPipeline";
 import { OrderStatusActions } from "./OrderStatusActions";
+import { cancelReasonLabel } from "@/lib/order-cancel";
 import type { Order, OrderItem, OrderStatus, ProductConfig } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,17 @@ export default async function OrderDetailPage({ params }: Props) {
   const o = order as Order;
   const its = (items ?? []) as OrderItem[];
   const status = o.status as OrderStatus;
+  const orderLabel = o.unique_order_id ?? `#${o.id}`;
+
+  const configOf = (line: OrderItem) =>
+    line.product_config as unknown as ProductConfig | null;
+  const lines = its.map((line) => {
+    const cfg = configOf(line);
+    return { productId: cfg?.product_id ?? null, name: cfg?.name ?? "Item" };
+  });
+  const outOfStockNames = (o.cancel_product_ids ?? [])
+    .map((pid) => lines.find((l) => l.productId === pid)?.name)
+    .filter((n): n is string => !!n);
 
   return (
     <div className="space-y-6">
@@ -71,7 +83,7 @@ export default async function OrderDetailPage({ params }: Props) {
       </Link>
 
       <PageHeader
-        title={`Order ${o.unique_order_id ?? `#${o.id}`}`}
+        title={`Order ${orderLabel}`}
         description={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>{o.customer_name}</span>
@@ -101,7 +113,9 @@ export default async function OrderDetailPage({ params }: Props) {
           <OrderStatusActions
             slug={params.slug}
             orderId={o.id}
+            orderLabel={orderLabel}
             currentStatus={status}
+            lines={lines}
           />
         </CardContent>
       </Card>
@@ -122,6 +136,49 @@ export default async function OrderDetailPage({ params }: Props) {
         </CardContent>
       </Card>
 
+      {/* Why it was rejected / cancelled */}
+      {status === "cancelled" && o.cancel_reason && (
+        <Card className="border-destructive/30">
+          <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
+            <Meta label="Cancelled because" value={cancelReasonLabel(o.cancel_reason)} />
+            <Meta
+              label="Cancelled by"
+              value={<span className="capitalize">{o.cancelled_by ?? "—"}</span>}
+            />
+            <Meta
+              label="Cancelled at"
+              value={
+                o.cancelled_at
+                  ? new Date(o.cancelled_at).toLocaleString("en-IN")
+                  : "—"
+              }
+            />
+            {outOfStockNames.length > 0 && (
+              <div className="sm:col-span-3">
+                <Meta label="Out of stock" value={outOfStockNames.join(", ")} />
+              </div>
+            )}
+            {o.cancel_note && (
+              <div className="sm:col-span-3">
+                <Meta label="Note" value={o.cancel_note} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Customer's instructions for the whole order */}
+      {o.instructions && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <Meta
+              label="Instructions"
+              value={<span className="whitespace-pre-wrap">{o.instructions}</span>}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Items */}
       <Card>
         <CardHeader>
@@ -139,11 +196,22 @@ export default async function OrderDetailPage({ params }: Props) {
             </thead>
             <tbody>
               {its.map((line) => {
-                const cfg = line.product_config as unknown as ProductConfig | null;
+                const cfg = configOf(line);
+                const options = cfg?.selected_options ?? [];
                 return (
-                  <tr key={line.id} className="border-b last:border-0">
+                  <tr key={line.id} className="border-b align-top last:border-0">
                     <td className="py-2">
                       {cfg?.name ?? `#${cfg?.product_id ?? "?"}`}
+                      {options.length > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          {options.map((s) => s.option_name).join(" · ")}
+                        </div>
+                      )}
+                      {line.instructions && (
+                        <div className="mt-0.5 text-xs font-medium text-amber-700">
+                          Note: {line.instructions}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 text-right tabular-nums">
                       {line.quantity}

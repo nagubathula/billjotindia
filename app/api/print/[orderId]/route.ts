@@ -59,6 +59,27 @@ function divider(char = "-"): string {
   return char.repeat(WIDTH) + LF;
 }
 
+/** Word-wraps free text (customer instructions) to the paper width. */
+function wrap(text: string, indent = ""): string {
+  const cap = WIDTH - indent.length;
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.replace(/s+/g, " ").trim().split(" ")) {
+    if (line && line.length + 1 + word.length > cap) {
+      out.push(line);
+      line = word;
+    } else {
+      line = line ? line + " " + word : word;
+    }
+    while (line.length > cap) {
+      out.push(line.slice(0, cap));
+      line = line.slice(cap);
+    }
+  }
+  if (line) out.push(line);
+  return out.map((l) => indent + l + LF).join("");
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { orderId: string } },
@@ -129,8 +150,14 @@ export async function GET(
     const qty = String(line.quantity);
     const total = Number(line.total_price).toFixed(0);
     buf.push(padLine(name, `${qty.padStart(3)}  ${total.padStart(5)}`) + LF);
+    if (line.instructions) buf.push(wrap("* " + line.instructions, "  "));
   }
   buf.push(divider());
+  if (o.instructions) {
+    buf.push(BOLD_ON, "NOTE" + LF, BOLD_OFF);
+    buf.push(wrap(o.instructions));
+    buf.push(divider());
+  }
 
   // Totals
   buf.push(padLine("Subtotal", "Rs " + Number(o.subtotal ?? 0).toFixed(0)) + LF);
