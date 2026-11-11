@@ -3,7 +3,7 @@
 // /user) *in that restaurant* — not globally.
 
 import { notFound } from "next/navigation";
-import { getRestaurantBySlug, requireRole } from "@/lib/auth";
+import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/auth";
 
 type Props = {
   children: React.ReactNode;
@@ -11,7 +11,12 @@ type Props = {
 };
 
 export default async function PosRestaurantLayout({ children, params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  // Kick off the auth/role lookups alongside the restaurant row; requireRole
+  // below then resolves from the request cache.
+  const [restaurant] = await Promise.all([
+    getRestaurantBySlug(params.slug),
+    getCurrentUserRoles(),
+  ]);
   if (!restaurant) notFound();
 
   await requireRole(["admin", "manager", "user"], {

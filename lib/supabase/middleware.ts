@@ -39,6 +39,11 @@ export async function updateSession(request: NextRequest, rewriteUrl?: URL) {
     },
   );
 
-  await supabase.auth.getUser();
+  // getClaims() refreshes an expired session (writing new cookies via setAll)
+  // and verifies the JWT locally against the project's cached JWKS (ES256),
+  // so a valid session costs no Auth round trip — unlike getUser(), which
+  // called the Auth server on every request including link prefetches.
+  // Server components still call getUser() for the authoritative check.
+  await supabase.auth.getClaims();
   return response;
 }

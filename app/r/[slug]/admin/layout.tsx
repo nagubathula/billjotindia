@@ -8,12 +8,10 @@ import { notFound } from "next/navigation";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { MobileAdminNav } from "@/components/MobileAdminNav";
 import {
-  getCurrentUser,
+  getCurrentUserRoles,
   getRestaurantBySlug,
-  getRoleInRestaurant,
   requireRole,
 } from "@/lib/auth";
-import type { AppRole } from "@/lib/types";
 
 type Props = {
   children: React.ReactNode;
@@ -21,19 +19,19 @@ type Props = {
 };
 
 export default async function AdminLayout({ children, params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  // Start the auth/role lookups alongside the restaurant row; requireRole then
+  // resolves entirely from the request cache.
+  const [restaurant] = await Promise.all([
+    getRestaurantBySlug(params.slug),
+    getCurrentUserRoles(),
+  ]);
   if (!restaurant) notFound();
 
-  await requireRole(["admin", "manager"], {
+  // The sidebar's 'who am I' card uses the user + role requireRole returns.
+  const { user, role } = await requireRole(["admin", "manager"], {
     restaurantSlug: params.slug,
     redirectTo: `/r/${params.slug}/admin/orders`,
   });
-
-  // For the sidebar we also need the user's identity + role to render the
-  // 'who am I' card. requireRole only returns user/role/restaurant, so we
-  // re-use those values rather than re-querying.
-  const user = await getCurrentUser();
-  const role = (await getRoleInRestaurant(restaurant.id)) as AppRole;
   const userName =
     (user?.user_metadata?.display_name as string | undefined) ??
     (user?.user_metadata?.full_name as string | undefined) ??

@@ -107,43 +107,47 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
 
   const supabase = createClient();
-  const { data: ordersData } = await supabase
-    .from("orders")
-    .select("*")
-    .in("outlet_id", scoped)
-    .gte("placed_at", start.toISOString())
-    .lte("placed_at", end.toISOString())
-    .neq("status", "cancelled")
-    .order("placed_at", { ascending: true });
-
-  const orders = (ordersData ?? []) as Order[];
 
   // Previous comparable period (for deltas).
   const periodMs = end.getTime() - start.getTime();
   const prevEnd = new Date(start.getTime() - 1);
   const prevStart = new Date(prevEnd.getTime() - periodMs);
-  const { data: prevData } = await supabase
-    .from("orders")
-    .select("total_amount")
-    .in("outlet_id", scoped)
-    .gte("placed_at", prevStart.toISOString())
-    .lte("placed_at", prevEnd.toISOString())
-    .neq("status", "cancelled");
+
+  // The three reads are independent, so run them concurrently. Line items are
+  // embedded via the order_items → orders FK rather than fetched afterwards
+  // with a (potentially very long) `in.(…ids)` filter.
+  const [{ data: ordersData }, { data: prevData }, { data: prods }] =
+    await Promise.all([
+      supabase
+        .from("orders")
+        .select("*, order_items(*)")
+        .in("outlet_id", scoped)
+        .gte("placed_at", start.toISOString())
+        .lte("placed_at", end.toISOString())
+        .neq("status", "cancelled")
+        .order("placed_at", { ascending: true }),
+      supabase
+        .from("orders")
+        .select("total_amount")
+        .in("outlet_id", scoped)
+        .gte("placed_at", prevStart.toISOString())
+        .lte("placed_at", prevEnd.toISOString())
+        .neq("status", "cancelled"),
+      supabase.from("products").select("id, category").in("outlet_id", scoped),
+    ]);
+
+  const orders: Order[] = [];
+  const items: OrderItem[] = [];
+  for (const { order_items, ...order } of ordersData ?? []) {
+    orders.push(order as Order);
+    items.push(...((order_items ?? []) as OrderItem[]));
+  }
+
   const prevOrders = prevData?.length ?? 0;
   const prevRevenue = (prevData ?? []).reduce(
     (s, o) => s + Number(o.total_amount),
     0,
   );
-
-  let items: OrderItem[] = [];
-  if (orders.length > 0) {
-    const ids = orders.map((o) => o.id);
-    const { data: itemsData } = await supabase
-      .from("order_items")
-      .select("*")
-      .in("order_id", ids);
-    items = (itemsData ?? []) as OrderItem[];
-  }
 
   // ---- Aggregates ----
   const totalOrders = orders.length;
@@ -241,13 +245,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
 
   // ---- Sales by category (map product_id -> category via products) ----
   const prodCat = new Map<string, string>();
-  if (items.length > 0) {
-    const { data: prods } = await supabase
-      .from("products")
-      .select("id, category")
-      .in("outlet_id", scoped);
-    for (const p of prods ?? []) prodCat.set(p.id, p.category ?? "Other");
-  }
+  for (const p of prods ?? []) prodCat.set(p.id, p.category ?? "Other");
   const catTotals = new Map<string, number>();
   for (const it of items) {
     const cfg = it.product_config as unknown as ProductConfig | null;
