@@ -15,6 +15,7 @@ A specific tenant or restaurant concept. Belongs to a brand.
 ### `outlets`
 Physical store locations belonging to a `restaurant`. Orders, menu items, and POS settings are scoped to this ID.
 - **Fields:** `id`, `restaurant_id`, `slug`, `name`, `address`, `city`, `state`, `state_code`, `pincode`, `phone`, `gstin`, `fssai_license`, `status`
+- **Opening hours:** `opening_hours` (jsonb, outlet's own timezone) — `{"mon":[{"open":"09:00","close":"22:00"}], "tue":[], …}`. An empty array is a closed day; a close time earlier than the open time runs past midnight; `NULL` means never set. Parsed by `lib/opening-hours.ts`.
 
 ### `user_roles`
 Maps a Supabase Auth `user_id` to a specific `restaurant_id` with a specific role (`admin`, `manager`, `user`).
@@ -57,11 +58,13 @@ Junction table linking a `product` to a `customization_group`.
 The top-level record of a transaction.
 - **Fields:** `id`, `unique_order_id`, `outlet_id`, `source` (`pos`, `kiosk`, `web`, `zomato`, `swiggy`, `magicpin`, `dunzo`, `ondc`, `uber-eats`, `dotpe`, `other`), `customer_name`, `customer_email`, `customer_phone`, `order_type` (`dine-in`, `takeaway`, `delivery`), `subtotal`, `cgst_amount`, `sgst_amount`, `igst_amount`, `discount_amount`, `takeaway_charges` (packaging), `total_amount`, `status`, `token_number`, `placed_at`
 - **Aggregator fields:** `external_order_id` (unique per outlet + source, so webhook retries can't duplicate), `external_payload` (raw platform payload), `external_status` (platform-side status), `gst_paid_by_operator`, `commission_amount`, `platform_discount`, `delivery_charges`, `net_payout`, `delivery_partner` (`{name, phone, eta_minutes}`)
+- **Instructions:** `instructions` — the customer's note for the whole order. Shown on the kitchen board, the order page and the printed receipt.
+- **Cancellation:** `cancel_reason` (one of our own codes in `lib/order-cancel.ts`; each platform adapter maps them onto its own list), `cancel_note`, `cancelled_by` (`merchant`, `customer`, `platform`, `system`), `cancelled_at`, `cancel_product_ids` (the products that were out of stock). Staff can't cancel without a reason.
 - **GST:** Swiggy and Zomato orders have `gst_paid_by_operator = true` and zero CGST/SGST — the platform pays that 5% GST under Section 9(5) of the CGST Act. Reports exclude them from "GST collected".
 
 ### `order_items`
 Line items for an order.
-- **Fields:** `id`, `order_id`, `product_config` (JSON snapshot of product+options), `quantity`, `unit_price`, `total_price`
+- **Fields:** `id`, `order_id`, `product_config` (JSON snapshot of product+options), `quantity`, `unit_price`, `total_price`, `instructions` (the customer's note for this item)
 
 ### `printers` & `kitchen_stations`
 Configures kitchen display screens (KDS) or physical printers.
@@ -78,7 +81,7 @@ How a platform order maps onto our data. An adapter for each platform only has t
 
 | Table | Maps |
 | --- | --- |
-| `channel_outlets` | The platform's store id → our outlet, with `is_online` (busy switch) and `prep_time_minutes`. Unique per outlet + channel and per channel + store id. |
+| `channel_outlets` | The platform's store id → our outlet, with `is_online` (busy switch), `offline_reason` / `offline_since` (why and since when it is off; our own codes in `lib/channels.ts`) and `prep_time_minutes`. Unique per outlet + channel and per channel + store id. Edited under Admin → Channels. |
 | `channel_item_mappings` | The platform's item id → our product, with `price_override` (platform price) and `is_available`. |
 | `channel_option_mappings` | The platform's add-on/variant id → our `customization_options` row, same shape. |
 | `external_order_events` | Every webhook received: `event_type` (`order.placed`, `rider.assigned`, `order.delivered`, `order.cancelled`, …), raw `payload`, `signature_ok`, and `external_event_id` (unique per channel, for de-duplication). |
@@ -108,6 +111,9 @@ Because RLS prevents anonymous users from reading sensitive table data, we use `
 
 ### `get_my_order(p_order_id uuid)` — `authenticated` only
 - **Purpose:** One order, with line items, modifiers, GST split and the outlet's name/phone, for the live order-tracking page. Same email match as `get_my_orders`, so a guessed id returns nothing.
+
+### `purge_channel_data(p_channel text, p_older_than interval default '90 days')` — `service_role` only
+- **Purpose:** Stops us keeping what a delivery platform sent longer than needed. For that channel's orders older than the cutoff it clears `external_payload`, `customer_phone` and `delivery_partner` and sets `customer_name` to `Customer`; it also deletes the channel's `external_order_events` of that age. Amounts, items, tax and `external_order_id` stay. Returns `(orders_scrubbed, events_deleted)`. Pass `interval '0'` to scrub everything for a channel. **Irreversible.** Not scheduled by any migration — see `scripts/schedule-aggregator-purge.sql`.
 
 ### Access helpers used by RLS policies
 - `user_has_restaurant_access(rid uuid)`, `user_has_restaurant_role(rid uuid, allowed text[])`, `outlet_restaurant_id(oid uuid)`.

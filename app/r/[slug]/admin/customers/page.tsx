@@ -9,6 +9,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
+import { CUSTOMER_LIST_SOURCES } from "@/lib/channels";
 import {
   Card,
   CardContent,
@@ -46,7 +47,6 @@ type Customer = {
   spent: number;
   last: number;
   first: number;
-  sources: Set<string>;
 };
 
 export default async function CustomersPage({
@@ -61,11 +61,16 @@ export default async function CustomersPage({
   const outletIds = outlets.map((o) => o.id);
   const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
 
+  // Only orders customers placed with us directly. Delivery-platform orders
+  // (Zomato, Swiggy, …) are left out: those customers are the platform's, and
+  // their details reach us only to fulfil that one order — not to build a
+  // customer list from. They still count in Orders and Reports.
   const supabase = createClient();
   const { data } = await supabase
     .from("orders")
     .select("customer_name, customer_email, total_amount, placed_at, source, status")
     .in("outlet_id", scoped)
+    .in("source", CUSTOMER_LIST_SOURCES)
     .neq("status", "cancelled")
     .order("placed_at", { ascending: false })
     .limit(5000);
@@ -75,49 +80,30 @@ export default async function CustomersPage({
     "customer_name" | "customer_email" | "total_amount" | "placed_at" | "source" | "status"
   >[];
 
-  // Aggregate by a stable customer identifier. Skip POS walk-ins (no real customer identity).
+  // Aggregate by email. POS walk-ins and platform orders never get here (see
+  // the source filter above); the prefix check also drops placeholder emails.
   const map = new Map<string, Customer>();
   for (const o of orders) {
-    if (o.source === "pos") continue;
-    
-    const rawEmail = (o.customer_email ?? "").toLowerCase().trim();
-    if (!rawEmail || rawEmail.startsWith("pos+") || rawEmail.startsWith("guest+pos")) continue;
-
-    // For aggregator dummy emails (guest+zomato, guest+swiggy), the email isn't a stable identity.
-    // Try to group by phone number if we have it, otherwise fallback to the customer's name.
-    let identityKey = rawEmail;
-    if (rawEmail.startsWith("guest+")) {
-      const nameKey = (o.customer_name ?? "").toLowerCase().trim();
-      // We don't fetch customer_phone currently in the select, so we rely on name for guest+ emails
-      identityKey = nameKey || rawEmail; 
-    }
+    const email = (o.customer_email ?? "").toLowerCase().trim();
+    if (!email || email.startsWith("pos+") || email.startsWith("guest+")) continue;
 
     const t = o.placed_at ? new Date(o.placed_at).getTime() : 0;
     const cur =
-      map.get(identityKey) ??
+      map.get(email) ??
       ({
-        email: rawEmail,
-        name: o.customer_name ?? rawEmail,
+        email,
+        name: o.customer_name ?? email,
         orders: 0,
         spent: 0,
         last: 0,
         first: Number.MAX_SAFE_INTEGER,
-        sources: new Set<string>(),
       } as Customer);
-      
+
     cur.orders += 1;
     cur.spent += Number(o.total_amount);
     cur.last = Math.max(cur.last, t);
     cur.first = Math.min(cur.first, t);
-    cur.sources.add(o.source);
-    
-    // If it's a grouped dummy account, update the display email to show multiple sources if applicable
-    if (identityKey !== rawEmail) {
-      const sourcesArr = Array.from(cur.sources).join(", ");
-      cur.email = `Aggregator (${sourcesArr})`;
-    }
-    
-    map.set(identityKey, cur);
+    map.set(email, cur);
   }
 
   const customers = Array.from(map.values()).sort((a, b) => b.spent - a.spent);
@@ -136,7 +122,7 @@ export default async function CustomersPage({
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description="People who've ordered from your storefront, delivery and online channels. Walk-in counter sales are excluded."
+        description="People who've ordered from your own storefront and kiosk. Walk-in counter sales and delivery-platform orders (Zomato, Swiggy) are excluded."
       />
 
       {total === 0 ? (
@@ -145,7 +131,7 @@ export default async function CustomersPage({
             <EmptyState
               icon={UsersRound}
               title="No customers yet"
-              description="Once customers order online or for delivery, they'll appear here with their order history and spend."
+              description="Once customers order from your storefront, they'll appear here with their order history and spend."
             />
           </CardContent>
         </Card>

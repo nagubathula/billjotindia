@@ -1,8 +1,12 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+  CancelOrderDialog,
+  type CancelOrderLine,
+} from "@/components/CancelOrderDialog";
 import type { OrderStatus } from "@/lib/types";
 import { updateOrderStatusAction } from "./actions";
 
@@ -28,21 +32,27 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 export function OrderStatusActions({
   slug,
   orderId,
+  orderLabel,
   currentStatus,
+  lines,
 }: {
   slug: string;
   orderId: string;
+  orderLabel: string;
   currentStatus: OrderStatus;
+  lines: CancelOrderLine[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   const nextOptions = FORWARD_NEXT[currentStatus] ?? [];
   const canCancel =
     currentStatus !== "completed" && currentStatus !== "cancelled";
+  // Before it's accepted the restaurant is rejecting the order; after, cancelling it.
+  const verb = currentStatus === "pending" ? "reject" : "cancel";
 
   const apply = (s: OrderStatus) => {
-    if (s === "cancelled" && !confirm("Cancel this order?")) return;
     start(async () => {
       const res = await updateOrderStatusAction(slug, orderId, s);
       if (!res.ok) alert(res.error);
@@ -70,12 +80,22 @@ export function OrderStatusActions({
       {canCancel && (
         <Button
           variant="destructive"
-          onClick={() => apply("cancelled")}
+          onClick={() => setCancelOpen(true)}
           disabled={pending}
         >
-          Cancel order
+          {verb === "reject" ? "Reject order" : "Cancel order"}
         </Button>
       )}
+      <CancelOrderDialog
+        slug={slug}
+        orderId={orderId}
+        orderLabel={orderLabel}
+        lines={lines}
+        verb={verb}
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        onDone={() => router.refresh()}
+      />
     </div>
   );
 }

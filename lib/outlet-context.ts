@@ -7,7 +7,6 @@ import "server-only";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { getDefaultOutletForRestaurant } from "@/lib/auth";
 import type { Outlet } from "@/lib/types";
 
 function cookieName(slug: string) {
@@ -39,15 +38,10 @@ export const getSelectedOutlet = cache(
       }
     }
 
-    // Fall back to default. We hit the same restaurant_id-scoped index.
-    const def = await getDefaultOutletForRestaurant(restaurantId);
-    if (!def) return null;
-    const { data } = await supabase
-      .from("outlets")
-      .select("*")
-      .eq("id", def.id)
-      .maybeSingle();
-    return (data as Outlet | null) ?? null;
+    // Fall back to the default (lowest-id) outlet. Re-uses the request-cached
+    // outlet list (ordered by id) instead of two extra round trips.
+    const all = await getOutletsForRestaurant(restaurantId);
+    return all[0] ?? null;
   },
 );
 

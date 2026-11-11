@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getRestaurantBySlug, requireRole } from "@/lib/auth";
+import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import { PosBilling } from "./PosBilling";
 import type { AppRole, Category, Product } from "@/lib/types";
@@ -16,15 +16,19 @@ const ROLE_LABEL: Record<AppRole, string> = {
 type Props = { params: { slug: string } };
 
 export default async function PosPage({ params }: Props) {
-  const restaurant = await getRestaurantBySlug(params.slug);
+  const [restaurant] = await Promise.all([
+    getRestaurantBySlug(params.slug),
+    getCurrentUserRoles(),
+  ]);
   if (!restaurant) notFound();
 
-  const { user, role } = await requireRole(
-    ["admin", "manager", "user"],
-    { restaurantSlug: params.slug, redirectTo: `/r/${params.slug}/pos` },
-  );
-
-  const [outlet, outlets] = await Promise.all([
+  // Outlet reads are RLS-scoped, so it's safe to start them alongside the
+  // role check rather than after it.
+  const [{ user, role }, outlet, outlets] = await Promise.all([
+    requireRole(["admin", "manager", "user"], {
+      restaurantSlug: params.slug,
+      redirectTo: `/r/${params.slug}/pos`,
+    }),
     getSelectedOutlet(restaurant.id, params.slug),
     getOutletsForRestaurant(restaurant.id),
   ]);

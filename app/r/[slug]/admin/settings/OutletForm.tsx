@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Building, MapPin, Receipt, Save } from "lucide-react";
+import { Building, Clock, MapPin, Receipt, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Outlet } from "@/lib/types";
 import { updateOutletAction } from "./actions";
+import { OpeningHoursField } from "./OpeningHoursField";
 
 export function OutletForm({ slug, outlet }: { slug: string; outlet: Outlet }) {
   const router = useRouter();
@@ -112,6 +113,22 @@ export function OutletForm({ slug, outlet }: { slug: string; outlet: Outlet }) {
             placeholder="12345678901234"
             className="sm:col-span-2"
           />
+        </CardContent>
+      </Card>
+
+      {/* Opening hours */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            Opening hours
+          </CardTitle>
+          <CardDescription>
+            When this outlet takes orders. Saved for delivery platforms to pick up once connected.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OpeningHoursField initial={outlet.opening_hours} />
         </CardContent>
       </Card>
 

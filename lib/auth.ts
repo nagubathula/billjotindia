@@ -81,26 +81,32 @@ export async function getRoleInRestaurant(
  * the `/r/[slug]/...` URL segment by passing the slug explicitly via the
  * `slug` option (so this function never has to read request context itself).
  */
-export const getCurrentRestaurant = cache(
-  async (opts?: { slug?: string; id?: string }): Promise<Restaurant | null> => {
+// Not wrapped in cache() itself: React's cache keys on argument identity, so
+// an options object would miss every time. It delegates to the primitive-keyed
+// cached lookups instead, which also share results with layouts/pages that
+// already called getRestaurantBySlug for the same slug.
+export async function getCurrentRestaurant(opts?: {
+  slug?: string;
+  id?: string;
+}): Promise<Restaurant | null> {
+  if (opts?.id) return getRestaurantById(opts.id);
+  return getRestaurantBySlug(opts?.slug ?? "default");
+}
+
+export const getRestaurantById = cache(
+  async (id: string): Promise<Restaurant | null> => {
     const supabase = createClient();
-    let query = supabase.from("restaurants").select("*").limit(1);
-
-    if (opts?.id) {
-      query = query.eq("id", opts.id);
-    } else if (opts?.slug) {
-      query = query.eq("slug", opts.slug);
-    } else {
-      query = query.eq("slug", "default");
-    }
-
-    const { data } = await query.maybeSingle();
+    const { data } = await supabase
+      .from("restaurants")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
     return (data as Restaurant | null) ?? null;
   },
 );
 
 /**
- * Look up a restaurant by slug or id. Cached per-request.
+ * Look up a restaurant by slug. Cached per-request.
  */
 export const getRestaurantBySlug = cache(
   async (slug: string): Promise<Restaurant | null> => {
@@ -233,15 +239,18 @@ type RequireRoleOpts = {
 export async function requireRole(allowed: AppRole[], opts: RequireRoleOpts = {}) {
   const next = opts.redirectTo ?? "/";
 
-  const user = await getCurrentUser();
+  // Independent lookups run concurrently: the auth check + role rows (which
+  // chain internally) alongside the restaurant row. All are request-cached,
+  // so the getRoleInRestaurant call below re-uses the roles already fetched.
+  const [user, restaurant] = await Promise.all([
+    getCurrentUser(),
+    getCurrentRestaurant({ id: opts.restaurantId, slug: opts.restaurantSlug }),
+    getCurrentUserRoles(),
+  ]);
   if (!user) {
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }
 
-  const restaurant = await getCurrentRestaurant({
-    id: opts.restaurantId,
-    slug: opts.restaurantSlug,
-  });
   if (!restaurant) {
     // Shouldn't happen once Phase 5 ensures every signup creates a restaurant,
     // but bail safely if the requested one doesn't exist.
@@ -264,10 +273,10 @@ export async function maybeRole(
   allowed: AppRole[],
   opts: RequireRoleOpts = {},
 ): Promise<AppRole | null> {
-  const restaurant = await getCurrentRestaurant({
-    id: opts.restaurantId,
-    slug: opts.restaurantSlug,
-  });
+  const [restaurant] = await Promise.all([
+    getCurrentRestaurant({ id: opts.restaurantId, slug: opts.restaurantSlug }),
+    getCurrentUserRoles(),
+  ]);
   if (!restaurant) return null;
   const role = await getRoleInRestaurant(restaurant.id);
   if (!role || !allowed.includes(role)) return null;

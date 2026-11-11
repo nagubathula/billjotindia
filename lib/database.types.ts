@@ -237,6 +237,8 @@ export type Database = {
           id: string
           is_online: boolean
           last_synced_at: string | null
+          offline_reason: string | null
+          offline_since: string | null
           outlet_id: string
           prep_time_minutes: number
           updated_at: string
@@ -248,6 +250,8 @@ export type Database = {
           id?: string
           is_online?: boolean
           last_synced_at?: string | null
+          offline_reason?: string | null
+          offline_since?: string | null
           outlet_id: string
           prep_time_minutes?: number
           updated_at?: string
@@ -259,6 +263,8 @@ export type Database = {
           id?: string
           is_online?: boolean
           last_synced_at?: string | null
+          offline_reason?: string | null
+          offline_since?: string | null
           outlet_id?: string
           prep_time_minutes?: number
           updated_at?: string
@@ -582,6 +588,7 @@ export type Database = {
       order_items: {
         Row: {
           id: string
+          instructions: string | null
           order_id: string | null
           product_config: Json
           quantity: number
@@ -590,6 +597,7 @@ export type Database = {
         }
         Insert: {
           id?: string
+          instructions?: string | null
           order_id?: string | null
           product_config: Json
           quantity: number
@@ -598,6 +606,7 @@ export type Database = {
         }
         Update: {
           id?: string
+          instructions?: string | null
           order_id?: string | null
           product_config?: Json
           quantity?: number
@@ -616,6 +625,11 @@ export type Database = {
       }
       orders: {
         Row: {
+          cancel_note: string | null
+          cancel_product_ids: string[]
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           cashier_id: string | null
           cgst_amount: number
           commission_amount: number
@@ -633,6 +647,7 @@ export type Database = {
           gst_paid_by_operator: boolean
           id: string
           igst_amount: number
+          instructions: string | null
           net_payout: number | null
           order_type: string | null
           outlet_id: string
@@ -651,6 +666,11 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          cancel_note?: string | null
+          cancel_product_ids?: string[]
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           cashier_id?: string | null
           cgst_amount?: number
           commission_amount?: number
@@ -668,6 +688,7 @@ export type Database = {
           gst_paid_by_operator?: boolean
           id?: string
           igst_amount?: number
+          instructions?: string | null
           net_payout?: number | null
           order_type?: string | null
           outlet_id: string
@@ -686,6 +707,11 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          cancel_note?: string | null
+          cancel_product_ids?: string[]
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           cashier_id?: string | null
           cgst_amount?: number
           commission_amount?: number
@@ -703,6 +729,7 @@ export type Database = {
           gst_paid_by_operator?: boolean
           id?: string
           igst_amount?: number
+          instructions?: string | null
           net_payout?: number | null
           order_type?: string | null
           outlet_id?: string
@@ -748,6 +775,7 @@ export type Database = {
           gstin: string | null
           id: string
           name: string
+          opening_hours: Json | null
           phone: string | null
           pincode: string | null
           restaurant_id: string
@@ -768,6 +796,7 @@ export type Database = {
           gstin?: string | null
           id?: string
           name: string
+          opening_hours?: Json | null
           phone?: string | null
           pincode?: string | null
           restaurant_id: string
@@ -788,6 +817,7 @@ export type Database = {
           gstin?: string | null
           id?: string
           name?: string
+          opening_hours?: Json | null
           phone?: string | null
           pincode?: string | null
           restaurant_id?: string
@@ -1325,6 +1355,13 @@ export type Database = {
         }[]
       }
       outlet_restaurant_id: { Args: { oid: string }; Returns: string }
+      public_bestsellers: {
+        Args: { p_limit?: number; p_restaurant_id: string }
+        Returns: {
+          product_id: string
+          quantity: number
+        }[]
+      }
       public_outlets_for_restaurant: {
         Args: { p_restaurant_id: string }
         Returns: {
@@ -1351,6 +1388,13 @@ export type Database = {
           id: string
           name: string
           slug: string
+        }[]
+      }
+      purge_channel_data: {
+        Args: { p_channel: string; p_older_than?: string }
+        Returns: {
+          events_deleted: number
+          orders_scrubbed: number
         }[]
       }
       restaurant_slug_for_domain: { Args: { host: string }; Returns: string }
