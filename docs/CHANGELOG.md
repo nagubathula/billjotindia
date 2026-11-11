@@ -4,11 +4,12 @@
 
 Nothing here talks to a platform yet. It is the part of a POS integration that doesn't depend on any platform's API: the screens and columns an adapter will read and write.
 
-### New migration (applied to production 2026-11-12)
+### New migrations (applied to production 2026-11-12)
 
 | Migration | What it does |
 | --- | --- |
 | `20261111090000_aggregator_order_handling` | `orders`: `instructions`, `cancel_reason`, `cancel_note`, `cancelled_by`, `cancelled_at`, `cancel_product_ids`. `order_items`: `instructions`. `channel_outlets`: `offline_reason`, `offline_since`. `outlets`: `opening_hours`. Adds `purge_channel_data()`. Additive only. |
+| `20261112090000_seed_order_handling_samples` | Sample data for `billjot-demo-cafe` only (see below). Skips itself if the demo outlet or its sample orders are missing, or if it has already run. |
 
 Any other environment needs it before this code runs there: cancelling an order, switching a channel off and saving an outlet all write the new columns. `lib/database.types.ts` was regenerated after the push (which also picked up `public_bestsellers`, missing since `20261104100000`).
 
@@ -23,6 +24,12 @@ Any other environment needs it before this code runs there: cancelling an order,
 - **Admin → Channels.** Link an outlet to its store id per platform, set prep time, and mark it online/offline with a reason. Saved in billjot only until an adapter exists — the page says so.
 - **Opening hours** per outlet under Admin → Settings, with split shifts.
 - **Customers list** now only counts storefront and kiosk orders. Delivery-platform customers are the platform's and are no longer profiled there; their orders still count in Orders and Reports.
+
+### Sample data for the new features (demo cafe)
+
+On production this explained 10 cancelled sample orders (reason, who, when, out-of-stock product), added a customer note to 37 sample orders and 55 items, set the demo outlet's opening hours, and added a fresh live queue of 7 orders: three new (Zomato, Swiggy, web), one accepted, one preparing, one ready and one just rejected for an out-of-stock item.
+
+The 7 new orders use the earlier seed's markers (`DEMO-…`, `{"sample": true}`, `evt_demo_…`), so the clean-up statements under 2026-11-04 remove them too. The header of the migration has the statements that undo the rest.
 
 ### Keeping less platform data
 
