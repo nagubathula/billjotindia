@@ -17,7 +17,7 @@ The application requires the following environment variables (defined in `.env.l
   - For local subdomain testing, set to `lvh.me` and visit `http://[slug].lvh.me:3000`.
 
 ### Security
-- `STOREFRONT_ORDER_TOKEN`: A shared secret. If set, any external storefront client posting to `/api/orders` must include this in the `x-storefront-token` header. Prevents spam if the API is exposed.
+- `STOREFRONT_ORDER_TOKEN`: A shared secret. If set, external storefronts must send it with every order. Prevents spam if the API is exposed.
 
 ---
 

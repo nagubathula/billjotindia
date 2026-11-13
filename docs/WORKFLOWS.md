@@ -83,7 +83,7 @@ classDiagram
 1. **Open Tab:** Cashier selects "New Tab" in the POS and assigns a name (e.g., "Table 12"). Server Action `openTab()` fires.
 2. **Add Items:** Throughout the meal, the cashier selects items and adds them to the tab via `addItemToTab()`. This saves the items to a temporary draft state (or a `pending` status order).
 3. **KOT Generation:** Every time items are added, a Kitchen Order Ticket (KOT) is generated and sent to the `kitchen_stations` so the chefs start cooking.
-4. **Close Tab (Checkout):** When the customer is ready to pay, `closeTab()` is called. The tab converts into a finalized `POST /api/orders` payload, recalculating final GST and totals, and the payment flow begins.
+4. **Close Tab (Checkout):** When the customer is ready to pay, `closeTab()` is called. The tab is sent to the order API as a finalized order, recalculating final GST and totals, and the payment flow begins.
 
 ---
 
@@ -92,7 +92,7 @@ classDiagram
 **Goal:** Handle the lifecycle of an order from placement to completion securely.
 
 **Steps:**
-1. **Order Placed:** Customer submits the checkout form via POS, Kiosk, or Web to `POST /api/orders` (or via closing a POS Tab).
+1. **Order Placed:** Customer submits the checkout form via POS, Kiosk, or Web to the order API (or via closing a POS Tab).
 2. **Price Re-computation:** 
    - If it is a First-Party order, the server discards client totals. It recalculates the final price using the server's database (`Products` + `CustomizationOptions` pricing) and extracts GST.
    - If it is a Third-Party order (Aggregator webhook), the server trusts the total (since aggregators markup prices) but extracts GST dynamically.
@@ -103,7 +103,7 @@ classDiagram
 ```mermaid
 sequenceDiagram
     participant Client as POS / Web
-    participant API as POST /api/orders
+    participant API as Order API
     participant DB as Supabase
     
     Client->>API: Send Order & Config payload
@@ -122,6 +122,6 @@ sequenceDiagram
 
 **Steps:**
 1. **Trigger:** POS user clicks "Print Receipt" on an order.
-2. **Fetch:** POS fetches the binary payload from `GET /api/print/[orderId]`.
+2. **Fetch:** POS fetches the binary payload from the receipt-printing endpoint.
 3. **Generation:** Server reads order details, formats an ESC/POS byte array (setting alignment, fonts, cuts), and returns it as `application/octet-stream`.
 4. **Delivery:** The local client (via Web USB/Bluetooth or a local background daemon) pushes the bytes directly to the thermal printer hardware.

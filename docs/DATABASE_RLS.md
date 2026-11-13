@@ -33,7 +33,7 @@ All RLS policies rely on three helper functions defined in PostgreSQL:
 ### 3. Orders & Kitchen
 - **`orders` & `order_items`**: 
   - `SELECT/UPDATE`: Only staff with access to the restaurant can read or update orders. 
-  - *Note: Customer-facing inserts from the public storefront (`POST /api/orders`) bypass RLS by using the Supabase Service Role Key on the backend.*
+  - *Note: Customer-facing inserts from the public storefront (through the order API) bypass RLS by using the Supabase Service Role Key on the backend.*
 - **`printers` & `kitchen_stations`**:
   - `SELECT/UPDATE`: Only Admins and Managers can configure hardware.
 - **`kot_tickets` & `kot_ticket_items`**:

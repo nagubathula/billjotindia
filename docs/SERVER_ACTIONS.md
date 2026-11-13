@@ -43,7 +43,7 @@ This file handles all CRUD (Create, Read, Update, Delete) operations for the men
 **File:** `app/(pos)/r/[slug]/pos/tab-actions.ts`
 - `openTab(customerDetails)`: Opens a running bill for a dine-in table or bar customer.
 - `addItemToTab(tabId, item)`: Appends an item to an existing, unpaid open tab.
-- `closeTab(tabId)`: Finalizes the bill, generates the final total (triggering the `POST /api/orders` flow), and marks it for payment.
+- `closeTab(tabId)`: Finalizes the bill, generates the final total (through the order API), and marks it for payment.
 
 ---
 

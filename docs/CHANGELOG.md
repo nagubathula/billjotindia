@@ -6,12 +6,12 @@ No migrations. One new optional environment variable, `CHANNEL_ORDER_TOKEN`.
 
 ### Fixed
 
-- **Callers could set their own prices.** `POST /api/orders` re-priced an order only when it had no `external_order_id` and named `web`, `pos` or `kiosk` as its source, so sending `source: "zomato"` — or any external id — stored whatever totals the request carried. The path is now chosen by `source` alone, and a platform source needs the `x-channel-token` secret. Until `CHANNEL_ORDER_TOKEN` is set, nothing can post a platform order through this route.
+- **Callers could set their own prices.** The order API re-priced an order only when it had no external order id and came from the web, POS or a kiosk, so a request naming a delivery platform — or carrying any external id — stored whatever totals it carried. Which path an order takes now depends on its source alone, and platform orders need the channel secret. Until `CHANNEL_ORDER_TOKEN` is set, no platform order can be posted this way.
 - **Add-ons weren't checked against the product.** An option only had to exist somewhere in the database. Now it must be active and belong to a group linked to that product, once per line; pick-one groups take one option and required groups need a choice. Names and prices are stored from the catalog.
 - **A failed order could leave an empty ticket.** If the line items don't save, the order row is removed again.
 - **Order numbers could repeat** when two orders arrived in the same millisecond. They now end in three random characters: `BJ-1794495444507-A18`.
 - **Two deliveries of the same platform order at the same moment** returned an error to the second. It now gets the first one's order back, like any other repeat.
-- **`GET /api/print/[orderId]` needed no sign-in.** It now needs a staff session for the order's restaurant.
+- **The receipt-printing endpoint needed no sign-in.** It now needs a staff session for the order's restaurant.
 - **Printed notes lost every "s".** The receipt's line-wrapping replaced runs of the letter `s`, not of whitespace: "less spicy" printed as "le  picy".
 - **"Today" followed the server's clock.** The overview and Reports took midnight, hour-of-day and day buckets from the host's time zone, so on a UTC host the day turned over at 05:30 IST. They now use the first outlet's `timezone` (`Asia/Kolkata` unless changed). Timestamps on receipts, order pages and tables name the zone too. Helpers are in `lib/time.ts`.
 
@@ -42,7 +42,7 @@ Any other environment needs it before this code runs there: cancelling an order,
 - **Order bell.** The kitchen board has a sound switch. Every new order chimes once; an order that didn't come from the POS keeps chiming until it is accepted or rejected. Browsers need one tap on the page before they allow sound.
 - **Kitchen board stays live when empty.** It used to unmount with no tickets, which also stopped it polling, so the first order of a quiet spell never appeared without a manual reload.
 - **Accept step for platform orders.** A pending Zomato/Swiggy ticket shows "Accept order" before "Start cooking". Own orders are unchanged.
-- **Instructions.** `POST /api/orders` accepts `instructions` on the order and on each item; they show on the kitchen board, the order page and the receipt. The storefront and POS don't collect them yet.
+- **Instructions.** The order API accepts `instructions` on the order and on each item; they show on the kitchen board, the order page and the receipt. The storefront and POS don't collect them yet.
 - **Add-ons on the order page.** Selected options now show under each item there, as they already did on the kitchen board.
 - **Admin → Channels.** Link an outlet to its store id per platform, set prep time, and mark it online/offline with a reason. Saved in billjot only until an adapter exists — the page says so.
 - **Opening hours** per outlet under Admin → Settings, with split shifts.
@@ -69,7 +69,7 @@ The 7 new orders use the earlier seed's markers (`DEMO-…`, `{"sample": true}`,
 
 ### GST on Swiggy / Zomato orders
 
-Under Section 9(5) of the CGST Act, food aggregators pay the 5% GST on restaurant orders placed through them. `/api/orders` now records Swiggy and Zomato orders with zero CGST/SGST and `gst_paid_by_operator = true`, and Reports leaves them out of "GST collected". Confirm the treatment with your accountant.
+Under Section 9(5) of the CGST Act, food aggregators pay the 5% GST on restaurant orders placed through them. The order API now records Swiggy and Zomato orders with zero CGST/SGST and `gst_paid_by_operator = true`, and Reports leaves them out of "GST collected". Confirm the treatment with your accountant.
 
 ### Sample data
 
@@ -91,7 +91,7 @@ delete from public.channel_outlets where external_store_id like '%-DEMO-%';
 
 ### Still to do for a live integration
 
-- Webhook routes per platform (`app/api/webhooks/{swiggy,zomato}`) that verify signatures, log to `external_order_events` and translate payloads via the mapping tables.
+- Webhook handlers per platform that verify signatures, log to `external_order_events` and translate payloads via the mapping tables.
 - Pushing status changes (accept / ready / handover) and menu/stock changes back to each platform, with retries.
 - Partner credentials: Swiggy and Zomato need approved POS-partner status, or a middleware such as UrbanPiper.
 
@@ -110,7 +110,7 @@ all data, but the app and two RPCs were never updated:
 | Every slug-resolved storefront and `/me/orders` failed | `public_restaurant_by_slug` and `get_my_orders` were dropped with `CASCADE` and never recreated | Migration `20261103090000` recreates both with uuid ids |
 | Order, receipt and ESC/POS print pages 404'd | `Number(params.id)` turned uuids into `NaN` | Ids are strings; route params are checked with `isUuid()` |
 | Menu, brand and user actions wrote `NaN` ids | `Number(formData.get("…_id"))` | Read as strings |
-| `/api/orders` fell back to outlet `NaN` | `Number(NEXT_PUBLIC_DEFAULT_OUTLET_ID)` | Used as a string |
+| The order API fell back to outlet `NaN` | `Number(NEXT_PUBLIC_DEFAULT_OUTLET_ID)` | Used as a string |
 | POS tabs failed | `pos_tabs` only existed as an unapplied bigint script | Created in migration `20261103090000` |
 | Storefront checkout always said "not accepting orders" | Outlet guard compared a uuid to `-1` | Checks for a missing id instead |
 
@@ -144,6 +144,6 @@ It's linked from the sidebar ("Overview"), the mobile header and the restaurant 
 
 ### Still to do
 
-- **Update `SUPABASE_SERVICE_ROLE_KEY`** in `billjotindia/.env.local` and in production. The old key was rotated and is now rejected (`401 Unregistered API key`), so server actions and `/api/orders` fail until the new key is set.
+- **Update `SUPABASE_SERVICE_ROLE_KEY`** in `billjotindia/.env.local` and in production. The old key was rotated and is now rejected (`401 Unregistered API key`), so server actions and the order API fail until the new key is set.
 - Demo staff logins: run `node --env-file=.env.local scripts/create-user.mjs` once the key is set (the seed migration deliberately creates no auth users).
 - The demo cafe adds dishes at base price; it doesn't yet show the modifier picker (size, milk, toppings) that the main app's storefront has. Required groups aren't enforced server-side either.

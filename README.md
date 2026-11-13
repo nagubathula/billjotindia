@@ -21,9 +21,9 @@ Then open http://localhost:3000.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Same screen, `service_role` key. Server-only — never expose to the browser. |
 | `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | **UUID** of the outlet to use when a client doesn't specify one (`select id from outlets where slug = 'main'`). All ids are uuids since the `20260719000000_uuid_refactor` migration. |
-| `STOREFRONT_ORDER_TOKEN` | Optional shared secret that standalone storefronts (e.g. `billjotdemocafe`) send as `x-storefront-token` when forwarding orders. |
-| `STOREFRONT_ALLOWED_ORIGINS` | Optional comma-separated CORS allowlist for `/api/orders`. |
-| `CHANNEL_ORDER_TOKEN` | Optional secret a delivery-platform adapter sends as `x-channel-token`. It is the only way to post an order at prices the server didn't compute; while unset, `/api/orders` refuses every source other than `web`, `pos` and `kiosk`. |
+| `STOREFRONT_ORDER_TOKEN` | Optional shared secret that standalone storefronts (e.g. `billjotdemocafe`) send when forwarding orders. |
+| `STOREFRONT_ALLOWED_ORIGINS` | Optional comma-separated list of websites allowed to call the order API from a browser. |
+| `CHANNEL_ORDER_TOKEN` | Optional secret for delivery-platform adapters. It is the only way to store an order at prices the server didn't compute; while unset, platform orders are refused. |
 
 ## Database migrations
 
@@ -68,7 +68,7 @@ Repeat for `categories` and `promotional_banners`. For `orders` / `order_items`,
 app/
   page.tsx                    # menu (server component, reads from Supabase)
   cart/page.tsx               # client cart, localStorage-backed
-  checkout/page.tsx           # POSTs to /api/orders
+  checkout/page.tsx           # sends the order to the order API
   orders/[id]/page.tsx        # confirmation
   admin/orders/page.tsx       # recent orders table
   api/orders/route.ts         # insert order + order_items
@@ -97,4 +97,4 @@ The goal is a Petpooja-class POS + kiosk for Indian F&B. Phase order:
 3. **KOT / KDS** — thermal printer (ESC/POS) for kitchen tickets; KDS screen for stations.
 4. **Inventory + recipes** — raw materials, recipe ingredients, stock deduction on order.
 5. **Multi-outlet + captain app** — central menu, consolidated reports, tablet ordering.
-6. **Aggregator integrations** — Zomato, Swiggy, Magicpin, ONDC. Each lives under `app/api/webhooks/{channel}/route.ts`, writes to `orders` with `source='zomato'` etc., dedupes on `(outlet_id, source, external_order_id)`, and logs every callback to `external_order_events`. Zomato and Swiggy both require approved POS-partner status — apply early (partners@zomato.com, Swiggy POS team) since onboarding takes weeks.
+6. **Aggregator integrations** — Zomato, Swiggy, Magicpin, ONDC. Each has its own webhook handler, writes to `orders` with `source='zomato'` etc., dedupes on `(outlet_id, source, external_order_id)`, and logs every callback to `external_order_events`. Zomato and Swiggy both require approved POS-partner status — apply early (partners@zomato.com, Swiggy POS team) since onboarding takes weeks.
