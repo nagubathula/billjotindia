@@ -20,10 +20,10 @@ function cookieName(slug: string) {
  */
 export const getSelectedOutlet = cache(
   async (restaurantId: string, restaurantSlug: string): Promise<Outlet | null> => {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const cookieVal = cookieStore.get(cookieName(restaurantSlug))?.value;
 
-    const supabase = createClient();
+    const supabase = await createClient();
 
     if (cookieVal) {
       const cookieOutletId = cookieVal;
@@ -50,7 +50,7 @@ export const getSelectedOutlet = cache(
  */
 export const getOutletsForRestaurant = cache(
   async (restaurantId: string): Promise<Outlet[]> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("outlets")
       .select("*")

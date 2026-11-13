@@ -23,7 +23,7 @@ export async function setSelectedOutletAction(
 
   // Guard: outlet must belong to this restaurant. Without this an admin could
   // swap to an outlet of a different restaurant by tampering with the request.
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: outlet } = await supabase
     .from("outlets")
     .select("id")
@@ -34,7 +34,7 @@ export async function setSelectedOutletAction(
 
   // Cookie is HttpOnly so client JS can't read it; server reads it on next
   // request. Path-restrict to this restaurant's tree.
-  cookies().set(outletCookieName(restaurantSlug), String(outletId), {
+  (await cookies()).set(outletCookieName(restaurantSlug), String(outletId), {
     httpOnly: true,
     sameSite: "lax",
     path: `/r/${restaurantSlug}`,

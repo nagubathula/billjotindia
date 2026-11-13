@@ -90,7 +90,7 @@ export async function signUpAction(_prev: State, formData: FormData): Promise<St
     "http://localhost:3000";
   const next = `/r/${slug}/pos`;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -148,7 +148,7 @@ export async function createRestaurantAction(
     return { ok: false, error: "Enter your restaurant's name." };
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

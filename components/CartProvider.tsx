@@ -25,6 +25,8 @@ export type CartLine = {
 type CartContextValue = {
   restaurantSlug: string;
   lines: CartLine[];
+  tableName: string | null;
+  setTableName: (table: string | null) => void;
   /** Add a product with optional modifier selections. */
   add: (product: Product, selectedOptions?: SelectedOption[]) => void;
   remove: (configKey: string) => void;
@@ -38,6 +40,10 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 function storageKey(slug: string) {
   return `billjot.cart.${slug}.v2`;
+}
+
+function tableStorageKey(slug: string) {
+  return `billjot.table.${slug}.v1`;
 }
 
 function buildConfigKey(productId: string, options: SelectedOption[]): string {
@@ -54,12 +60,23 @@ export function CartProvider({
   restaurantSlug: string;
 }) {
   const [lines, setLines] = useState<CartLine[]>([]);
+  const [tableName, setTableNameState] = useState<string | null>(null);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey(restaurantSlug));
       if (raw) setLines(JSON.parse(raw));
       else setLines([]);
+
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get("table")?.trim();
+      if (fromUrl) {
+        sessionStorage.setItem(tableStorageKey(restaurantSlug), fromUrl);
+        setTableNameState(fromUrl);
+      } else {
+        const savedTable = sessionStorage.getItem(tableStorageKey(restaurantSlug));
+        setTableNameState(savedTable || null);
+      }
     } catch {}
   }, [restaurantSlug]);
 
@@ -69,6 +86,14 @@ export function CartProvider({
     } catch {}
   }, [lines, restaurantSlug]);
 
+  const setTableName = (t: string | null) => {
+    setTableNameState(t);
+    try {
+      if (t) sessionStorage.setItem(tableStorageKey(restaurantSlug), t);
+      else sessionStorage.removeItem(tableStorageKey(restaurantSlug));
+    } catch {}
+  };
+
   const value = useMemo<CartContextValue>(() => {
     const subtotal = lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
     const count = lines.reduce((s, l) => s + l.quantity, 0);
@@ -76,6 +101,8 @@ export function CartProvider({
     return {
       restaurantSlug,
       lines,
+      tableName,
+      setTableName,
       subtotal,
       count,
       add: (product, selectedOptions = []) =>
@@ -113,7 +140,7 @@ export function CartProvider({
         ),
       clear: () => setLines([]),
     };
-  }, [lines, restaurantSlug]);
+  }, [lines, restaurantSlug, tableName]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

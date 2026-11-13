@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
+import { getPublicPaymentConfig } from "@/lib/payments";
 import { PosBilling } from "./PosBilling";
 import type { AppRole, Category, Product } from "@/lib/types";
 
@@ -13,9 +14,10 @@ const ROLE_LABEL: Record<AppRole, string> = {
   user: "Cashier",
 };
 
-type Props = { params: { slug: string } };
+type Props = { params: Promise<{ slug: string }> };
 
-export default async function PosPage({ params }: Props) {
+export default async function PosPage(props: Props) {
+  const params = await props.params;
   const [restaurant] = await Promise.all([
     getRestaurantBySlug(params.slug),
     getCurrentUserRoles(),
@@ -47,8 +49,8 @@ export default async function PosPage({ params }: Props) {
     );
   }
 
-  const supabase = createClient();
-  const [{ data: products }, { data: categories }] = await Promise.all([
+  const supabase = await createClient();
+  const [{ data: products }, { data: categories }, paymentConfig] = await Promise.all([
     supabase
       .from("products")
       .select("*")
@@ -62,6 +64,7 @@ export default async function PosPage({ params }: Props) {
       .eq("status", "active")
       .eq("outlet_id", outlet.id)
       .order("sort_order"),
+    getPublicPaymentConfig(outlet.id),
   ]);
 
   return (
@@ -70,6 +73,7 @@ export default async function PosPage({ params }: Props) {
       outlets={outlets}
       categories={(categories ?? []) as Category[]}
       products={(products ?? []) as Product[]}
+      paymentConfig={paymentConfig}
       restaurantSlug={params.slug}
       restaurantName={restaurant.name}
       staffEmail={user.email ?? "unknown"}

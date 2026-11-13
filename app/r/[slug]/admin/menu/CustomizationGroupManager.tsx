@@ -95,7 +95,7 @@ export function CustomizationGroupManager({
                 <TableCell className="font-medium">
                   {group.display_name}
                   {group.is_required && (
-                    <Badge variant="outline" className="ml-2 text-[10px]">
+                    <Badge variant="outline" className="ml-2 text-[11px]">
                       Required
                     </Badge>
                   )}

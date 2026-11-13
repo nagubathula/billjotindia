@@ -7,10 +7,12 @@ import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/aut
 
 type Props = {
   children: React.ReactNode;
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
-export default async function PosRestaurantLayout({ children, params }: Props) {
+export default async function PosRestaurantLayout(props: Props) {
+  const { children } = props;
+  const params = await props.params;
   // Kick off the auth/role lookups alongside the restaurant row; requireRole
   // below then resolves from the request cache.
   const [restaurant] = await Promise.all([

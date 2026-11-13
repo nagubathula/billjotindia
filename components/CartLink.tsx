@@ -10,9 +10,15 @@ import { Badge } from "@/components/ui/badge";
 export function CartLink({ href }: { href: string }) {
   const { count } = useCart();
   return (
-    <Link href={href} className="inline-flex items-center gap-1 hover:text-primary">
+    <Link
+      href={href}
+      className="inline-flex items-center gap-1.5 transition-colors hover:text-primary"
+    >
       Cart
-      <Badge variant="secondary" className="ml-1 px-1.5 text-xs">
+      <Badge
+        variant={count > 0 ? "default" : "secondary"}
+        className="min-w-[22px] px-1.5 tabular-nums"
+      >
         {count}
       </Badge>
     </Link>

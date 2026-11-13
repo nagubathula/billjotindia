@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Receipt } from "lucide-react";
 import { getCurrentUser, getPublicRestaurant } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DEFAULT_TIME_ZONE } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -23,9 +24,10 @@ export const dynamic = "force-dynamic";
 // OR signed out with the same email. A follow-up adds orders.customer_user_id
 // for stricter scoping.
 
-type Props = { params: { slug: string } };
+type Props = { params: Promise<{ slug: string }> };
 
-export default async function MyOrdersPage({ params }: Props) {
+export default async function MyOrdersPage(props: Props) {
+  const params = await props.params;
   const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
@@ -86,11 +88,11 @@ export default async function MyOrdersPage({ params }: Props) {
       ) : (
         <ul className="space-y-3">
           {ords.map((o) => (
-            <Card key={o.id} className="transition hover:border-primary/40">
+            <Card key={o.id} className="transition-shadow duration-300 hover:shadow-float">
               <CardHeader className="pb-2">
                 <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
                   <span className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-muted-foreground">
+                    <span className="tabular-nums text-xs text-muted-foreground">
                       {o.unique_order_id ?? `#${o.id}`}
                     </span>
                     <Badge variant="outline" className="capitalize">
@@ -113,6 +115,7 @@ export default async function MyOrdersPage({ params }: Props) {
                       ? new Date(o.placed_at).toLocaleString("en-IN", {
                           dateStyle: "medium",
                           timeStyle: "short",
+                          timeZone: DEFAULT_TIME_ZONE,
                         })
                       : "—"}
                   </span>

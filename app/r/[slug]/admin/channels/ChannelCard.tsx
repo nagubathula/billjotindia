@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_TIME_ZONE } from "@/lib/time";
 import {
   CHANNEL_LABEL,
   OFFLINE_REASONS,
@@ -65,6 +66,7 @@ export function ChannelCard({
         month: "short",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: DEFAULT_TIME_ZONE,
       })
     : null;
 
@@ -153,7 +155,7 @@ export function ChannelCard({
                     value={reason}
                     onChange={(e) => setReason(e.target.value as OfflineReasonCode)}
                     disabled={pending}
-                    className="h-9 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="h-9 rounded-lg border border-input bg-card px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     {OFFLINE_REASONS.map((r) => (
                       <option key={r.code} value={r.code}>

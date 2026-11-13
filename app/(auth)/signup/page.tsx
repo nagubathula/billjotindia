@@ -1,12 +1,6 @@
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ChevronLeft } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 import { SignupForm } from "./SignupForm";
 import { CreateRestaurantForm } from "./CreateRestaurantForm";
@@ -24,53 +18,59 @@ export default async function SignupPage() {
       (user.user_metadata?.full_name as string | undefined) ??
       user.email;
     return (
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Create a new restaurant</CardTitle>
-          <CardDescription>
-            {name ? `Signed in as ${name}. ` : ""}You&apos;ll be the admin of
-            this new restaurant — just give it a name.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CreateRestaurantForm />
-        </CardContent>
-        <CardFooter className="text-xs text-muted-foreground">
+      <>
+        <div className="mt-6 text-center">
+          <h1 className="text-3xl font-bold">New restaurant</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {name ? `Signed in as ${name}. ` : ""}Give it a name and
+            you&apos;ll be its admin.
+          </p>
+        </div>
+
+        <Card className="mt-6 py-6">
+          <CardContent className="px-6">
+            <CreateRestaurantForm />
+          </CardContent>
+        </Card>
+
+        <p className="mt-6 text-center text-xs">
           <Link
             href="/dashboard"
-            className="font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
           >
-            ← Back to dashboard
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Back to dashboard
           </Link>
-        </CardFooter>
-      </Card>
+        </p>
+      </>
     );
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Get your restaurant on Billjot</CardTitle>
-        <CardDescription>
-          Set up your POS in two minutes. You become the admin of a new
-          restaurant tenant; staff are added later from your dashboard.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <SignupForm />
-      </CardContent>
-      <CardFooter className="flex flex-col items-start gap-1 text-xs text-muted-foreground">
-        <div>
+    <>
+      <div className="mt-6 text-center">
+        <h1 className="text-3xl font-bold">Create your restaurant</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Set up your POS in two minutes. You&apos;ll be the admin, and can add
+          staff later from your dashboard.
+        </p>
+      </div>
+
+      <Card className="mt-6 py-6">
+        <CardContent className="px-6">
+          <SignupForm />
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 space-y-1.5 text-center text-xs text-muted-foreground">
+        <p>
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
             Sign in
           </Link>
-        </div>
-        <div>
-          Customer ordering signup is per-restaurant — coming soon at{" "}
-          <span className="font-mono">/r/[shop]/signup</span>.
-        </div>
-      </CardFooter>
-    </Card>
+        </p>
+        <p>Customer ordering sign-up is per restaurant, and coming soon.</p>
+      </div>
+    </>
   );
 }

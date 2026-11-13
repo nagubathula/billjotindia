@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-11-12 — Order API and receipt hardening, India time
+
+No migrations. One new optional environment variable, `CHANNEL_ORDER_TOKEN`.
+
+### Fixed
+
+- **Callers could set their own prices.** `POST /api/orders` re-priced an order only when it had no `external_order_id` and named `web`, `pos` or `kiosk` as its source, so sending `source: "zomato"` — or any external id — stored whatever totals the request carried. The path is now chosen by `source` alone, and a platform source needs the `x-channel-token` secret. Until `CHANNEL_ORDER_TOKEN` is set, nothing can post a platform order through this route.
+- **Add-ons weren't checked against the product.** An option only had to exist somewhere in the database. Now it must be active and belong to a group linked to that product, once per line; pick-one groups take one option and required groups need a choice. Names and prices are stored from the catalog.
+- **A failed order could leave an empty ticket.** If the line items don't save, the order row is removed again.
+- **Order numbers could repeat** when two orders arrived in the same millisecond. They now end in three random characters: `BJ-1794495444507-A18`.
+- **Two deliveries of the same platform order at the same moment** returned an error to the second. It now gets the first one's order back, like any other repeat.
+- **`GET /api/print/[orderId]` needed no sign-in.** It now needs a staff session for the order's restaurant.
+- **Printed notes lost every "s".** The receipt's line-wrapping replaced runs of the letter `s`, not of whitespace: "less spicy" printed as "le  picy".
+- **"Today" followed the server's clock.** The overview and Reports took midnight, hour-of-day and day buckets from the host's time zone, so on a UTC host the day turned over at 05:30 IST. They now use the first outlet's `timezone` (`Asia/Kolkata` unless changed). Timestamps on receipts, order pages and tables name the zone too. Helpers are in `lib/time.ts`.
+
+### What a storefront has to do
+
+A standalone storefront that sends dishes without their required add-ons (a coffee with no size) now gets a `400` naming the missing group, where it used to get an order at the base price. The template's picker already sends them.
+
+### Next.js
+
+`package.json` and the lockfile move Next from 14.2.15 to 14.2.35, the last 14.2 release. Run `npm install` with the dev server stopped to pick it up.
+
 ## 2026-11-11 — Order handling groundwork for delivery platforms
 
 Nothing here talks to a platform yet. It is the part of a POS integration that doesn't depend on any platform's API: the screens and columns an adapter will read and write.

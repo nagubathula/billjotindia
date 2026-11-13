@@ -7,7 +7,7 @@ This application uses the `@supabase/ssr` package. You must **never** instantiat
 
 - **`lib/supabase/server.ts`**: Use this in **Server Components** and **Server Actions**. It uses the user's cookies to authenticate. *Subject to RLS.*
 - **`lib/supabase/client.ts`**: Use this in **Client Components** (React files with `"use client"`). It uses the browser's cookies. *Subject to RLS.*
-- **`lib/supabase/middleware.ts`**: Used *only* inside `middleware.ts` to refresh sessions securely on the edge.
+- **`lib/supabase/middleware.ts`**: Used *only* inside `proxy.ts` (Next 16's name for middleware) to refresh sessions before each request.
 - **`lib/supabase/admin.ts`**: Use this **only** in secure Server Actions or API routes when you explicitly need to bypass Row Level Security (RLS). It uses the `SUPABASE_SERVICE_ROLE_KEY`. (Example usage: processing external webhooks, or inserting orders from an anonymous storefront user).
 
 ## 2. Type Definitions (`lib/`)

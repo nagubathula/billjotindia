@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormStatus } from "react-dom";
 import { MailCheck, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { signUpAction } from "./actions";
 
 export function SignupForm() {
   const router = useRouter();
-  const [state, formAction] = useFormState(signUpAction, null);
+  const [state, formAction] = useActionState(signUpAction, null);
 
   // If Supabase email confirmation is OFF the server returns a session;
   // the user is already signed in — drop them on their POS.
@@ -25,18 +25,18 @@ export function SignupForm() {
   if (state?.ok && state.emailSent) {
     return (
       <div className="grid gap-3 text-sm">
-        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3">
-          <Store className="mt-0.5 h-5 w-5 text-amber-700" />
+        <div className="flex items-start gap-3 rounded-xl bg-amber-500/10 p-4">
+          <Store className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
           <div>
             <p className="font-medium text-amber-900">Restaurant created.</p>
             <p className="mt-1 text-amber-800">
               Your URL is{" "}
-              <span className="font-mono">/r/{state.restaurantSlug}/pos</span>.
+              <span className="font-medium">/r/{state.restaurantSlug}/pos</span>.
             </p>
           </div>
         </div>
-        <div className="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
-          <MailCheck className="mt-0.5 h-5 w-5 text-emerald-700" />
+        <div className="flex items-start gap-3 rounded-xl bg-emerald-500/10 p-4">
+          <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
           <div>
             <p className="font-medium text-emerald-900">Check your inbox.</p>
             <p className="mt-1 text-emerald-800">
@@ -55,7 +55,7 @@ export function SignupForm() {
   }
 
   return (
-    <form action={formAction} className="grid gap-4">
+    <form action={formAction} className="grid gap-5 [&_input]:h-11 [&_input]:rounded-xl">
       <div className="grid gap-2">
         <Label htmlFor="restaurant_name">Restaurant name</Label>
         <Input
@@ -67,7 +67,8 @@ export function SignupForm() {
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
-          We'll generate a URL slug like <span className="font-mono">/r/coffee-day-…</span>
+          Your restaurant gets its own address, like{" "}
+          <span className="font-medium text-foreground">/r/coffee-day</span>.
         </p>
       </div>
 
@@ -109,7 +110,7 @@ export function SignupForm() {
       </div>
 
       {state && !state.ok && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="rounded-xl bg-destructive/10 px-4 py-3 text-xs text-destructive" role="alert">
           {state.error}
         </p>
       )}
@@ -122,7 +123,7 @@ export function SignupForm() {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
+    <Button type="submit" size="lg" disabled={pending} className="mt-1 w-full">
       {pending ? "Creating restaurant…" : "Create restaurant"}
     </Button>
   );

@@ -1,19 +1,17 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signInAction } from "./actions";
 
-// React 18 uses useFormState (from react-dom) and useFormStatus for pending
-// state. React 19 merges these into useActionState; revisit if/when we bump.
-
 export function LoginForm({ next }: { next: string }) {
-  const [state, formAction] = useFormState(signInAction, null);
+  const [state, formAction] = useActionState(signInAction, null);
 
   return (
-    <form action={formAction} className="grid gap-4">
+    <form action={formAction} className="grid gap-5 [&_input]:h-11 [&_input]:rounded-xl">
       <input type="hidden" name="next" value={next} />
 
       <div className="grid gap-2">
@@ -40,7 +38,7 @@ export function LoginForm({ next }: { next: string }) {
       </div>
 
       {state?.error && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="rounded-xl bg-destructive/10 px-4 py-3 text-xs text-destructive" role="alert">
           {state.error}
         </p>
       )}
@@ -53,7 +51,7 @@ export function LoginForm({ next }: { next: string }) {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
+    <Button type="submit" size="lg" disabled={pending} className="mt-1 w-full">
       {pending ? "Signing in…" : "Sign in"}
     </Button>
   );

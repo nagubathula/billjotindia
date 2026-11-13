@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseOpeningHours, type OpeningHours } from "@/lib/opening-hours";
+import { saveOutletGatewayConfig } from "@/lib/payments";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -115,5 +116,47 @@ export async function updateCustomDomainAction(
   }
 
   revalidatePath(`/r/${slug}/admin/settings`);
+  return { ok: true };
+}
+
+export async function updatePaymentGatewaysAction(
+  slug: string,
+  outletId: string,
+  formData: FormData,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  // Payment gateway credentials are admin-only
+  await requireRole(["admin"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: existing } = await admin
+    .from("outlets")
+    .select("id, restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!existing || existing.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const res = await saveOutletGatewayConfig(outletId, {
+    codEnabled: formData.get("cod_enabled") === "on",
+    onlineEnabled: formData.get("online_enabled") === "on",
+    razorpayEnabled: formData.get("razorpay_enabled") === "on",
+    razorpayKeyId: String(formData.get("razorpay_key_id") ?? ""),
+    razorpayKeySecret: String(formData.get("razorpay_key_secret") ?? ""),
+    razorpayWebhookSecret: String(formData.get("razorpay_webhook_secret") ?? ""),
+    stripeEnabled: formData.get("stripe_enabled") === "on",
+    stripePublishableKey: String(formData.get("stripe_publishable_key") ?? ""),
+    stripeSecretKey: String(formData.get("stripe_secret_key") ?? ""),
+    stripeWebhookSecret: String(formData.get("stripe_webhook_secret") ?? ""),
+    upiVpa: String(formData.get("upi_vpa") ?? ""),
+  });
+
+  if (!res.ok) return res;
+
+  revalidatePath(`/r/${slug}/admin/settings`);
+  revalidatePath(`/r/${slug}/checkout`);
+  revalidatePath(`/r/${slug}/pos`);
   return { ok: true };
 }

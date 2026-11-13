@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Printer } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { isUuid } from "@/lib/utils";
+import { DEFAULT_TIME_ZONE } from "@/lib/time";
 import {
   Card,
   CardContent,
@@ -11,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderStatusPipeline } from "@/components/OrderStatusPipeline";
@@ -20,7 +22,10 @@ import type { Order, OrderItem, OrderStatus, ProductConfig } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
+const STATUS_VARIANT: Record<
+  string,
+  "default" | "secondary" | "outline" | "destructive"
+> = {
   pending: "secondary",
   confirmed: "default",
   preparing: "default",
@@ -29,9 +34,10 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "dest
   cancelled: "destructive",
 };
 
-type Props = { params: { slug: string; id: string } };
+type Props = { params: Promise<{ slug: string; id: string }> };
 
-export default async function OrderDetailPage({ params }: Props) {
+export default async function OrderDetailPage(props: Props) {
+  const params = await props.params;
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
@@ -62,6 +68,27 @@ export default async function OrderDetailPage({ params }: Props) {
   const its = (items ?? []) as OrderItem[];
   const status = o.status as OrderStatus;
   const orderLabel = o.unique_order_id ?? `#${o.id}`;
+  const extPayload =
+    o.external_payload &&
+    typeof o.external_payload === "object" &&
+    !Array.isArray(o.external_payload)
+      ? (o.external_payload as {
+          gateway?: string;
+          paid?: boolean;
+          payment_id?: string;
+        })
+      : null;
+  const isPaidOnline = o.external_status === "paid" || Boolean(extPayload?.paid);
+  const posTenderMode = o.customer_email?.startsWith("pos+")
+    ? o.customer_email.split("@")[0].replace("pos+", "").toUpperCase()
+    : null;
+  const paymentMethodLabel = isPaidOnline
+    ? extPayload?.gateway === "stripe"
+      ? "Paid · Stripe"
+      : "Paid · Razorpay"
+    : posTenderMode
+      ? `Paid · POS ${posTenderMode}`
+      : "Pay at Counter / COD";
 
   const configOf = (line: OrderItem) =>
     line.product_config as unknown as ProductConfig | null;
@@ -77,7 +104,7 @@ export default async function OrderDetailPage({ params }: Props) {
     <div className="space-y-6">
       <Link
         href={`/r/${params.slug}/admin/orders`}
-        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center text-xs font-medium text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="mr-1 h-3 w-3" /> Back to orders
       </Link>
@@ -85,29 +112,41 @@ export default async function OrderDetailPage({ params }: Props) {
       <PageHeader
         title={`Order ${orderLabel}`}
         description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <span>{o.customer_name}</span>
             <span className="text-muted-foreground/50">·</span>
             <span>{o.customer_email}</span>
             <span className="text-muted-foreground/50">·</span>
             <span>{outlet.name}</span>
             {o.token_number != null && (
-              <Badge variant="outline" className="ml-1 font-mono">
-                TOKEN {o.token_number}
+              <Badge variant="outline" className="ml-1 tabular-nums text-[11px]">
+                TOKEN #{o.token_number}
               </Badge>
             )}
           </span>
         }
         actions={
-          <Badge variant={STATUS_VARIANT[status] ?? "outline"} className="capitalize">
-            {status}
-          </Badge>
+          <>
+            <Link
+              href={`/r/${params.slug}/pos/receipt/${o.id}`}
+              target="_blank"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <Printer className="mr-1.5 h-3.5 w-3.5" /> Print Receipt
+            </Link>
+            <Badge
+              variant={STATUS_VARIANT[status] ?? "outline"}
+              className="capitalize"
+            >
+              {status}
+            </Badge>
+          </>
         }
       />
 
       {/* Pipeline + workflow actions */}
       <Card>
-        <CardContent className="space-y-4 pt-6">
+        <CardContent className="space-y-4 pt-2">
           <OrderStatusPipeline status={status} />
           <Separator />
           <OrderStatusActions
@@ -122,25 +161,48 @@ export default async function OrderDetailPage({ params }: Props) {
 
       {/* Meta */}
       <Card>
-        <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
-          <Meta label="Type" value={<span className="capitalize">{o.order_type}</span>} />
-          <Meta label="Source" value={<span className="uppercase">{o.source}</span>} />
+        <CardContent className="grid gap-3 pt-2 sm:grid-cols-4">
           <Meta
-            label="Placed"
+            label="Order Type"
+            value={<span className="capitalize">{o.order_type}</span>}
+          />
+          <Meta
+            label="Source Channel"
+            value={<span className="uppercase">{o.source}</span>}
+          />
+          <Meta
+            label="Payment"
+            value={
+              <div>
+                <div className="font-medium">{paymentMethodLabel}</div>
+                {extPayload?.payment_id && (
+                  <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                    {extPayload.payment_id}
+                  </div>
+                )}
+              </div>
+            }
+          />
+          <Meta
+            label="Placed At"
             value={
               o.placed_at
-                ? new Date(o.placed_at).toLocaleString("en-IN")
+                ? new Date(o.placed_at).toLocaleString("en-IN", {
+                    timeZone: DEFAULT_TIME_ZONE,
+                  })
                 : "—"
             }
           />
         </CardContent>
       </Card>
 
-      {/* Why it was rejected / cancelled */}
       {status === "cancelled" && o.cancel_reason && (
         <Card className="border-destructive/30">
-          <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
-            <Meta label="Cancelled because" value={cancelReasonLabel(o.cancel_reason)} />
+          <CardContent className="grid gap-3 pt-2 sm:grid-cols-3">
+            <Meta
+              label="Cancelled because"
+              value={cancelReasonLabel(o.cancel_reason)}
+            />
             <Meta
               label="Cancelled by"
               value={<span className="capitalize">{o.cancelled_by ?? "—"}</span>}
@@ -149,7 +211,9 @@ export default async function OrderDetailPage({ params }: Props) {
               label="Cancelled at"
               value={
                 o.cancelled_at
-                  ? new Date(o.cancelled_at).toLocaleString("en-IN")
+                  ? new Date(o.cancelled_at).toLocaleString("en-IN", {
+                      timeZone: DEFAULT_TIME_ZONE,
+                    })
                   : "—"
               }
             />
@@ -167,12 +231,11 @@ export default async function OrderDetailPage({ params }: Props) {
         </Card>
       )}
 
-      {/* Customer's instructions for the whole order */}
       {o.instructions && (
         <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardContent className="pt-6">
+          <CardContent className="pt-2">
             <Meta
-              label="Instructions"
+              label="Kitchen / Packing Instructions"
               value={<span className="whitespace-pre-wrap">{o.instructions}</span>}
             />
           </CardContent>
@@ -181,17 +244,17 @@ export default async function OrderDetailPage({ params }: Props) {
 
       {/* Items */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Items</CardTitle>
+        <CardHeader className="border-b border-border/60 pb-3">
+          <CardTitle>Order Items</CardTitle>
         </CardHeader>
-        <CardContent>
-          <table className="w-full text-sm">
+        <CardContent className="pt-2">
+          <table className="w-full text-xs">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 font-normal">Item</th>
-                <th className="py-2 text-right font-normal">Qty</th>
-                <th className="py-2 text-right font-normal">Price</th>
-                <th className="py-2 text-right font-normal">Total</th>
+                <th className="py-2 font-medium">Item</th>
+                <th className="py-2 text-right font-medium">Qty</th>
+                <th className="py-2 text-right font-medium">Unit Price</th>
+                <th className="py-2 text-right font-medium">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -199,27 +262,32 @@ export default async function OrderDetailPage({ params }: Props) {
                 const cfg = configOf(line);
                 const options = cfg?.selected_options ?? [];
                 return (
-                  <tr key={line.id} className="border-b align-top last:border-0">
-                    <td className="py-2">
-                      {cfg?.name ?? `#${cfg?.product_id ?? "?"}`}
+                  <tr
+                    key={line.id}
+                    className="border-b align-top last:border-0"
+                  >
+                    <td className="py-2.5">
+                      <span className="font-medium text-foreground">
+                        {cfg?.name ?? `#${cfg?.product_id ?? "?"}`}
+                      </span>
                       {options.length > 0 && (
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-[11px] text-muted-foreground">
                           {options.map((s) => s.option_name).join(" · ")}
                         </div>
                       )}
                       {line.instructions && (
-                        <div className="mt-0.5 text-xs font-medium text-amber-700">
+                        <div className="mt-0.5 text-[11px] font-medium text-amber-700">
                           Note: {line.instructions}
                         </div>
                       )}
                     </td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2.5 text-right tabular-nums">
                       {line.quantity}
                     </td>
-                    <td className="py-2 text-right tabular-nums text-muted-foreground">
+                    <td className="py-2.5 text-right tabular-nums text-muted-foreground">
                       ₹{Number(line.unit_price).toFixed(2)}
                     </td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2.5 text-right font-medium tabular-nums">
                       ₹{Number(line.total_price).toFixed(2)}
                     </td>
                   </tr>
@@ -230,8 +298,8 @@ export default async function OrderDetailPage({ params }: Props) {
 
           <Separator className="my-4" />
 
-          <div className="ml-auto max-w-xs space-y-1 text-sm">
-            <Row label="Subtotal" value={Number(o.subtotal ?? 0)} />
+          <div className="ml-auto max-w-xs space-y-1.5 text-xs">
+            <Row label="Taxable Subtotal" value={Number(o.subtotal ?? 0)} />
             {Number(o.cgst_amount ?? 0) > 0 && (
               <Row label="CGST" value={Number(o.cgst_amount)} />
             )}
@@ -239,13 +307,13 @@ export default async function OrderDetailPage({ params }: Props) {
               <Row label="SGST" value={Number(o.sgst_amount)} />
             )}
             {Number(o.takeaway_charges ?? 0) > 0 && (
-              <Row label="Packing" value={Number(o.takeaway_charges)} />
+              <Row label="Packing Charges" value={Number(o.takeaway_charges)} />
             )}
             {Number(o.discount_amount ?? 0) > 0 && (
               <Row label="Discount" value={-Number(o.discount_amount)} />
             )}
             <Separator className="my-1.5" />
-            <div className="flex justify-between text-base font-semibold">
+            <div className="flex justify-between text-sm font-semibold text-foreground">
               <span>Total</span>
               <span className="tabular-nums">
                 ₹{Number(o.total_amount).toFixed(2)}
@@ -261,10 +329,10 @@ export default async function OrderDetailPage({ params }: Props) {
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="text-[11px] font-medium text-muted-foreground">
         {label}
       </div>
-      <div className="mt-0.5 text-sm">{value}</div>
+      <div className="mt-0.5 text-xs font-medium text-foreground">{value}</div>
     </div>
   );
 }

@@ -39,7 +39,7 @@ The application uses Next.js [Route Groups](https://nextjs.org/docs/app/building
   - `/admin/orders` (Order management Pipeline)
   - `/admin/kitchen` (Kitchen Display Screen / KDS)
   - `/admin/users` (Staff management)
-- **Characteristics**: Heavily reliant on RLS. Users must have the `admin` or `manager` role in `user_roles` to access these pages. Protected by `middleware.ts`.
+- **Characteristics**: Heavily reliant on RLS. Users must have the `admin` or `manager` role in `user_roles` to access these pages. Protected by `proxy.ts`.
 
 ### 4. `app/(auth)`
 **Purpose**: Authentication flows.

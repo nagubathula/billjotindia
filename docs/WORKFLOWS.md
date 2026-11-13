@@ -30,7 +30,7 @@ erDiagram
 1. **Sign In:** User authenticates via Supabase Auth (Email/Password or OAuth).
 2. **Session Cookie:** Next.js Server Components read the session cookie to identify the user.
 3. **Role Check (RLS):** When the server queries the database, Supabase checks the `user_roles` table. A user can only `SELECT`, `UPDATE`, or `DELETE` rows if they have a matching `user_id` and `restaurant_id` in the `user_roles` table.
-4. **Middleware Protection:** The Next.js `middleware.ts` intercepts routes like `/r/[slug]/admin/*` and ensures the user is logged in before even rendering the page.
+4. **Middleware Protection:** The Next.js `proxy.ts` (formerly `middleware.ts`) intercepts routes like `/r/[slug]/admin/*` and ensures the user is logged in before even rendering the page.
 
 ---
 

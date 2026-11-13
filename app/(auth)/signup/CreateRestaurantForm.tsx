@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { createRestaurantAction } from "./actions";
 // restaurant name — no email/password, since the account already exists.
 export function CreateRestaurantForm() {
   const router = useRouter();
-  const [state, formAction] = useFormState(createRestaurantAction, null);
+  const [state, formAction] = useActionState(createRestaurantAction, null);
 
   useEffect(() => {
     if (state?.ok) {
@@ -22,7 +22,7 @@ export function CreateRestaurantForm() {
   }, [state, router]);
 
   return (
-    <form action={formAction} className="grid gap-4">
+    <form action={formAction} className="grid gap-5 [&_input]:h-11 [&_input]:rounded-xl">
       <div className="grid gap-2">
         <Label htmlFor="restaurant_name">Restaurant name</Label>
         <Input
@@ -34,13 +34,13 @@ export function CreateRestaurantForm() {
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
-          We&apos;ll generate a URL slug like{" "}
-          <span className="font-mono">/r/coffee-day-…</span>
+          Your restaurant gets its own address, like{" "}
+          <span className="font-medium text-foreground">/r/coffee-day</span>.
         </p>
       </div>
 
       {state && !state.ok && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="rounded-xl bg-destructive/10 px-4 py-3 text-xs text-destructive" role="alert">
           {state.error}
         </p>
       )}
@@ -53,7 +53,7 @@ export function CreateRestaurantForm() {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
+    <Button type="submit" size="lg" disabled={pending} className="mt-1 w-full">
       {pending ? "Creating restaurant…" : "Create restaurant"}
     </Button>
   );

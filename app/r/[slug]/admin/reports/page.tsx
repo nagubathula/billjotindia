@@ -2,18 +2,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   BarChart3,
+  Clock,
+  FileSpreadsheet,
   IndianRupee,
+  Layers,
   Receipt,
   ShoppingBag,
-  TrendingUp,
+  Store,
   TrendingDown,
+  TrendingUp,
   Utensils,
-  Layers,
-  Clock,
+  Wallet,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
+import { dayKey, hourOfDay, resolveTimeZone, startOfDay } from "@/lib/time";
 import {
   Card,
   CardContent,
@@ -21,6 +25,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -45,35 +57,34 @@ const PREV_LABEL: Record<Range, string> = {
   "30d": "vs prev 30 days",
 };
 
-function rangeBounds(r: Range): { start: Date; end: Date } {
+function rangeBounds(r: Range, timeZone: string): { start: Date; end: Date } {
   const now = new Date();
-  const end = new Date(now);
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
+  const dayStart = (dayOffset: number) => startOfDay(now, timeZone, dayOffset);
+  const dayEnd = (dayOffset: number) =>
+    new Date(dayStart(dayOffset + 1).getTime() - 1);
 
   switch (r) {
     case "today":
-      return { start, end };
+      return { start: dayStart(0), end: dayEnd(0) };
     case "yesterday":
-      start.setDate(start.getDate() - 1);
-      end.setDate(end.getDate() - 1);
-      return { start, end };
+      return { start: dayStart(-1), end: dayEnd(-1) };
     case "7d":
-      start.setDate(start.getDate() - 6);
-      return { start, end };
+      return { start: dayStart(-6), end: dayEnd(0) };
     case "30d":
-      start.setDate(start.getDate() - 29);
-      return { start, end };
+      return { start: dayStart(-29), end: dayEnd(0) };
   }
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const inrExact = (n: number) =>
+  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 function hourLabel(h: number) {
   if (h === 0) return "12a";
   if (h === 12) return "12p";
   return h < 12 ? `${h}a` : `${h - 12}p`;
 }
+
 function gstFromItems(items: OrderItem[]) {
   let gst = 0;
   for (const it of items) {
@@ -88,11 +99,13 @@ function gstFromItems(items: OrderItem[]) {
 }
 
 type Props = {
-  params: { slug: string };
-  searchParams: { range?: string };
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ range?: string }>;
 };
 
-export default async function ReportsPage({ params, searchParams }: Props) {
+export default async function ReportsPage(props: Props) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
@@ -100,22 +113,22 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const validRange: Range = ["today", "yesterday", "7d", "30d"].includes(range)
     ? range
     : "today";
-  const { start, end } = rangeBounds(validRange);
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
+  const timeZone = resolveTimeZone(outlets[0]?.timezone);
+  const { start, end } = rangeBounds(validRange, timeZone);
   const outletIds = outlets.map((o) => o.id);
-  const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
+  const scoped =
+    outletIds.length > 0
+      ? outletIds
+      : ["00000000-0000-0000-0000-000000000000"];
 
-  const supabase = createClient();
+  const supabase = await createClient();
 
-  // Previous comparable period (for deltas).
   const periodMs = end.getTime() - start.getTime();
   const prevEnd = new Date(start.getTime() - 1);
   const prevStart = new Date(prevEnd.getTime() - periodMs);
 
-  // The three reads are independent, so run them concurrently. Line items are
-  // embedded via the order_items → orders FK rather than fetched afterwards
-  // with a (potentially very long) `in.(…ids)` filter.
   const [{ data: ordersData }, { data: prevData }, { data: prods }] =
     await Promise.all([
       supabase
@@ -138,9 +151,12 @@ export default async function ReportsPage({ params, searchParams }: Props) {
 
   const orders: Order[] = [];
   const items: OrderItem[] = [];
+  const firstItemByOrder = new Map<string, OrderItem>();
   for (const { order_items, ...order } of ordersData ?? []) {
     orders.push(order as Order);
-    items.push(...((order_items ?? []) as OrderItem[]));
+    const oItems = (order_items ?? []) as OrderItem[];
+    items.push(...oItems);
+    if (oItems[0]) firstItemByOrder.set(order.id, oItems[0]);
   }
 
   const prevOrders = prevData?.length ?? 0;
@@ -154,26 +170,33 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const totalRevenue = orders.reduce((s, o) => s + Number(o.total_amount), 0);
   const aov = totalOrders ? totalRevenue / totalOrders : 0;
   const prevAov = prevOrders ? prevRevenue / prevOrders : 0;
-  // GST derived from line items so it's correct even when order rows omit it.
-  // Skip orders whose GST the aggregator pays (Section 9(5)) — not ours.
+
   const operatorGstOrders = new Set(
     orders.filter((o) => o.gst_paid_by_operator).map((o) => o.id),
   );
+  const directOrdersRevenue = orders
+    .filter((o) => !operatorGstOrders.has(o.id))
+    .reduce((s, o) => s + Number(o.total_amount), 0);
+  const operatorOrdersRevenue = orders
+    .filter((o) => operatorGstOrders.has(o.id))
+    .reduce((s, o) => s + Number(o.total_amount), 0);
+
   const totalGst = gstFromItems(
     items.filter((it) => !operatorGstOrders.has(it.order_id ?? "")),
   );
+  const taxableSales = Math.max(0, directOrdersRevenue - totalGst);
 
   const delta = (cur: number, prev: number): number | null =>
     prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;
 
-  // ---- Time series (hourly for a single day, daily otherwise) ----
+  // ---- Time series ----
   const isHourly = validRange === "today" || validRange === "yesterday";
   const series: { label: string; value: number }[] = [];
   if (isHourly) {
     const map = new Map<number, number>();
     for (let h = 7; h <= 23; h++) map.set(h, 0);
     for (const o of orders) {
-      const h = new Date(o.placed_at as string).getHours();
+      const h = hourOfDay(new Date(o.placed_at as string), timeZone);
       if (!map.has(h)) map.set(h, 0);
       map.set(h, (map.get(h) ?? 0) + Number(o.total_amount));
     }
@@ -184,15 +207,18 @@ export default async function ReportsPage({ params, searchParams }: Props) {
     const days = validRange === "7d" ? 7 : 30;
     const map = new Map<string, { label: string; value: number }>();
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(end);
-      d.setDate(d.getDate() - i);
-      map.set(d.toLocaleDateString("en-CA"), {
-        label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
+      const d = startOfDay(end, timeZone, -i);
+      map.set(dayKey(d, timeZone), {
+        label: d.toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          timeZone,
+        }),
         value: 0,
       });
     }
     for (const o of orders) {
-      const key = new Date(o.placed_at as string).toLocaleDateString("en-CA");
+      const key = dayKey(new Date(o.placed_at as string), timeZone);
       const b = map.get(key);
       if (b) b.value += Number(o.total_amount);
     }
@@ -220,7 +246,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   }
   const topProducts = Array.from(productTotals.values())
     .sort((a, b) => b.qty - a.qty)
-    .slice(0, 8);
+    .slice(0, 10);
   const topMaxQty = Math.max(...topProducts.map((p) => p.qty), 1);
 
   // ---- Source split ----
@@ -235,15 +261,41 @@ export default async function ReportsPage({ params, searchParams }: Props) {
     (a, b) => b[1].revenue - a[1].revenue,
   );
 
+  // ---- Payment / Tender mode split (for cash drawer reconciliation) ----
+  const tenderTotals = new Map<string, { count: number; revenue: number }>();
+  for (const o of orders) {
+    let mode = o.source === "pos" ? "cash" : o.source === "web" || o.source === "kiosk" ? "online" : "aggregator";
+    if (o.source === "pos") {
+      const firstIt = firstItemByOrder.get(o.id);
+      const cfg = firstIt?.product_config as unknown as { tender_mode?: string } | null;
+      if (cfg?.tender_mode) mode = cfg.tender_mode.toLowerCase();
+      else if (o.customer_email?.startsWith("pos+")) {
+        mode = o.customer_email.split("@")[0].replace("pos+", "");
+      }
+    }
+    const cur = tenderTotals.get(mode) ?? { count: 0, revenue: 0 };
+    cur.count += 1;
+    cur.revenue += Number(o.total_amount);
+    tenderTotals.set(mode, cur);
+  }
+  const tenders = Array.from(tenderTotals.entries()).sort(
+    (a, b) => b[1].revenue - a[1].revenue,
+  );
+
   // ---- Order-type split ----
-  const typeTotals = new Map<string, number>();
+  const typeTotals = new Map<string, { count: number; revenue: number }>();
   for (const o of orders) {
     const t = o.order_type ?? "other";
-    typeTotals.set(t, (typeTotals.get(t) ?? 0) + 1);
+    const cur = typeTotals.get(t) ?? { count: 0, revenue: 0 };
+    cur.count += 1;
+    cur.revenue += Number(o.total_amount);
+    typeTotals.set(t, cur);
   }
-  const types = Array.from(typeTotals.entries()).sort((a, b) => b[1] - a[1]);
+  const types = Array.from(typeTotals.entries()).sort(
+    (a, b) => b[1].count - a[1].count,
+  );
 
-  // ---- Sales by category (map product_id -> category via products) ----
+  // ---- Sales by category ----
   const prodCat = new Map<string, string>();
   for (const p of prods ?? []) prodCat.set(p.id, p.category ?? "Other");
   const catTotals = new Map<string, number>();
@@ -256,9 +308,10 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   const categories = Array.from(catTotals.entries()).sort((a, b) => b[1] - a[1]);
   const catMax = Math.max(...categories.map((c) => c[1]), 1);
 
-  // ---- Busiest hours (orders by hour-of-day across the range) ----
+  // ---- Busiest hours ----
   const hourCounts = new Array(24).fill(0);
-  for (const o of orders) hourCounts[new Date(o.placed_at as string).getHours()]++;
+  for (const o of orders)
+    hourCounts[hourOfDay(new Date(o.placed_at as string), timeZone)]++;
   const bizHours: { label: string; count: number }[] = [];
   for (let h = 7; h <= 23; h++)
     bizHours.push({ label: hourLabel(h), count: hourCounts[h] });
@@ -267,76 +320,82 @@ export default async function ReportsPage({ params, searchParams }: Props) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Reports"
-        description={`${RANGE_LABEL[validRange]}. Cancelled orders excluded.`}
+        title="Reports & GST"
+        description={`${RANGE_LABEL[validRange]} performance and tax summary. Cancelled orders excluded.`}
+        actions={
+          <nav className="inline-flex items-center rounded-[10px] bg-muted p-0.5">
+            {(["today", "yesterday", "7d", "30d"] as const).map((r) => (
+              <Link
+                key={r}
+                href={`/r/${params.slug}/admin/reports?range=${r}`}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 text-xs font-medium transition-all",
+                  r === validRange
+                    ? "bg-card text-foreground shadow-control"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {RANGE_LABEL[r]}
+              </Link>
+            ))}
+          </nav>
+        }
       />
 
-      {/* Range tabs */}
-      <nav className="flex flex-wrap gap-1">
-        {(["today", "yesterday", "7d", "30d"] as const).map((r) => (
-          <Link
-            key={r}
-            href={`/r/${params.slug}/admin/reports?range=${r}`}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-sm transition",
-              r === validRange
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
-            )}
-          >
-            {RANGE_LABEL[r]}
-          </Link>
-        ))}
-      </nav>
-
-      {/* Stat cards */}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          icon={ShoppingBag}
-          label="Orders"
-          value={totalOrders.toString()}
-          deltaPct={delta(totalOrders, prevOrders)}
-          deltaLabel={PREV_LABEL[validRange]}
-        />
+      {/* Primary KPIs */}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           icon={IndianRupee}
-          label="Revenue"
+          label="Gross revenue"
           value={inr(totalRevenue)}
           deltaPct={delta(totalRevenue, prevRevenue)}
           deltaLabel={PREV_LABEL[validRange]}
         />
         <Stat
+          icon={ShoppingBag}
+          label="Billed orders"
+          value={totalOrders.toString()}
+          deltaPct={delta(totalOrders, prevOrders)}
+          deltaLabel={PREV_LABEL[validRange]}
+        />
+        <Stat
           icon={TrendingUp}
-          label="Avg order"
+          label="Average order"
           value={totalOrders ? inr(aov) : "—"}
           deltaPct={delta(aov, prevAov)}
           deltaLabel={PREV_LABEL[validRange]}
         />
-        <Stat icon={Receipt} label="GST collected" value={inr(totalGst)} />
+        <Stat
+          icon={Receipt}
+          label="Net GST liability"
+          value={inr(totalGst)}
+          sub={`CGST ${inr(totalGst / 2)} · SGST ${inr(totalGst / 2)}`}
+        />
       </section>
 
-      {/* Revenue trend */}
+      {/* Revenue trend chart */}
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/60 pb-3">
           <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
               Revenue trend
             </CardTitle>
             <CardDescription>
-              {isHourly ? "By hour" : "By day"} · {RANGE_LABEL[validRange]}
+              {isHourly ? "Hourly breakdown" : "Daily breakdown"} ·{" "}
+              {RANGE_LABEL[validRange]}
             </CardDescription>
           </div>
           {totalOrders > 0 && (
             <div className="text-right">
-              <div className="text-xs text-muted-foreground">Peak</div>
-              <div className="text-sm font-semibold">
+              <div className="text-[11px] text-muted-foreground">Peak period</div>
+              <div className="text-xs font-semibold tabular-nums">
                 {peak.label} · {inr(peak.value)}
               </div>
             </div>
           )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-3">
           {totalOrders === 0 ? (
             <EmptyState
               icon={BarChart3}
@@ -345,7 +404,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
             />
           ) : (
             <div>
-              <div className="flex h-44 items-end gap-1">
+              <div className="flex h-40 items-end gap-1">
                 {series.map((s, i) => (
                   <div
                     key={i}
@@ -355,7 +414,8 @@ export default async function ReportsPage({ params, searchParams }: Props) {
                     <div
                       className="w-full rounded-t bg-primary/85 transition-all group-hover:bg-primary"
                       style={{
-                        height: `${Math.max((s.value / seriesMax) * 100, s.value > 0 ? 3 : 0)}%`,
+                        height: `${Math.max((s.value / seriesMax) * 100, s.value > 0 ? 4 : 1)}%`,
+                        opacity: s.value > 0 ? 1 : 0.15,
                       }}
                     />
                   </div>
@@ -365,7 +425,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
                 {series.map((s, i) => (
                   <div
                     key={i}
-                    className="flex-1 truncate text-center text-[10px] text-muted-foreground"
+                    className="flex-1 truncate text-center tabular-nums text-[11px] text-muted-foreground"
                   >
                     {i % labelEvery === 0 ? s.label : ""}
                   </div>
@@ -376,31 +436,152 @@ export default async function ReportsPage({ params, searchParams }: Props) {
         </CardContent>
       </Card>
 
-      {/* Top items + splits */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+      {/* GST & Cash Drawer Reconciliation Row */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              Top items
+          <CardHeader className="border-b border-border/60 pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />
+              GST tax summary
             </CardTitle>
-            <CardDescription>By quantity sold.</CardDescription>
+            <CardDescription>
+              First-party tax liability vs Section 9(5) operator-remitted tax.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
+            <Table>
+              <TableBody className="text-xs">
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    First-party gross sales (POS / Web / Kiosk)
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {inrExact(directOrdersRevenue)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    Taxable value (excl. GST)
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {inrExact(taxableSales)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    CGST collected
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {inrExact(totalGst / 2)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    SGST collected
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {inrExact(totalGst / 2)}
+                  </TableCell>
+                </TableRow>
+                <TableRow className="bg-muted/30 font-semibold">
+                  <TableCell>Total restaurant GST payable</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {inrExact(totalGst)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-muted-foreground">
+                    Section 9(5) aggregator sales (Zomato / Swiggy pays GST)
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground tabular-nums">
+                    {inrExact(operatorOrdersRevenue)} ({operatorGstOrders.size}{" "}
+                    orders)
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b border-border/60 pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
+              Tender & collection modes
+            </CardTitle>
+            <CardDescription>
+              Reconcile POS Cash, UPI, Card, and platform settlements.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-3">
+            {tenders.length === 0 ? (
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                No payments recorded in this range.
+              </p>
+            ) : (
+              tenders.map(([mode, val]) => {
+                const pct = totalRevenue
+                  ? Math.round((val.revenue / totalRevenue) * 100)
+                  : 0;
+                return (
+                  <div key={mode} className="text-xs">
+                    <div className="mb-1 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-[11px] uppercase"
+                        >
+                          {mode}
+                        </Badge>
+                        <span className="text-muted-foreground">
+                          {val.count} {val.count === 1 ? "bill" : "bills"}
+                        </span>
+                      </div>
+                      <span className="font-medium tabular-nums">
+                        {inr(val.revenue)} · {pct}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/80"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top items + Source & Order Type splits */}
+      <div className="grid gap-4 lg:grid-cols-12">
+        <Card className="lg:col-span-7">
+          <CardHeader className="border-b border-border/60 pb-3">
+            <CardTitle>Top selling items</CardTitle>
+            <CardDescription>Ranked by quantity sold.</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-3">
             {topProducts.length === 0 ? (
               <EmptyState
                 icon={ShoppingBag}
-                title="No sales in this range"
+                title="No item sales"
                 description="Pick a different time range, or wait for orders to come in."
               />
             ) : (
               <ul className="space-y-2.5">
                 {topProducts.map((p, i) => (
-                  <li key={p.name + i} className="text-sm">
+                  <li key={p.name + i} className="text-xs">
                     <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="truncate font-medium">{p.name}</span>
+                      <span className="truncate font-medium text-foreground">
+                        <span className="mr-2 tabular-nums text-[11px] text-muted-foreground">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        {p.name}
+                      </span>
                       <span className="shrink-0 text-muted-foreground tabular-nums">
-                        {p.qty} · {inr(p.revenue)}
+                        {p.qty}× · {inr(p.revenue)}
                       </span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -416,28 +597,31 @@ export default async function ReportsPage({ params, searchParams }: Props) {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:col-span-5">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">By source</CardTitle>
-              <CardDescription>Share of revenue.</CardDescription>
+            <CardHeader className="border-b border-border/60 pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Store className="h-3.5 w-3.5 text-muted-foreground" />
+                By channel source
+              </CardTitle>
+              <CardDescription>Revenue share across platforms.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 pt-3">
               {sources.length === 0 ? (
-                <p className="text-sm text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground">—</p>
               ) : (
                 sources.map(([src, val]) => (
-                  <div key={src} className="text-sm">
+                  <div key={src} className="text-xs">
                     <div className="mb-1 flex items-center justify-between">
-                      <Badge variant="outline" className="text-[10px] uppercase">
+                      <Badge variant="outline" className="text-[11px] uppercase">
                         {src}
                       </Badge>
                       <span className="text-muted-foreground tabular-nums">
-                        {val.count} ·{" "}
+                        {val.count} · {inr(val.revenue)} (
                         {totalRevenue
                           ? Math.round((val.revenue / totalRevenue) * 100)
                           : 0}
-                        %
+                        %)
                       </span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -455,34 +639,34 @@ export default async function ReportsPage({ params, searchParams }: Props) {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Utensils className="h-4 w-4 text-muted-foreground" />
+            <CardHeader className="border-b border-border/60 pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Utensils className="h-3.5 w-3.5 text-muted-foreground" />
                 Order types
               </CardTitle>
-              <CardDescription>Share of orders.</CardDescription>
+              <CardDescription>Dine-in, takeaway, and delivery mix.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 pt-3">
               {types.length === 0 ? (
-                <p className="text-sm text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground">—</p>
               ) : (
-                types.map(([t, count]) => (
-                  <div key={t} className="text-sm">
+                types.map(([t, val]) => (
+                  <div key={t} className="text-xs">
                     <div className="mb-1 flex items-center justify-between">
-                      <span className="capitalize">{t}</span>
+                      <span className="font-medium capitalize">{t}</span>
                       <span className="text-muted-foreground tabular-nums">
-                        {count} ·{" "}
+                        {val.count} orders · {inr(val.revenue)} (
                         {totalOrders
-                          ? Math.round((count / totalOrders) * 100)
+                          ? Math.round((val.count / totalOrders) * 100)
                           : 0}
-                        %
+                        %)
                       </span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary/80"
                         style={{
-                          width: `${totalOrders ? (count / totalOrders) * 100 : 0}%`,
+                          width: `${totalOrders ? (val.count / totalOrders) * 100 : 0}%`,
                         }}
                       />
                     </div>
@@ -494,20 +678,20 @@ export default async function ReportsPage({ params, searchParams }: Props) {
         </div>
       </div>
 
-      {/* Sales by category + busiest hours */}
+      {/* Category revenue & Busiest hours */}
       {totalOrders > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Layers className="h-4 w-4 text-muted-foreground" />
+            <CardHeader className="border-b border-border/60 pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-3.5 w-3.5 text-muted-foreground" />
                 Sales by category
               </CardTitle>
               <CardDescription>Revenue share by menu section.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 pt-3">
               {categories.map(([cat, rev]) => (
-                <div key={cat} className="text-sm">
+                <div key={cat} className="text-xs">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="truncate font-medium">{cat}</span>
                     <span className="shrink-0 text-muted-foreground tabular-nums">
@@ -527,14 +711,14 @@ export default async function ReportsPage({ params, searchParams }: Props) {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Clock className="h-4 w-4 text-muted-foreground" />
+            <CardHeader className="border-b border-border/60 pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                 Busiest hours
               </CardTitle>
-              <CardDescription>Orders by time of day.</CardDescription>
+              <CardDescription>Order volume by time of day.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-3">
               <div className="flex h-32 items-end gap-1">
                 {bizHours.map((b, i) => (
                   <div
@@ -545,7 +729,8 @@ export default async function ReportsPage({ params, searchParams }: Props) {
                     <div
                       className="w-full rounded-t bg-primary/85 transition-all group-hover:bg-primary"
                       style={{
-                        height: `${Math.max((b.count / hourMax) * 100, b.count > 0 ? 4 : 0)}%`,
+                        height: `${Math.max((b.count / hourMax) * 100, b.count > 0 ? 4 : 1)}%`,
+                        opacity: b.count > 0 ? 1 : 0.15,
                       }}
                     />
                   </div>
@@ -555,7 +740,7 @@ export default async function ReportsPage({ params, searchParams }: Props) {
                 {bizHours.map((b, i) => (
                   <div
                     key={i}
-                    className="flex-1 text-center text-[10px] text-muted-foreground"
+                    className="flex-1 text-center tabular-nums text-[11px] text-muted-foreground"
                   >
                     {i % 3 === 0 ? b.label : ""}
                   </div>
@@ -575,49 +760,49 @@ function Stat({
   value,
   deltaPct,
   deltaLabel,
+  sub,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   deltaPct?: number | null;
   deltaLabel?: string;
+  sub?: string;
 }) {
   const up = (deltaPct ?? 0) >= 0;
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Icon className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">
-              {label}
-            </div>
-            <div className="text-xl font-semibold tabular-nums">{value}</div>
-          </div>
+    <Card size="sm">
+      <CardContent className="space-y-1.5">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{label}</span>
+          <Icon className="h-3.5 w-3.5" />
         </div>
-        {deltaPct !== null && deltaPct !== undefined && (
-          <div className="mt-3 flex items-center gap-1.5 text-xs">
-            <span
-              className={cn(
-                "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-medium",
-                up
-                  ? "bg-emerald-500/10 text-emerald-600"
-                  : "bg-rose-500/10 text-rose-600",
-              )}
-            >
-              {up ? (
-                <TrendingUp className="h-3 w-3" />
-              ) : (
-                <TrendingDown className="h-3 w-3" />
-              )}
-              {up ? "+" : ""}
-              {deltaPct}%
+        <div className="text-2xl font-semibold tabular-nums tracking-tight">
+          {value}
+        </div>
+        <div className="h-4 text-[11px]">
+          {deltaPct !== null && deltaPct !== undefined ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-0.5 font-medium",
+                  up ? "text-emerald-600" : "text-rose-600",
+                )}
+              >
+                {up ? (
+                  <TrendingUp className="h-3 w-3" />
+                ) : (
+                  <TrendingDown className="h-3 w-3" />
+                )}
+                {up ? "+" : ""}
+                {deltaPct}%
+              </span>
+              <span className="text-muted-foreground">{deltaLabel}</span>
             </span>
-            <span className="text-muted-foreground">{deltaLabel}</span>
-          </div>
-        )}
+          ) : (
+            <span className="text-muted-foreground">{sub ?? ""}</span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

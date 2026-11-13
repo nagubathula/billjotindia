@@ -3,16 +3,18 @@ import { createClient } from "@/lib/supabase/server";
 import { AutoPrint } from "./AutoPrint";
 import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
 import { isUuid } from "@/lib/utils";
+import { resolveTimeZone } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { id: string; slug: string } };
+type Params = { params: Promise<{ id: string; slug: string }> };
 
-export default async function ReceiptPage({ params }: Params) {
+export default async function ReceiptPage(props: Params) {
+  const params = await props.params;
   const orderId = params.id;
   if (!isUuid(orderId)) notFound();
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: order } = await supabase
     .from("orders")
     .select("*")
@@ -35,6 +37,22 @@ export default async function ReceiptPage({ params }: Params) {
 
   const lines = (items ?? []) as OrderItem[];
   const placedAt = order.placed_at ?? order.created_at;
+  const extPayload =
+    order.external_payload &&
+    typeof order.external_payload === "object" &&
+    !Array.isArray(order.external_payload)
+      ? (order.external_payload as {
+          gateway?: string;
+          payment_id?: string;
+        })
+      : null;
+  const tenderMode = extPayload?.gateway
+    ? `${extPayload.gateway.toUpperCase()}${extPayload.payment_id ? ` (${extPayload.payment_id.slice(-10)})` : ""}`
+    : order.customer_email?.startsWith("pos+")
+      ? order.customer_email.split("@")[0].replace("pos+", "")
+      : order.external_status === "paid"
+        ? "ONLINE PAID"
+        : null;
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-neutral-200 p-6 print:block print:bg-white print:p-0">
@@ -54,22 +72,36 @@ export default async function ReceiptPage({ params }: Params) {
         <hr className="my-2 border-dashed border-black" />
 
         <div className="flex justify-between">
-          <span>Bill #{order.unique_order_id ?? order.id}</span>
+          <span>Bill #{order.unique_order_id ?? order.id.slice(0, 8)}</span>
           <span className="uppercase">{order.source}</span>
         </div>
         {order.token_number != null && (
-          <div className="text-center text-base font-bold">TOKEN {order.token_number}</div>
+          <div className="my-1 border border-black py-0.5 text-center text-base font-bold">
+            TOKEN #{order.token_number}
+          </div>
         )}
-        <div className="text-[10px]">
-          {placedAt ? new Date(placedAt).toLocaleString("en-IN") : ""}
+        <div className="flex justify-between text-[10px]">
+          <span>
+            {placedAt
+              ? new Date(placedAt).toLocaleString("en-IN", {
+                  timeZone: resolveTimeZone(outlet?.timezone),
+                })
+              : ""}
+          </span>
+          <span className="uppercase font-semibold">{order.order_type}</span>
         </div>
-        <div className="text-[10px] capitalize">{order.order_type}</div>
+        {order.customer_name && order.customer_name !== "Walk-in" && (
+          <div className="text-[10px]">Customer: {order.customer_name}</div>
+        )}
+        {tenderMode && (
+          <div className="text-[10px] uppercase">Paid via: {tenderMode}</div>
+        )}
 
         <hr className="my-2 border-dashed border-black" />
 
         <table className="w-full">
           <thead>
-            <tr className="border-b border-dashed">
+            <tr className="border-b border-dashed border-black">
               <th className="text-left font-normal">Item</th>
               <th className="w-8 text-right font-normal">Qty</th>
               <th className="w-12 text-right font-normal">₹</th>
@@ -79,11 +111,22 @@ export default async function ReceiptPage({ params }: Params) {
             {lines.map((line) => {
               const cfg = line.product_config as unknown as ProductConfig | null;
               const name = cfg?.name ?? `#${cfg?.product_id ?? "?"}`;
+              const opts = cfg?.selected_options ?? [];
               return (
-                <tr key={line.id}>
-                  <td className="py-0.5">{name}</td>
-                  <td className="text-right tabular-nums">{line.quantity}</td>
-                  <td className="text-right tabular-nums">
+                <tr key={line.id} className="align-top">
+                  <td className="py-0.5 pr-1">
+                    <div>{name}</div>
+                    {opts.length > 0 && (
+                      <div className="text-[9px] text-neutral-700">
+                        + {opts.map((o) => o.option_name).join(", ")}
+                      </div>
+                    )}
+                    {line.instructions && (
+                      <div className="text-[9px] italic">Note: {line.instructions}</div>
+                    )}
+                  </td>
+                  <td className="py-0.5 text-right tabular-nums">{line.quantity}</td>
+                  <td className="py-0.5 text-right tabular-nums">
                     {Number(line.total_price).toFixed(0)}
                   </td>
                 </tr>
@@ -91,6 +134,12 @@ export default async function ReceiptPage({ params }: Params) {
             })}
           </tbody>
         </table>
+
+        {order.instructions && (
+          <div className="mt-1.5 border-t border-dashed border-black pt-1 text-[10px] italic">
+            Order Note: {order.instructions}
+          </div>
+        )}
 
         <hr className="my-2 border-dashed border-black" />
 

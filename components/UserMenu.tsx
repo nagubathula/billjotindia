@@ -78,7 +78,7 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
         )}
       >
         <Avatar className="h-6 w-6">
-          <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+          <AvatarFallback className="text-[11px] font-medium">{initials}</AvatarFallback>
         </Avatar>
         <span className="hidden text-sm sm:inline">{displayName}</span>
         {role && (
@@ -101,7 +101,7 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground">
+              <DropdownMenuLabel>
                 {restaurants.length === 1 ? "Your restaurant" : "Your restaurants"}
               </DropdownMenuLabel>
               {restaurants.map(({ restaurant: r, role: rRole }) => (
@@ -111,12 +111,11 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
                     className="flex w-full items-center justify-between gap-2"
                   >
                     <span className="flex items-center gap-1.5 truncate">
-                      <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <Store className="shrink-0 text-primary" />
                       <span className="truncate">{r.name}</span>
                     </span>
                     <Badge
                       variant={rRole === "admin" ? "default" : "secondary"}
-                      className="text-[10px]"
                     >
                       {ROLE_LABEL[rRole]}
                     </Badge>
@@ -127,9 +126,9 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
               <DropdownMenuItem>
                 <Link
                   href="/dashboard"
-                  className="flex w-full items-center gap-1.5 text-muted-foreground"
+                  className="flex w-full items-center gap-2"
                 >
-                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  <LayoutDashboard className="text-primary" />
                   Dashboard
                 </Link>
               </DropdownMenuItem>
@@ -140,7 +139,7 @@ export async function UserMenu({ next = "/" }: { next?: string }) {
         <DropdownMenuSeparator />
 
         <DropdownMenuItem>
-          <Link href="/dashboard" className="w-full text-muted-foreground">
+          <Link href="/dashboard" className="w-full">
             My account
           </Link>
         </DropdownMenuItem>

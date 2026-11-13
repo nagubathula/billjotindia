@@ -17,9 +17,10 @@ export const dynamic = "force-dynamic";
 // the order ID URL can view it — fine for v0 with opaque IDs but a real
 // product should match against unique_order_id token or require sign-in.
 
-type Props = { params: { slug: string; id: string } };
+type Props = { params: Promise<{ slug: string; id: string }> };
 
-export default async function OrderConfirmationPage({ params }: Props) {
+export default async function OrderConfirmationPage(props: Props) {
+  const params = await props.params;
   const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
@@ -49,6 +50,25 @@ export default async function OrderConfirmationPage({ params }: Props) {
   const o = order as Order;
   const its = (items ?? []) as OrderItem[];
   const status = o.status as OrderStatus;
+  const extPayload =
+    o.external_payload &&
+    typeof o.external_payload === "object" &&
+    !Array.isArray(o.external_payload)
+      ? (o.external_payload as {
+          gateway?: string;
+          paid?: boolean;
+          payment_id?: string;
+        })
+      : null;
+  const isPaidOnline = o.external_status === "paid" || Boolean(extPayload?.paid);
+  const gatewayName =
+    extPayload?.gateway === "razorpay"
+      ? "Razorpay"
+      : extPayload?.gateway === "stripe"
+        ? "Stripe"
+        : o.razorpay_order_id
+          ? "Razorpay"
+          : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 py-6">
@@ -61,10 +81,29 @@ export default async function OrderConfirmationPage({ params }: Props) {
           Thanks, {o.customer_name}. We sent a copy to{" "}
           <span className="text-foreground">{o.customer_email}</span>.
         </p>
-        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs">
-          <span className="text-muted-foreground">Order</span>
-          <span className="font-mono">{o.unique_order_id ?? `#${o.id}`}</span>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs">
+            <span className="text-muted-foreground">Order</span>
+            <span className="tabular-nums">{o.unique_order_id ?? `#${o.id}`}</span>
+          </div>
+          {o.token_number != null && (
+            <Badge variant="outline" className="tabular-nums text-xs">
+              Token #{o.token_number}
+            </Badge>
+          )}
+          {isPaidOnline ? (
+            <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
+              Paid{gatewayName ? ` via ${gatewayName}` : ""}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Pay at Counter</Badge>
+          )}
         </div>
+        {isPaidOnline && extPayload?.payment_id && (
+          <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
+            Payment Ref: {extPayload.payment_id}
+          </p>
+        )}
       </div>
 
       <Card>
@@ -96,13 +135,22 @@ export default async function OrderConfirmationPage({ params }: Props) {
           </ul>
           <Separator />
           <div className="space-y-1 text-sm">
-            <Row label="Subtotal" value={Number(o.subtotal)} />
+            <Row label="Subtotal (excl. GST)" value={Number(o.subtotal)} />
+            {Number(o.cgst_amount ?? 0) + Number(o.sgst_amount ?? 0) > 0 && (
+              <Row
+                label="GST (CGST + SGST)"
+                value={Number(o.cgst_amount ?? 0) + Number(o.sgst_amount ?? 0)}
+              />
+            )}
             {Number(o.takeaway_charges) > 0 && (
               <Row label="Packing" value={Number(o.takeaway_charges)} />
             )}
+            {Number(o.discount_amount ?? 0) > 0 && (
+              <Row label="Coupon / Discount" value={-Number(o.discount_amount)} />
+            )}
             <Separator className="my-1.5" />
             <div className="flex justify-between text-base font-semibold">
-              <span>Total</span>
+              <span>{isPaidOnline ? "Total Paid" : "Total Payable"}</span>
               <span className="tabular-nums">
                 ₹{Number(o.total_amount).toFixed(0)}
               </span>

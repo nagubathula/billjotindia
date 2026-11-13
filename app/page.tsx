@@ -1,16 +1,14 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  BarChart3,
+  ChefHat,
+  ChevronRight,
+  Globe,
   LayoutDashboard,
   Receipt,
   Store,
   Zap,
-  Globe,
-  BarChart3,
-  ShoppingBag,
-  IndianRupee,
-  TrendingUp,
-  CheckCircle2,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,76 +19,86 @@ export const dynamic = "force-dynamic";
 const features = [
   {
     icon: Receipt,
-    title: "Counter POS + KOT",
-    body: "GST-compliant billing, thermal receipts, and kitchen tickets routed by station.",
+    title: "Counter POS and thermal KOT",
+    body: "Keyboard-first billing with a full GST breakdown, item codes and kitchen tickets routed to the right station.",
   },
   {
-    icon: Store,
-    title: "Multi-outlet & multi-brand",
-    body: "Run several branches off one menu library. Group franchises under a brand.",
+    icon: ChefHat,
+    title: "Live kitchen display",
+    body: "A real-time order board with elapsed timers, cooking instructions and one-tap bump actions.",
   },
   {
     icon: Globe,
-    title: "Online ordering",
-    body: "A branded storefront for dine-in QR, pickup and delivery — no aggregator cut.",
+    title: "Direct online ordering",
+    body: "A commission-free storefront for dine-in QR, takeaway and delivery, always in sync with your menu.",
+  },
+  {
+    icon: Store,
+    title: "Multi-outlet, multi-brand",
+    body: "Run every branch and brand from one admin, with outlet-level pricing and opening hours.",
   },
   {
     icon: BarChart3,
-    title: "Live reports",
-    body: "Sales, top items and trends across every outlet, updated in real time.",
-  },
-  {
-    icon: ShoppingBag,
-    title: "Customer ordering",
-    body: "Carts, checkout and order tracking your customers can use from any phone.",
+    title: "GST and tender reports",
+    body: "Reconcile cash, UPI, card and Section 9(5) aggregator sales, then export the ledger as CSV.",
   },
   {
     icon: Zap,
-    title: "Aggregator-ready",
-    body: "Schema built for Zomato / Swiggy / ONDC. Wire up once you're an approved partner.",
+    title: "Aggregator ready",
+    body: "One order schema built for Zomato, Swiggy and ONDC alongside your own channels.",
   },
+];
+
+const stats = [
+  { value: "< 15s", label: "Average counter bill" },
+  { value: "F8–F10", label: "One-key tender checkout" },
+  { value: "Multi", label: "Outlet and brand hierarchy" },
+  { value: "0%", label: "Direct storefront commission" },
 ];
 
 const highlights = [
   "No setup fees",
-  "Works on any device",
-  "GST-ready invoices",
-  "Free onboarding",
+  "Keyboard shortcuts",
+  "GST-compliant invoices",
+  "Any browser or tablet",
 ];
 
 export default async function LandingPage() {
   const user = await getCurrentUser();
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="glass sticky top-0 z-50 border-b border-black/5">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <span className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Receipt className="h-4 w-4" />
+    <div className="flex min-h-screen flex-col bg-card">
+      {/* Global nav: a thin translucent bar the page scrolls beneath. */}
+      <header className="glass sticky top-0 z-50 border-b border-border">
+        <div className="mx-auto flex h-12 max-w-5xl items-center justify-between px-5">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-base font-semibold tracking-tight"
+          >
+            <span className="grid h-6 w-6 place-items-center rounded-md bg-primary text-primary-foreground">
+              <Receipt className="h-3.5 w-3.5" />
             </span>
             Billjot
-          </span>
-          <nav className="flex items-center gap-2 text-sm">
+          </Link>
+          <nav className="flex items-center gap-4">
             {user ? (
               <Link
                 href="/dashboard"
-                className={cn(buttonVariants({ variant: "default", size: "sm", className: "rounded-full" }))}
+                className={cn(buttonVariants({ variant: "default", size: "xs" }))}
               >
-                <LayoutDashboard className="mr-1.5 h-4 w-4" /> Dashboard
+                <LayoutDashboard /> Dashboard
               </Link>
             ) : (
               <>
                 <Link
                   href="/login"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm", className: "rounded-full" }))}
+                  className="text-xs text-foreground/80 transition-colors hover:text-foreground"
                 >
                   Sign in
                 </Link>
                 <Link
                   href="/signup"
-                  className={cn(buttonVariants({ variant: "default", size: "sm", className: "rounded-full" }))}
+                  className={cn(buttonVariants({ variant: "default", size: "xs" }))}
                 >
                   Get started
                 </Link>
@@ -102,176 +110,124 @@ export default async function LandingPage() {
 
       <main className="flex-1">
         {/* Hero */}
-        <section className="relative overflow-hidden">
-          {/* Ambient background */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(to_right,color-mix(in_oklch,var(--foreground)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_oklch,var(--foreground)_4%,transparent)_1px,transparent_1px)] bg-[size:36px_36px] [mask-image:radial-gradient(ellipse_at_top,black,transparent_75%)]"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[460px] w-[760px] -translate-x-1/2 rounded-full bg-primary/15 blur-[130px]"
-          />
+        <section className="px-5 pt-16 text-center sm:pt-24">
+          <p className="text-base font-semibold text-primary">
+            Built for Indian restaurants
+          </p>
+          <h1 className="mx-auto mt-3 max-w-4xl text-5xl font-semibold sm:text-6xl lg:text-7xl">
+            The POS that runs your whole counter.
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground sm:text-xl">
+            Counter billing, live kitchen tickets, direct online ordering and
+            GST-ready reports, in one fast, distraction-free workspace.
+          </p>
 
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 lg:grid-cols-[1.1fr_1fr] lg:py-28">
-            {/* Copy */}
-            <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-                </span>
-                Built for Indian F&amp;B
-              </span>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+            {user ? (
+              <Link href="/dashboard" className={cn(buttonVariants({ size: "lg" }))}>
+                Open dashboard
+              </Link>
+            ) : (
+              <>
+                <Link href="/signup" className={cn(buttonVariants({ size: "lg" }))}>
+                  Create your restaurant
+                </Link>
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-0.5 text-base text-primary hover:underline"
+                >
+                  Sign in <ChevronRight className="h-4 w-4" />
+                </Link>
+              </>
+            )}
+          </div>
 
-              <h1 className="mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
-                The POS that runs your{" "}
-                <span className="text-primary">whole counter</span>
-              </h1>
-
-              <p className="mt-5 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">
-                Counter billing, kitchen tickets, online ordering and
-                multi-outlet reports — one platform built to take on Petpooja's
-                turf.
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
-                {user ? (
-                  <Link
-                    href="/dashboard"
-                    className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
-                  >
-                    Open your dashboard <ArrowRight className="ml-1.5 h-4 w-4" />
-                  </Link>
-                ) : (
-                  <>
-                    <Link
-                      href="/signup"
-                      className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
-                    >
-                      Create your restaurant{" "}
-                      <ArrowRight className="ml-1.5 h-4 w-4" />
-                    </Link>
-                    <Link
-                      href="/login"
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "lg", className: "rounded-full" }),
-                      )}
-                    >
-                      I have an account
-                    </Link>
-                  </>
+          <ul className="mx-auto mt-7 flex max-w-xs flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:max-w-none sm:gap-x-2">
+            {highlights.map((h, i) => (
+              <li key={h} className="flex items-center gap-2">
+                {i > 0 && (
+                  <span aria-hidden className="hidden sm:inline">
+                    ·
+                  </span>
                 )}
-              </div>
+                {h}
+              </li>
+            ))}
+          </ul>
 
-              <ul className="mt-8 flex flex-wrap gap-x-5 gap-y-2">
-                {highlights.map((h) => (
-                  <li
-                    key={h}
-                    className="flex items-center gap-1.5 text-sm text-muted-foreground"
-                  >
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    {h}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Product preview */}
+          {/* Product stage */}
+          <div className="mx-auto mt-14 max-w-5xl rounded-t-4xl bg-background px-5 pt-10 sm:px-12 sm:pt-14">
             <HeroPreview />
           </div>
         </section>
 
-        {/* Stats strip */}
-        <section className="border-y border-border bg-muted/40">
-          <div className="mx-auto grid max-w-6xl grid-cols-2 gap-px overflow-hidden px-6 py-10 sm:grid-cols-4">
-            {[
-              { value: "< 30s", label: "Average bill time" },
-              { value: "100%", label: "Works offline" },
-              { value: "Multi", label: "Outlet & brand" },
-              { value: "0%", label: "Aggregator cut" },
-            ].map((s) => (
-              <div key={s.label} className="px-2 text-center">
-                <div className="text-2xl font-semibold tracking-tight text-primary sm:text-3xl">
-                  {s.value}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground sm:text-sm">
-                  {s.label}
-                </div>
+        {/* Numbers */}
+        <section className="bg-background px-5 py-16 sm:py-20">
+          <dl className="mx-auto grid max-w-5xl grid-cols-2 gap-x-6 gap-y-10 text-center lg:grid-cols-4">
+            {stats.map((s) => (
+              <div key={s.label} className="flex flex-col-reverse gap-1">
+                <dt className="text-sm text-muted-foreground">{s.label}</dt>
+                <dd className="text-4xl font-semibold sm:text-5xl">{s.value}</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </section>
 
         {/* Features */}
-        <section className="mx-auto max-w-6xl px-6 py-20 lg:py-24">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Everything the counter needs
-            </h2>
-            <p className="mt-3 text-lg text-muted-foreground">
-              One system from the kitchen to the customer&apos;s phone.
-            </p>
-          </div>
-
-          <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((f) => (
-              <div
-                key={f.title}
-                className="group rounded-2xl border border-border bg-card p-6 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                  <f.icon className="h-5 w-5" />
-                </div>
-                <h3 className="mt-5 font-semibold">{f.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  {f.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="mx-auto max-w-6xl px-6 pb-24">
-          <div className="relative overflow-hidden rounded-3xl border border-border bg-card px-6 py-16 text-center">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/20 blur-[100px]"
-            />
-            <div className="relative">
-              <h2 className="mx-auto max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">
-                Start running your restaurant on Billjot
+        <section className="px-5 py-20 sm:py-28">
+          <div className="mx-auto max-w-5xl">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-4xl font-semibold sm:text-5xl">
+                Everything the counter and kitchen need.
               </h2>
-              <p className="mx-auto mt-3 max-w-md text-muted-foreground">
-                Set up your menu, outlets and counter in minutes. Free to start.
+              <p className="mt-4 text-lg text-muted-foreground">
+                Designed for speed at peak service, with nothing on screen that
+                you don&apos;t need.
               </p>
-              <div className="mt-8 flex justify-center">
-                <Link
-                  href={user ? "/dashboard" : "/signup"}
-                  className={cn(buttonVariants({ size: "lg", className: "rounded-full" }))}
+            </div>
+
+            <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {features.map((f) => (
+                <div
+                  key={f.title}
+                  className="rounded-xl border border-border bg-card p-6 shadow-2xs"
                 >
-                  {user ? "Open dashboard" : "Create your restaurant"}
-                  <ArrowRight className="ml-1.5 h-4 w-4" />
-                </Link>
-              </div>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/80 bg-secondary text-foreground">
+                    <f.icon className="h-4 w-4" />
+                  </div>
+                  <h3 className="mt-4 text-base font-semibold">{f.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                    {f.body}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
+
+        {/* Closing call to action */}
+        <section className="bg-background px-5 py-20 text-center sm:py-28">
+          <h2 className="mx-auto max-w-2xl text-4xl font-semibold sm:text-5xl">
+            Start running your restaurant on Billjot.
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
+            Set up your menu, outlets and POS terminal in minutes.
+          </p>
+          <Link
+            href={user ? "/dashboard" : "/signup"}
+            className={cn(buttonVariants({ size: "lg" }), "mt-8")}
+          >
+            {user ? "Open dashboard" : "Create your restaurant"}
+            <ArrowRight />
+          </Link>
+        </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground sm:flex-row">
-          <span className="flex items-center gap-2 font-medium text-foreground">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Receipt className="h-3.5 w-3.5" />
-            </span>
-            Billjot
-          </span>
-          <span>Made for Indian restaurants.</span>
-          <Link href="/signup" className="font-medium text-primary hover:underline">
-            Start free →
+      <footer className="border-t border-border bg-background">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-5 py-5 text-xs text-muted-foreground sm:flex-row">
+          <span>Billjot India · POS, kitchen display and direct ordering</span>
+          <Link href={user ? "/dashboard" : "/signup"} className="text-primary hover:underline">
+            {user ? "Open dashboard" : "Start free"}
           </Link>
         </div>
       </footer>
@@ -279,71 +235,99 @@ export default async function LandingPage() {
   );
 }
 
-/* A lightweight, image-free product preview built from tokens. */
 function HeroPreview() {
+  const lines = [
+    { q: 2, name: "Masala Dosa", note: "Extra crispy", p: "₹240" },
+    { q: 1, name: "Filter Coffee", note: null, p: "₹40" },
+    { q: 3, name: "Idli Plate", note: "Sambar separate", p: "₹180" },
+  ];
+
   return (
-    <div className="relative">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-b from-primary/10 to-transparent blur-2xl"
-      />
-      <div className="rounded-3xl border border-border bg-card p-4 shadow-2xl shadow-foreground/5">
-        {/* Window chrome */}
-        <div className="flex items-center gap-1.5 px-2 pb-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
-          <span className="h-2.5 w-2.5 rounded-full bg-primary/60" />
-          <span className="ml-2 text-xs text-muted-foreground">
-            Billjot · Counter
+    <div
+      aria-hidden
+      className="overflow-hidden rounded-t-3xl bg-card text-left shadow-float"
+    >
+      {/* Toolbar */}
+      <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Receipt className="h-4 w-4" />
           </span>
+          <span className="text-sm font-semibold whitespace-nowrap">Counter POS</span>
         </div>
-
-        {/* Stat row */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { icon: IndianRupee, label: "Today", value: "₹45,820" },
-            { icon: Receipt, label: "Bills", value: "184" },
-            { icon: TrendingUp, label: "Growth", value: "+12%" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="rounded-xl border border-border bg-background p-3"
-            >
-              <s.icon className="h-4 w-4 text-primary" />
-              <div className="mt-2 text-base font-semibold tracking-tight">
-                {s.value}
-              </div>
-              <div className="text-[11px] text-muted-foreground">{s.label}</div>
-            </div>
-          ))}
+        <div className="flex rounded-[10px] bg-muted p-0.5 text-xs font-medium whitespace-nowrap">
+          <span className="rounded-lg bg-card px-2.5 py-1 shadow-control sm:px-3">Dine-in</span>
+          <span className="px-2.5 py-1 text-foreground/70 sm:px-3">Takeaway</span>
+          <span className="hidden px-3 py-1 text-foreground/70 sm:block">Delivery</span>
         </div>
+      </div>
 
-        {/* Order lines */}
-        <div className="mt-3 rounded-xl border border-border bg-background p-3">
-          <div className="flex items-center justify-between border-b border-border pb-2 text-xs font-medium text-muted-foreground">
-            <span>Table 04 · KOT #128</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Live
-            </span>
+      <div className="grid gap-px bg-border sm:grid-cols-[1.15fr_1fr]">
+        {/* Today */}
+        <div className="bg-card p-5 sm:p-6">
+          <div className="text-xs text-muted-foreground">Revenue today</div>
+          <div className="mt-1 text-4xl font-semibold tabular-nums">₹45,820</div>
+          <div className="mt-1 text-xs font-medium text-emerald-600">
+            12% ahead of yesterday
           </div>
-          <ul className="mt-2 space-y-2 text-sm">
-            {[
-              { q: "2×", name: "Masala Dosa", p: "₹240" },
-              { q: "1×", name: "Filter Coffee", p: "₹40" },
-              { q: "3×", name: "Idli Plate", p: "₹180" },
-            ].map((row) => (
-              <li key={row.name} className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  <span className="font-mono text-foreground">{row.q}</span>{" "}
-                  {row.name}
+
+          <div className="mt-6 flex h-20 items-end gap-1.5">
+            {[28, 40, 34, 52, 70, 96, 82, 60, 44, 66, 88, 58].map((h, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "flex-1 rounded-full",
+                  i === 5 ? "bg-primary" : "bg-primary/20",
+                )}
+                style={{ height: `${h}%` }}
+              />
+            ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-background p-4">
+              <div className="text-xs text-muted-foreground">Bills</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums">184</div>
+            </div>
+            <div className="rounded-2xl bg-background p-4">
+              <div className="text-xs text-muted-foreground">In the kitchen</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums">7</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Active ticket */}
+        <div className="flex flex-col bg-card p-5 sm:p-6">
+          <div className="flex items-baseline justify-between">
+            <span className="text-base font-semibold">Table 4</span>
+            <span className="text-xs text-muted-foreground">Token 128</span>
+          </div>
+          <ul className="mt-3 divide-y divide-border">
+            {lines.map((row) => (
+              <li key={row.name} className="flex items-center gap-3 py-2.5">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium tabular-nums">
+                  {row.q}
                 </span>
-                <span className="font-medium">{row.p}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{row.name}</span>
+                  {row.note && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {row.note}
+                    </span>
+                  )}
+                </span>
+                <span className="text-sm tabular-nums">{row.p}</span>
               </li>
             ))}
           </ul>
-          <div className="mt-3 flex items-center justify-between border-t border-border pt-2 text-sm font-semibold">
-            <span>Total</span>
-            <span className="text-primary">₹460</span>
+          <div className="mt-auto flex items-baseline justify-between border-t border-border pt-4">
+            <span className="text-xs text-muted-foreground">Total, incl. 5% GST</span>
+            <span className="text-xl font-semibold tabular-nums">₹483</span>
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-2 pb-1 text-center text-xs font-medium">
+            <span className="rounded-full bg-primary py-2 text-primary-foreground">Cash</span>
+            <span className="rounded-full bg-secondary py-2">UPI</span>
+            <span className="rounded-full bg-secondary py-2">Card</span>
           </div>
         </div>
       </div>

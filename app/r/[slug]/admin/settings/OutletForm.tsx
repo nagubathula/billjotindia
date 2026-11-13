@@ -133,7 +133,7 @@ export function OutletForm({ slug, outlet }: { slug: string; outlet: Outlet }) {
       </Card>
 
       {/* Save */}
-      <div className="sticky bottom-4 flex items-center justify-end gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="glass sticky bottom-4 flex items-center justify-end gap-3 rounded-2xl px-4 py-3 shadow-float">
         {status && (
           <p
             className={`text-sm ${

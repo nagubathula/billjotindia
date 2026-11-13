@@ -14,10 +14,17 @@
 //
 // This v0 returns the bytes as `application/octet-stream` so any of the
 // above can wire to it without further server changes.
+//
+// A receipt carries the customer's name and what they ordered, so only staff
+// of the order's restaurant may fetch one. The POS opens this in the cashier's
+// own browser, which sends their session. A print agent (a) or cloud printer
+// (b) has no session and will need its own credential when one is built.
 
 import { NextResponse } from "next/server";
 import { isUuid } from "@/lib/utils";
+import { getCurrentUser, getRoleInRestaurant } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveTimeZone } from "@/lib/time";
 import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
 
 // ESC/POS control codes. https://reference.epson-biz.com/modules/ref_escpos/
@@ -64,7 +71,7 @@ function wrap(text: string, indent = ""): string {
   const cap = WIDTH - indent.length;
   const out: string[] = [];
   let line = "";
-  for (const word of text.replace(/s+/g, " ").trim().split(" ")) {
+  for (const word of text.replace(/\s+/g, " ").trim().split(" ")) {
     if (line && line.length + 1 + word.length > cap) {
       out.push(line);
       line = word;
@@ -82,12 +89,15 @@ function wrap(text: string, indent = ""): string {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { orderId: string } },
+  { params }: { params: Promise<{ orderId: string }> },
 ) {
-  const id = params.orderId;
+  const id = (await params).orderId;
   if (!isUuid(id)) {
     return new NextResponse("Invalid order id", { status: 400 });
   }
+
+  const user = await getCurrentUser();
+  if (!user) return new NextResponse("Sign in to print", { status: 401 });
 
   const admin = createAdminClient();
   const { data: order } = await admin
@@ -103,6 +113,11 @@ export async function GET(
     .eq("id", order.outlet_id)
     .maybeSingle();
 
+  // Same answer as a missing order, so the id of another restaurant's order
+  // can't be confirmed by asking for its receipt.
+  const role = outlet ? await getRoleInRestaurant(outlet.restaurant_id) : null;
+  if (!role) return new NextResponse("Not found", { status: 404 });
+
   const { data: items } = await admin
     .from("order_items")
     .select("*")
@@ -113,7 +128,11 @@ export async function GET(
   const its = (items ?? []) as OrderItem[];
 
   const placedAt = o.placed_at ?? o.created_at;
-  const placedStr = placedAt ? new Date(placedAt).toLocaleString("en-IN") : "";
+  const placedStr = placedAt
+    ? new Date(placedAt).toLocaleString("en-IN", {
+        timeZone: resolveTimeZone(out?.timezone),
+      })
+    : "";
 
   // Build the receipt as text + control bytes
   const buf: Array<number | number[] | string> = [

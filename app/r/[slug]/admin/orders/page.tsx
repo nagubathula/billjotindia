@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Clock, IndianRupee, ListOrdered } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock,
+  IndianRupee,
+  ListOrdered,
+  MonitorSmartphone,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
@@ -17,11 +23,13 @@ const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 export const dynamic = "force-dynamic";
 
 type Props = {
-  params: { slug: string };
-  searchParams: { outlet?: string };
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ outlet?: string }>;
 };
 
-export default async function AdminOrdersPage({ params, searchParams }: Props) {
+export default async function AdminOrdersPage(props: Props) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
@@ -34,13 +42,18 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
       ? [outletFilter]
       : outletIds;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("orders")
     .select("*")
-    .in("outlet_id", scopedIds.length > 0 ? scopedIds : ["00000000-0000-0000-0000-000000000000"])
+    .in(
+      "outlet_id",
+      scopedIds.length > 0
+        ? scopedIds
+        : ["00000000-0000-0000-0000-000000000000"],
+    )
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(250);
 
   const orders = (data ?? []) as Order[];
 
@@ -48,16 +61,23 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
     (o) => o.status != null && ACTIVE_STATUSES.includes(o.status),
   ).length;
   const completedCount = orders.filter((o) => o.status === "completed").length;
-  const totalValue = orders.reduce(
-    (sum, o) => sum + Number(o.total_amount ?? 0),
-    0,
-  );
+  const totalValue = orders
+    .filter((o) => o.status !== "cancelled")
+    .reduce((sum, o) => sum + Number(o.total_amount ?? 0), 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Orders"
-        description={`${orders.length} ${orders.length === 1 ? "order" : "orders"} across ${outlets.length} ${outlets.length === 1 ? "outlet" : "outlets"}.`}
+        description={`Manage, filter, and export orders across ${outlets.length} ${outlets.length === 1 ? "outlet" : "outlets"}.`}
+        actions={
+          <Link
+            href={`/r/${params.slug}/pos`}
+            className={buttonVariants({ size: "sm" })}
+          >
+            <MonitorSmartphone className="mr-1.5 h-3.5 w-3.5" /> New POS Bill
+          </Link>
+        }
       />
 
       {error && (
@@ -68,9 +88,13 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
 
       {orders.length > 0 && (
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="Total orders" value={orders.length} icon={ListOrdered} />
           <StatCard
-            label="Active"
+            label="Total orders"
+            value={orders.length}
+            icon={ListOrdered}
+          />
+          <StatCard
+            label="Active in queue"
             value={activeCount}
             icon={Clock}
             accent="amber"
@@ -82,8 +106,8 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
             accent="emerald"
           />
           <StatCard
-            label="Order value"
-            value={`₹${totalValue.toLocaleString("en-IN")}`}
+            label="Net order value"
+            value={`₹${Math.round(totalValue).toLocaleString("en-IN")}`}
             icon={IndianRupee}
           />
         </section>
@@ -91,7 +115,7 @@ export default async function AdminOrdersPage({ params, searchParams }: Props) {
 
       {orders.length === 0 && !error ? (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-4">
             <EmptyState
               icon={ListOrdered}
               title="No orders yet"
@@ -132,26 +156,19 @@ function StatCard({
 }) {
   const accentClass =
     accent === "amber"
-      ? "bg-amber-500/10 text-amber-600"
+      ? "text-amber-600"
       : accent === "emerald"
-        ? "bg-emerald-500/10 text-emerald-600"
-        : "bg-primary/10 text-primary";
+        ? "text-emerald-600"
+        : "text-muted-foreground";
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3 pt-6">
-        <div
-          className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-            accentClass,
-          )}
-        >
-          <Icon className="h-5 w-5" />
+    <Card size="sm">
+      <CardContent className="space-y-1">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{label}</span>
+          <Icon className={cn("h-3.5 w-3.5", accentClass)} />
         </div>
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            {label}
-          </div>
-          <div className="truncate text-xl font-semibold">{value}</div>
+        <div className="truncate text-2xl font-semibold tabular-nums tracking-tight">
+          {value}
         </div>
       </CardContent>
     </Card>

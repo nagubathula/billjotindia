@@ -1,13 +1,8 @@
-// Sidebar shell for the admin sections. Persistent left rail with the
-// active item highlighted; content area on the right gets its own header
-// (via <PageHeader/>) per route.
-//
-// Role gate: admin OR manager. /admin/users tightens further to admin only.
-
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { MobileAdminNav } from "@/components/MobileAdminNav";
 import {
+  getCurrentUser,
   getCurrentUserRoles,
   getRestaurantBySlug,
   requireRole,
@@ -15,19 +10,24 @@ import {
 
 type Props = {
   children: React.ReactNode;
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
-export default async function AdminLayout({ children, params }: Props) {
-  // Start the auth/role lookups alongside the restaurant row; requireRole then
-  // resolves entirely from the request cache.
-  const [restaurant] = await Promise.all([
+export default async function AdminLayout(props: Props) {
+  const { children } = props;
+  const params = await props.params;
+  const [restaurant, signedInUser] = await Promise.all([
     getRestaurantBySlug(params.slug),
+    getCurrentUser(),
     getCurrentUserRoles(),
   ]);
+  // Restaurants are only readable by their staff, so a signed-out visitor
+  // would otherwise see "page not found". Send them to sign in instead.
+  if (!signedInUser) {
+    redirect(`/login?next=${encodeURIComponent(`/r/${params.slug}/admin`)}`);
+  }
   if (!restaurant) notFound();
 
-  // The sidebar's 'who am I' card uses the user + role requireRole returns.
   const { user, role } = await requireRole(["admin", "manager"], {
     restaurantSlug: params.slug,
     redirectTo: `/r/${params.slug}/admin/orders`,
@@ -39,15 +39,8 @@ export default async function AdminLayout({ children, params }: Props) {
     "Staff";
   const userEmail = user?.email ?? "";
 
-  // We can't infer the active nav item from the URL in a layout (params don't
-  // include the rest of the path), so the page itself sets a class on
-  // <body data-admin-section="orders"> via a small script — or, simpler, we
-  // pass active through a global mobile nav and let each page mark its own
-  // sidebar item active via aria attribute. Since the active item is mostly
-  // cosmetic, render the sidebar without a hard 'active' and let the
-  // [active item resolution] live in the page-level imports below.
   return (
-    <div className="flex min-h-screen bg-muted/30">
+    <div className="flex min-h-screen bg-background">
       <AdminSidebar
         restaurant={restaurant}
         role={role}
@@ -61,7 +54,7 @@ export default async function AdminLayout({ children, params }: Props) {
           userEmail={userEmail}
           userName={userName}
         />
-        <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-8 sm:py-8">
           {children}
         </div>
       </div>

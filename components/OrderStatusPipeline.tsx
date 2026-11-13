@@ -26,7 +26,7 @@ const LABEL: Record<OrderStatus, string> = {
 export function OrderStatusPipeline({ status }: { status: OrderStatus }) {
   if (status === "cancelled") {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
         <AlertOctagon className="h-4 w-4" />
         Cancelled — no further actions.
       </div>
@@ -50,7 +50,7 @@ export function OrderStatusPipeline({ status }: { status: OrderStatus }) {
                 isCurrent && "border-primary bg-primary text-primary-foreground",
                 !isPast &&
                   !isCurrent &&
-                  "border-border bg-background text-muted-foreground",
+                  "border-border bg-card text-muted-foreground",
               )}
             >
               {isPast ? (
@@ -58,7 +58,7 @@ export function OrderStatusPipeline({ status }: { status: OrderStatus }) {
               ) : (
                 <span
                   className={cn(
-                    "flex h-3 w-3 items-center justify-center rounded-full text-[9px] font-semibold",
+                    "flex h-3 w-3 items-center justify-center rounded-full text-[11px] font-semibold",
                     isCurrent
                       ? "bg-primary-foreground/20 text-primary-foreground"
                       : "bg-muted text-muted-foreground",

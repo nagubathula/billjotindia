@@ -158,11 +158,11 @@ export function ModifierDialog({ product, open, onOpenChange, onConfirm }: Props
                     </h4>
                     <div className="flex items-center gap-2">
                       {group.is_required && (
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant="outline" className="text-[11px]">
                           Required
                         </Badge>
                       )}
-                      <Badge variant="secondary" className="text-[10px]">
+                      <Badge variant="secondary" className="text-[11px]">
                         {isSingle ? "Pick 1" : "Multiple"}
                       </Badge>
                     </div>

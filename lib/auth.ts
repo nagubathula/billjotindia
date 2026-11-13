@@ -26,7 +26,7 @@ const ROLE_PRECEDENCE: Record<AppRole, number> = {
 };
 
 export const getCurrentUser = cache(async (): Promise<User | null> => {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
   if (error) return null;
   return data.user;
@@ -44,7 +44,7 @@ export const getCurrentUserRoles = cache(
     const user = await getCurrentUser();
     if (!user) return [];
 
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("user_roles")
       .select("restaurant_id, role")
@@ -95,7 +95,7 @@ export async function getCurrentRestaurant(opts?: {
 
 export const getRestaurantById = cache(
   async (id: string): Promise<Restaurant | null> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("restaurants")
       .select("*")
@@ -110,7 +110,7 @@ export const getRestaurantById = cache(
  */
 export const getRestaurantBySlug = cache(
   async (slug: string): Promise<Restaurant | null> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("restaurants")
       .select("*")
@@ -129,7 +129,7 @@ export type PublicRestaurant = { id: string; slug: string; name: string };
 
 export const getPublicRestaurant = cache(
   async (slug: string): Promise<PublicRestaurant | null> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase.rpc("public_restaurant_by_slug", {
       p_slug: slug,
     });
@@ -154,7 +154,7 @@ export type PublicOutlet = {
 
 export const getPublicOutlets = cache(
   async (restaurantId: string): Promise<PublicOutlet[]> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase.rpc("public_outlets_for_restaurant", {
       p_restaurant_id: restaurantId,
     });
@@ -180,7 +180,7 @@ export const getUserRestaurants = cache(
       }
     }
 
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("restaurants")
       .select("*")
@@ -209,7 +209,7 @@ export const getPrimaryRestaurant = cache(
  */
 export const getDefaultOutletForRestaurant = cache(
   async (restaurantId: string): Promise<{ id: string } | null> => {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data } = await supabase
       .from("outlets")
       .select("id")

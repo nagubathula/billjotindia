@@ -23,6 +23,7 @@ Then open http://localhost:3000.
 | `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | **UUID** of the outlet to use when a client doesn't specify one (`select id from outlets where slug = 'main'`). All ids are uuids since the `20260719000000_uuid_refactor` migration. |
 | `STOREFRONT_ORDER_TOKEN` | Optional shared secret that standalone storefronts (e.g. `billjotdemocafe`) send as `x-storefront-token` when forwarding orders. |
 | `STOREFRONT_ALLOWED_ORIGINS` | Optional comma-separated CORS allowlist for `/api/orders`. |
+| `CHANNEL_ORDER_TOKEN` | Optional secret a delivery-platform adapter sends as `x-channel-token`. It is the only way to post an order at prices the server didn't compute; while unset, `/api/orders` refuses every source other than `web`, `pos` and `kiosk`. |
 
 ## Database migrations
 
@@ -77,7 +78,7 @@ components/
 lib/
   types.ts                    # Database type (matches the SQL schema)
   supabase/{client,server,middleware}.ts
-middleware.ts                 # refreshes auth session
+proxy.ts                      # refreshes auth session (Next 16's renamed middleware)
 ```
 
 ## Next steps you'll likely want

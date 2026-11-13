@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Power, Tag } from "lucide-react";
+import { Plus, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
+import { cn } from "@/lib/utils";
 import type { Category } from "@/lib/types";
 import {
   createCategoryAction,
@@ -45,13 +46,13 @@ export function CategoryManager({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {categories.length === 0
             ? "No categories yet."
-            : `${categories.length} ${categories.length === 1 ? "category" : "categories"}.`}
+            : `${categories.length} ${categories.length === 1 ? "category" : "categories"} configured.`}
         </p>
         <Button size="sm" onClick={() => setOpen(true)}>
-          <Plus className="mr-1 h-3 w-3" /> Add category
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add category
         </Button>
         <Dialog
           open={open}
@@ -64,7 +65,7 @@ export function CategoryManager({
             <DialogHeader>
               <DialogTitle>New category</DialogTitle>
               <DialogDescription>
-                Categories group items on the menu and as POS tabs.
+                Categories group items on the menu and as POS filter tabs.
               </DialogDescription>
             </DialogHeader>
             <form
@@ -83,7 +84,7 @@ export function CategoryManager({
               className="grid gap-3"
             >
               <div className="grid gap-1.5">
-                <Label htmlFor="cat-name">Name</Label>
+                <Label htmlFor="cat-name">Category name</Label>
                 <Input
                   id="cat-name"
                   name="name"
@@ -92,12 +93,8 @@ export function CategoryManager({
                   autoFocus
                 />
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="cat-emoji">Emoji (optional)</Label>
-                <Input id="cat-emoji" name="emoji" maxLength={4} placeholder="☕" />
-              </div>
               {err && (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="text-xs text-destructive" role="alert">
                   {err}
                 </p>
               )}
@@ -125,52 +122,60 @@ export function CategoryManager({
           description="Add at least one category before you can create products."
         />
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-16">Sort</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-20" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {categories.map((c) => (
-              <TableRow key={c.id}>
-                <TableCell className="text-muted-foreground tabular-nums">
-                  {c.sort_order}
-                </TableCell>
-                <TableCell className="font-medium">
-                  {c.emoji ? `${c.emoji} ` : ""}
-                  {c.name}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={c.status === "active" ? "default" : "outline"}>
-                    {c.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    disabled={pending}
-                    onClick={() =>
-                      start(async () => {
-                        const res = await toggleCategoryStatusAction(slug, c.id);
-                        if (!res.ok) alert(res.error);
-                        else router.refresh();
-                      })
-                    }
-                    title={c.status === "active" ? "Disable" : "Enable"}
-                  >
-                    <Power className="h-3 w-3" />
-                  </Button>
-                </TableCell>
+        <div className="overflow-hidden rounded-xl border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="w-20 pl-3">Order</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="w-36 pr-3 text-right">Status</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {categories.map((c) => {
+                const isActive = c.status === "active";
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="pl-3 text-xs text-muted-foreground tabular-nums">
+                      {c.sort_order}
+                    </TableCell>
+                    <TableCell className="text-xs font-medium">
+                      {c.name}
+                    </TableCell>
+                    <TableCell className="pr-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <span
+                          className={cn(
+                            "text-[11px]",
+                            isActive
+                              ? "text-foreground"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {isActive ? "Active" : "Hidden"}
+                        </span>
+                        <Switch
+                          checked={isActive}
+                          disabled={pending}
+                          onCheckedChange={() =>
+                            start(async () => {
+                              const res = await toggleCategoryStatusAction(
+                                slug,
+                                c.id,
+                              );
+                              if (!res.ok) alert(res.error);
+                              else router.refresh();
+                            })
+                          }
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );

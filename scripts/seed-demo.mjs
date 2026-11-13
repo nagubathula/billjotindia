@@ -46,9 +46,9 @@ const DEMO = {
     { email: "demo-cashier@billjot.test", name: "Priya Cashier", role: "user", password: "Cashier@Demo123" },
   ],
   categories: [
-    { name: "Coffee", emoji: "☕" },
-    { name: "Cakes", emoji: "🍰" },
-    { name: "Pizza", emoji: "🍕" },
+    { name: "Coffee", emoji: null },
+    { name: "Cakes", emoji: null },
+    { name: "Pizza", emoji: null },
   ],
   // Reusable add-on sets. `groups` on a product references these by display_name.
   customizationGroups: [

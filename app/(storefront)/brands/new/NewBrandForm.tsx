@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { createBrandAction } from "../actions";
 
 export function NewBrandForm() {
   const router = useRouter();
-  const [state, formAction] = useFormState(createBrandAction, null);
+  const [state, formAction] = useActionState(createBrandAction, null);
 
   useEffect(() => {
     if (state?.ok) {

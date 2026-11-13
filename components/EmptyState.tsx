@@ -1,6 +1,3 @@
-// Friendly empty state with an icon, message, and optional CTA. Use anywhere
-// a list has zero items and we want to suggest the next action.
-
 import type { ComponentType, ReactNode } from "react";
 
 type Props = {
@@ -12,15 +9,17 @@ type Props = {
 
 export function EmptyState({ icon: Icon, title, description, action }: Props) {
   return (
-    <div className="flex flex-col items-center gap-2 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="h-5 w-5" />
+    <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <Icon className="h-6 w-6" />
       </div>
-      <h3 className="text-sm font-medium">{title}</h3>
+      <h3 className="mt-4 text-base font-semibold text-foreground">{title}</h3>
       {description && (
-        <p className="max-w-xs text-sm text-muted-foreground">{description}</p>
+        <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          {description}
+        </p>
       )}
-      {action && <div className="mt-2">{action}</div>}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }

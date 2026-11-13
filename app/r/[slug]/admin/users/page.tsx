@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole, getCurrentUser, getRestaurantBySlug } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DEFAULT_TIME_ZONE } from "@/lib/time";
 import {
   Card,
   CardContent,
@@ -30,9 +31,10 @@ const ROLE_LABEL: Record<AppRole, string> = {
   user: "Cashier",
 };
 
-type Props = { params: { slug: string } };
+type Props = { params: Promise<{ slug: string }> };
 
-export default async function UsersPage({ params }: Props) {
+export default async function UsersPage(props: Props) {
+  const params = await props.params;
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
@@ -150,7 +152,9 @@ export default async function UsersPage({ params }: Props) {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {u.last_sign_in_at
-                        ? new Date(u.last_sign_in_at).toLocaleString("en-IN")
+                        ? new Date(u.last_sign_in_at).toLocaleString("en-IN", {
+                            timeZone: DEFAULT_TIME_ZONE,
+                          })
                         : "—"}
                     </TableCell>
                     <TableCell>

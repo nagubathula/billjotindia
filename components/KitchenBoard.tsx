@@ -1,342 +1,543 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Bell,
   BellOff,
-  BellRing,
-  ChefHat,
-  CookingPot,
   Check,
-  X,
-  Timer,
+  ChefHat,
+  Clock,
+  Printer,
   RefreshCw,
+  X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/EmptyState";
-import { CancelOrderDialog } from "@/components/CancelOrderDialog";
-import { useOrderBell } from "@/components/useOrderBell";
-import { cn } from "@/lib/utils";
-import { isAggregatorSource } from "@/lib/channels";
 import { createClient } from "@/lib/supabase/client";
 import { updateOrderStatusAction } from "@/app/r/[slug]/admin/orders/[id]/actions";
-import type { Order, OrderItem, OrderStatus, ProductConfig } from "@/lib/types";
+import { CancelOrderDialog } from "@/components/CancelOrderDialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import type {
+  KitchenStation,
+  Order,
+  OrderItem,
+  OrderStatus,
+  Outlet,
+  ProductConfig,
+} from "@/lib/types";
 
-type KitchenOrder = Order & { items: OrderItem[] };
+export type KitchenOrder = Order & { items: OrderItem[] };
 
-// Polling cadence — a safety net. When Supabase Realtime is enabled on the
-// `orders` table the board also updates instantly via the subscription below.
-const REFRESH_MS = 15000;
+type StageKey = "new" | "preparing" | "ready";
 
-const COLUMNS: {
-  key: "new" | "preparing" | "ready";
+const STAGES: {
+  key: StageKey;
   title: string;
+  dotClass: string;
   statuses: OrderStatus[];
-  icon: React.ComponentType<{ className?: string }>;
-  next: OrderStatus;
-  cta: string;
+  nextStatus: OrderStatus;
+  ctaLabel: string;
 }[] = [
   {
     key: "new",
     title: "New",
+    dotClass: "bg-amber-500",
     statuses: ["pending", "confirmed"],
-    icon: ChefHat,
-    next: "preparing",
-    cta: "Start cooking",
+    nextStatus: "preparing",
+    ctaLabel: "Start Preparing",
   },
   {
     key: "preparing",
     title: "Preparing",
+    dotClass: "bg-blue-500",
     statuses: ["preparing"],
-    icon: CookingPot,
-    next: "ready",
-    cta: "Mark ready",
+    nextStatus: "ready",
+    ctaLabel: "Mark Ready",
   },
   {
     key: "ready",
-    title: "Ready",
+    title: "Ready for Pickup",
+    dotClass: "bg-emerald-500",
     statuses: ["ready"],
-    icon: Check,
-    next: "completed",
-    cta: "Picked up",
+    nextStatus: "completed",
+    ctaLabel: "Complete",
   },
 ];
 
-const configOf = (it: OrderItem) =>
-  it.product_config as unknown as ProductConfig | null;
+function configOf(item: OrderItem): ProductConfig | null {
+  if (!item.product_config || typeof item.product_config !== "object") {
+    return null;
+  }
+  return item.product_config as ProductConfig;
+}
+
+function playBeep() {
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {
+    // Ignore audio context restrictions
+  }
+}
+
+function formatElapsed(mins: number): string {
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function getOrderChannelLabel(o: KitchenOrder): string {
+  const src = (o.source ?? "pos").toLowerCase();
+  if (src === "swiggy") return "Swiggy";
+  if (src === "zomato") return "Zomato";
+  if (src === "ondc") return "ONDC";
+  const t = (o.order_type ?? "dine-in").toLowerCase();
+  if (t.includes("take")) return "Takeaway";
+  if (t.includes("deliv")) return "Delivery";
+  return "Dine-in";
+}
 
 export function KitchenBoard({
   slug,
-  orders,
+  outlets,
+  stations = [],
+  productStationMap = {},
+  initialOrders,
 }: {
   slug: string;
-  orders: KitchenOrder[];
+  outlets: Outlet[];
+  stations?: KitchenStation[];
+  productStationMap?: Record<string, string>;
+  initialOrders: KitchenOrder[];
 }) {
   const router = useRouter();
+  const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
+  const [outletFilter, setOutletFilter] = useState<string>("all");
+  const [stationFilter, setStationFilter] = useState<string>("all");
+  const [stageFilter, setStageFilter] = useState<"all" | StageKey>("all");
+  const [soundOn, setSoundOn] = useState<boolean>(false);
+  const [now, setNow] = useState<number>(() => Date.now());
   const [pending, start] = useTransition();
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [now, setNow] = useState<number | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<KitchenOrder | null>(null);
-  const bell = useOrderBell(orders);
+  const [cancellingOrder, setCancellingOrder] = useState<KitchenOrder | null>(
+    null,
+  );
+  const prevCountRef = useRef<number>(initialOrders.length);
 
-  // Tick for elapsed-time display (client-only to avoid hydration mismatch).
   useEffect(() => {
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
+    setOrders(initialOrders);
+    if (soundOn && initialOrders.length > prevCountRef.current) {
+      playBeep();
+    }
+    prevCountRef.current = initialOrders.length;
+  }, [initialOrders, soundOn]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
   }, []);
 
-  // Auto-pull new orders from the server (fallback safety net).
-  useEffect(() => {
-    const t = setInterval(() => router.refresh(), REFRESH_MS);
-    return () => clearInterval(t);
-  }, [router]);
-
-  // Instant updates via Supabase Realtime (no-op until the `orders` table is
-  // added to the supabase_realtime publication — see scripts/enable-realtime.sql).
   useEffect(() => {
     const supabase = createClient();
+    const outletIds = new Set(outlets.map((o) => o.id));
     const channel = supabase
-      .channel("kitchen-orders")
+      .channel(`kds-${slug}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => router.refresh(),
+        (payload) => {
+          const row = (payload.new ?? payload.old) as
+            | { outlet_id?: string }
+            | undefined;
+          if (row?.outlet_id && !outletIds.has(row.outlet_id)) return;
+          router.refresh();
+        },
       )
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [slug, outlets, router]);
 
-  function bump(orderId: string, status: OrderStatus) {
-    setBusyId(orderId);
+  const stationNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stations) set.add(s.name);
+    for (const stName of Object.values(productStationMap)) {
+      if (stName) set.add(stName);
+    }
+    return Array.from(set);
+  }, [stations, productStationMap]);
+
+  const filtered = useMemo(() => {
+    return orders
+      .filter((o) => {
+        if (outletFilter !== "all" && String(o.outlet_id) !== outletFilter) {
+          return false;
+        }
+        return true;
+      })
+      .map((o) => {
+        if (stationFilter === "all") return o;
+        const stationItems = o.items.filter((it) => {
+          const cfg = configOf(it);
+          const pid = cfg?.product_id;
+          if (!pid) return true;
+          return productStationMap[pid] === stationFilter;
+        });
+        return { ...o, items: stationItems };
+      })
+      .filter((o) => o.items.length > 0);
+  }, [orders, outletFilter, stationFilter, productStationMap]);
+
+  const stageBuckets = useMemo(() => {
+    const map: Record<StageKey, KitchenOrder[]> = {
+      new: [],
+      preparing: [],
+      ready: [],
+    };
+    for (const o of filtered) {
+      const s = (o.status ?? "pending") as OrderStatus;
+      const stage = STAGES.find((st) => st.statuses.includes(s));
+      if (stage) map[stage.key].push(o);
+    }
+    return map;
+  }, [filtered]);
+
+  function advance(orderId: string, next: OrderStatus) {
+    setOrders((prev) =>
+      next === "completed"
+        ? prev.filter((o) => o.id !== orderId)
+        : prev.map((o) => (o.id === orderId ? { ...o, status: next } : o)),
+    );
     start(async () => {
-      const res = await updateOrderStatusAction(slug, orderId, status);
-      if (!res.ok) alert(res.error);
-      router.refresh();
-      setBusyId(null);
+      try {
+        await updateOrderStatusAction(slug, orderId, next);
+      } catch {
+        router.refresh();
+      }
     });
   }
 
-  function elapsed(placedAt: string | null) {
-    if (!now || !placedAt) return null;
-    const mins = Math.max(0, Math.floor((now - new Date(placedAt).getTime()) / 60000));
-    return mins;
+  function renderCard(o: KitchenOrder, stage: (typeof STAGES)[number]) {
+    const placedMs = o.placed_at ? new Date(o.placed_at).getTime() : now;
+    const elapsedMins = Math.max(0, Math.floor((now - placedMs) / 60_000));
+    const isSlow = elapsedMins >= 20 && stage.key !== "ready";
+    const token = o.token_number ?? o.daily_order_number;
+    const channelLabel = getOrderChannelLabel(o);
+
+    return (
+      <div
+        key={o.id}
+        className="flex flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-sm"
+      >
+        <div>
+          {/* Card Header */}
+          <div className="flex items-start justify-between gap-2 pb-3 border-b border-border/60">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-base font-bold text-foreground">
+                  {token ? `#${token}` : `#${o.id.slice(0, 4).toUpperCase()}`}
+                </span>
+                <Badge variant="secondary" className="text-[11px] font-medium">
+                  {channelLabel}
+                </Badge>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {o.customer_name || "Walk-in"}
+              </p>
+            </div>
+
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums",
+                isSlow
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <Clock className="h-3 w-3" />
+              {formatElapsed(elapsedMins)}
+            </span>
+          </div>
+
+          {/* Order-level Note */}
+          {o.instructions && (
+            <div className="mt-2.5 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+              Note: {o.instructions}
+            </div>
+          )}
+
+          {/* Items List */}
+          <ul className="my-3 space-y-2.5">
+            {o.items.map((it) => {
+              const cfg = configOf(it);
+              const mods = cfg?.selected_options ?? [];
+              return (
+                <li key={it.id} className="text-sm">
+                  <div className="flex items-baseline gap-2 font-medium text-foreground">
+                    <span className="font-mono text-xs font-semibold text-muted-foreground tabular-nums">
+                      {it.quantity}×
+                    </span>
+                    <span className="leading-snug">{cfg?.name ?? "Item"}</span>
+                  </div>
+                  {mods.length > 0 && (
+                    <p className="pl-6 text-xs text-muted-foreground">
+                      {mods.map((m) => m.option_name).join(", ")}
+                    </p>
+                  )}
+                  {it.instructions && (
+                    <p className="pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Note: {it.instructions}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center gap-1.5 pt-3 border-t border-border/60">
+          <Button
+            size="sm"
+            disabled={pending}
+            onClick={() => advance(o.id, stage.nextStatus)}
+            className="flex-1"
+          >
+            <Check className="mr-1.5 h-3.5 w-3.5" />
+            {stage.ctaLabel}
+          </Button>
+          <Link
+            href={`/r/${slug}/pos/receipt/${o.id}?mode=kot`}
+            target="_blank"
+            title="Print KOT"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Printer className="h-3.5 w-3.5" />
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={pending}
+            onClick={() => setCancellingOrder(o)}
+            title="Cancel order"
+            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    );
   }
 
-  const BellIcon = !bell.enabled ? BellOff : bell.unanswered.size > 0 ? BellRing : Bell;
-  const bellLabel = !bell.enabled
-    ? "Sound off"
-    : bell.blocked
-      ? "Tap to allow sound"
-      : "Sound on";
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          {orders.length} active{" "}
-          {orders.length === 1 ? "ticket" : "tickets"} · auto-refreshing
-        </p>
-        <div className="flex items-center gap-2">
+    <div className="space-y-5">
+      {/* Single Clean Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
           <button
-            onClick={bell.toggle}
-            aria-pressed={bell.enabled}
-            title={
-              bell.enabled
-                ? "New orders ring until they're accepted. Click to mute."
-                : "Ring when a new order arrives"
-            }
+            type="button"
+            onClick={() => setStageFilter("all")}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition",
-              !bell.enabled && "border-border text-muted-foreground hover:bg-muted",
-              bell.enabled && !bell.blocked && "border-primary/30 bg-primary/10 text-primary",
-              bell.enabled && bell.blocked && "border-amber-500/40 bg-amber-500/10 text-amber-700",
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              stageFilter === "all"
+                ? "bg-background text-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <BellIcon
-              className={cn(
-                "h-3.5 w-3.5",
-                bell.enabled && bell.unanswered.size > 0 && "animate-pulse",
-              )}
-            />
-            {bellLabel}
+            All ({filtered.length})
           </button>
-          <button
-            onClick={() => router.refresh()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+          {STAGES.map((st) => {
+            const count = stageBuckets[st.key].length;
+            return (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => setStageFilter(st.key)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  stageFilter === st.key
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span className={cn("h-2 w-2 rounded-full", st.dotClass)} />
+                {st.title} ({count})
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {stationNames.length > 0 && (
+            <Select
+              value={stationFilter}
+              onValueChange={(v) => v && setStationFilter(v)}
+            >
+              <SelectTrigger size="sm" className="w-44 text-xs">
+                <SelectValue placeholder="All stations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All stations</SelectItem>
+                {stationNames.map((st) => (
+                  <SelectItem key={st} value={st}>
+                    {st}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {outlets.length > 1 && (
+            <Select
+              value={outletFilter}
+              onValueChange={(v) => v && setOutletFilter(v)}
+            >
+              <SelectTrigger size="sm" className="w-44 text-xs">
+                <SelectValue placeholder="All outlets" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All outlets</SelectItem>
+                {outlets.map((o) => (
+                  <SelectItem key={o.id} value={String(o.id)}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setSoundOn((v) => !v)}
+            title={soundOn ? "Mute sound" : "Enable sound alert"}
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", pending && "animate-spin")} />
-            Refresh
-          </button>
+            {soundOn ? (
+              <Bell className="h-3.5 w-3.5" />
+            ) : (
+              <BellOff className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => router.refresh()}
+            title="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
-      {orders.length === 0 && (
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <EmptyState
-            icon={ChefHat}
-            title="No active tickets"
-            description="New orders from the POS, storefront and delivery platforms appear here automatically."
-          />
+      {/* Empty State */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-20 text-center">
+          <ChefHat className="h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-foreground">
+            Kitchen queue is clear
+          </p>
+          <p className="text-xs text-muted-foreground">
+            New orders from POS, storefront, and aggregators appear here automatically.
+          </p>
         </div>
-      )}
-
-      {orders.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-3">
-          {COLUMNS.map((col) => {
-            const colOrders = orders.filter((o) =>
-              col.statuses.includes((o.status ?? "pending") as OrderStatus),
-            );
+      ) : stageFilter === "all" ? (
+        /* 3-Column Stage Board */
+        <div className="grid gap-5 lg:grid-cols-3">
+          {STAGES.map((stage) => {
+            const list = stageBuckets[stage.key];
             return (
-              <div key={col.key} className="rounded-2xl border border-border bg-muted/30 p-3">
+              <div
+                key={stage.key}
+                className="flex flex-col rounded-xl border border-border bg-muted/20 p-3.5"
+              >
                 <div className="mb-3 flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <col.icon className="h-4 w-4 text-primary" />
-                    {col.title}
+                  <div className="flex items-center gap-2">
+                    <span className={cn("h-2 w-2 rounded-full", stage.dotClass)} />
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {stage.title}
+                    </h2>
                   </div>
-                  <Badge variant="secondary">{colOrders.length}</Badge>
+                  <Badge variant="secondary" className="tabular-nums">
+                    {list.length}
+                  </Badge>
                 </div>
 
-                <div className="space-y-3">
-                  {colOrders.length === 0 && (
-                    <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-                      Nothing here.
-                    </p>
-                  )}
-                  {colOrders.map((o) => {
-                    const mins = elapsed(o.placed_at);
-                    const late = mins != null && mins >= 15;
-                    const isPending = (o.status ?? "pending") === "pending";
-                    // A platform order has to be accepted before cooking starts;
-                    // our own orders go straight to the stove.
-                    const needsAccept = isPending && isAggregatorSource(o.source);
-                    const next = needsAccept ? "confirmed" : col.next;
-                    const cta = needsAccept ? "Accept order" : col.cta;
-                    const waiting = bell.unanswered.has(o.id);
-                    return (
-                      <div
-                        key={o.id}
-                        className={cn(
-                          "rounded-xl border border-border bg-card p-3 shadow-sm",
-                          waiting && "ring-2 ring-primary",
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs font-semibold">
-                            {o.unique_order_id ?? `#${o.id}`}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {waiting && (
-                              <Badge className="text-[10px] uppercase">New</Badge>
-                            )}
-                            <Badge variant="outline" className="text-[10px] uppercase">
-                              {o.source}
-                            </Badge>
-                            {mins != null && (
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                                  late
-                                    ? "bg-rose-500/10 text-rose-600"
-                                    : "bg-muted text-muted-foreground",
-                                )}
-                              >
-                                <Timer className="h-3 w-3" />
-                                {mins}m
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-1 truncate text-xs text-muted-foreground">
-                          {o.order_type} · {o.customer_name}
-                        </div>
-
-                        <ul className="mt-2 space-y-1 border-t border-border pt-2 text-sm">
-                          {o.items.map((it) => {
-                            const cfg = configOf(it);
-                            return (
-                              <li key={it.id} className="leading-tight">
-                                <span className="font-semibold text-primary">
-                                  {it.quantity}×
-                                </span>{" "}
-                                {cfg?.name ?? `#${cfg?.product_id ?? it.id}`}
-                                {cfg?.selected_options?.length ? (
-                                  <span className="block pl-5 text-[11px] text-muted-foreground">
-                                    {cfg.selected_options
-                                      .map((s) => s.option_name)
-                                      .join(" · ")}
-                                  </span>
-                                ) : null}
-                                {it.instructions && (
-                                  <span className="block pl-5 text-[11px] font-medium text-amber-700">
-                                    Note: {it.instructions}
-                                  </span>
-                                )}
-                              </li>
-                            );
-                          })}
-                        </ul>
-
-                        {o.instructions && (
-                          <p className="mt-2 whitespace-pre-wrap rounded-lg bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-amber-800">
-                            {o.instructions}
-                          </p>
-                        )}
-
-                        <div className="mt-3 flex items-center gap-2">
-                          <button
-                            onClick={() => bump(o.id, next)}
-                            disabled={pending && busyId === o.id}
-                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-                          >
-                            {pending && busyId === o.id ? (
-                              <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <>
-                                {cta}
-                                <Check className="h-4 w-4" />
-                              </>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => setCancelTarget(o)}
-                            disabled={pending && busyId === o.id}
-                            title={isPending ? "Reject order" : "Cancel order"}
-                            aria-label={isPending ? "Reject order" : "Cancel order"}
-                            className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted-foreground transition hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {list.length === 0 ? (
+                  <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-border/60 py-12 text-xs text-muted-foreground">
+                    No {stage.title.toLowerCase()} orders
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {list.map((o) => renderCard(o, stage))}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
+      ) : (
+        /* Focused Single-Stage Grid */
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {stageBuckets[stageFilter].map((o) => {
+            const st = STAGES.find((s) => s.key === stageFilter)!;
+            return renderCard(o, st);
+          })}
+        </div>
       )}
 
-      {cancelTarget && (
+      {cancellingOrder && (
         <CancelOrderDialog
           slug={slug}
-          orderId={cancelTarget.id}
-          orderLabel={cancelTarget.unique_order_id ?? `#${cancelTarget.id}`}
-          lines={cancelTarget.items.map((it) => {
+          orderId={cancellingOrder.id}
+          orderLabel={
+            cancellingOrder.token_number
+              ? `#${cancellingOrder.token_number}`
+              : `#${cancellingOrder.id.slice(0, 4).toUpperCase()}`
+          }
+          lines={cancellingOrder.items.map((it) => {
             const cfg = configOf(it);
-            return { productId: cfg?.product_id ?? null, name: cfg?.name ?? "Item" };
+            return {
+              productId: cfg?.product_id ?? null,
+              name: cfg?.name ?? "Item",
+            };
           })}
-          verb={(cancelTarget.status ?? "pending") === "pending" ? "reject" : "cancel"}
-          open
+          verb={cancellingOrder.status === "pending" ? "reject" : "cancel"}
+          open={true}
           onOpenChange={(open) => {
-            if (!open) setCancelTarget(null);
+            if (!open) setCancellingOrder(null);
           }}
-          onDone={() => router.refresh()}
+          onDone={() => {
+            const id = cancellingOrder.id;
+            setCancellingOrder(null);
+            setOrders((prev) => prev.filter((o) => o.id !== id));
+            router.refresh();
+          }}
         />
       )}
     </div>

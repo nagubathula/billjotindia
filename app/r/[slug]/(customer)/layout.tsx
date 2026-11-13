@@ -10,10 +10,12 @@ import { getPublicRestaurant } from "@/lib/auth";
 
 type Props = {
   children: React.ReactNode;
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
-export default async function CustomerLayout({ children, params }: Props) {
+export default async function CustomerLayout(props: Props) {
+  const { children } = props;
+  const params = await props.params;
   const restaurant = await getPublicRestaurant(params.slug);
   if (!restaurant) notFound();
 
@@ -23,7 +25,7 @@ export default async function CustomerLayout({ children, params }: Props) {
         restaurantSlug={params.slug}
         restaurantName={restaurant.name}
       />
-      <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-5xl px-5 py-6">{children}</main>
     </CartProvider>
   );
 }

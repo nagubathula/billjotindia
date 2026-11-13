@@ -19,12 +19,10 @@ export async function createCategoryAction(slug: string, formData: FormData): Pr
   if (!outlet) return { ok: false, error: "No outlet configured." };
 
   const name = String(formData.get("name") ?? "").trim();
-  const emoji = String(formData.get("emoji") ?? "").trim() || null;
   if (!name) return { ok: false, error: "Enter a category name." };
 
   const admin = createAdminClient();
 
-  // Default sort_order: max + 10 so new categories land at the end.
   const { data: maxRow } = await admin
     .from("categories")
     .select("sort_order")
@@ -37,7 +35,7 @@ export async function createCategoryAction(slug: string, formData: FormData): Pr
   const { error } = await admin.from("categories").insert({
     outlet_id: outlet.id,
     name,
-    emoji,
+    emoji: null,
     sort_order: nextSort,
     status: "active",
   });
@@ -89,7 +87,10 @@ export async function createProductAction(slug: string, formData: FormData): Pro
   const price = Number(formData.get("price") ?? 0);
   const gst_rate = Number(formData.get("gst_rate") ?? 5);
   const veg_status = String(formData.get("veg_status") ?? "Veg");
+  const code = String(formData.get("code") ?? "").trim() || null;
+  const hsn_code = String(formData.get("hsn_code") ?? "").trim() || null;
   const description = String(formData.get("description") ?? "").trim() || null;
+  const image_url = String(formData.get("image_url") ?? "").trim() || null;
 
   if (!name) return { ok: false, error: "Enter a product name." };
   if (!category) return { ok: false, error: "Pick a category." };
@@ -109,7 +110,10 @@ export async function createProductAction(slug: string, formData: FormData): Pro
       price,
       gst_rate,
       veg_status,
+      code,
+      hsn_code,
       description,
+      image_url,
       status: "active",
       has_toppings: false,
       has_addons: groupIds.length > 0,
@@ -144,7 +148,10 @@ export async function updateProductAction(slug: string, formData: FormData): Pro
   const price = Number(formData.get("price") ?? 0);
   const gst_rate = Number(formData.get("gst_rate") ?? 5);
   const veg_status = String(formData.get("veg_status") ?? "Veg");
+  const code = String(formData.get("code") ?? "").trim() || null;
+  const hsn_code = String(formData.get("hsn_code") ?? "").trim() || null;
   const description = String(formData.get("description") ?? "").trim() || null;
+  const image_url = String(formData.get("image_url") ?? "").trim() || null;
 
   if (!name || !category || !Number.isFinite(price) || price < 0) {
     return { ok: false, error: "Check the fields." };
@@ -161,7 +168,10 @@ export async function updateProductAction(slug: string, formData: FormData): Pro
       price,
       gst_rate,
       veg_status,
+      code,
+      hsn_code,
       description,
+      image_url,
       has_addons: groupIds.length > 0,
     })
     .eq("id", id);
@@ -220,8 +230,6 @@ function parseGroupIds(raw: FormDataEntryValue | null): string[] {
   }
 }
 
-// Replaces a product's group links. Only groups belonging to the product's
-// outlet are linked, so a forged id can't borrow another tenant's groups.
 async function reconcileProductGroups(
   admin: Admin,
   productId: string,
@@ -295,7 +303,6 @@ export async function saveCustomizationGroupAction(
 
   let groupId = id;
   if (groupId) {
-    // Ensure the group belongs to this outlet before editing it.
     const { data: existing } = await admin
       .from("customization_groups")
       .select("id")
@@ -341,8 +348,6 @@ export async function saveCustomizationGroupAction(
     groupId = created.id;
   }
 
-  // Options have no inbound FKs (order snapshots live in product_config), so
-  // replacing them wholesale on each save is safe and keeps the form simple.
   await admin.from("customization_options").delete().eq("group_id", groupId);
   const { error: optErr } = await admin.from("customization_options").insert(
     options.map((o, i) => ({

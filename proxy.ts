@@ -106,7 +106,7 @@ async function tenantSlug(request: NextRequest): Promise<string | null> {
   return null;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const slug = await tenantSlug(request);
 
   let rewriteUrl: URL | undefined;

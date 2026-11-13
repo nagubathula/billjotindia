@@ -4,35 +4,59 @@ import { getRestaurantBySlug } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { PageHeader } from "@/components/PageHeader";
 import { KitchenBoard } from "@/components/KitchenBoard";
-import type { Order, OrderItem } from "@/lib/types";
+import type { KitchenStation, Order, OrderItem, Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const ACTIVE = ["pending", "confirmed", "preparing", "ready"];
 
-export default async function KitchenPage({
-  params,
-}: {
-  params: { slug: string };
+export default async function KitchenPage(props: {
+  params: Promise<{ slug: string }>;
 }) {
+  const params = await props.params;
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
   const outletIds = outlets.map((o) => o.id);
-  const scoped = outletIds.length > 0 ? outletIds : ["00000000-0000-0000-0000-000000000000"];
+  const scoped =
+    outletIds.length > 0
+      ? outletIds
+      : ["00000000-0000-0000-0000-000000000000"];
 
-  const supabase = createClient();
-  const { data: ordersData } = await supabase
-    .from("orders")
-    .select("*")
-    .in("outlet_id", scoped)
-    .in("status", ACTIVE)
-    .order("placed_at", { ascending: true }); // FIFO — oldest first
+  const supabase = await createClient();
+  const [{ data: ordersData }, { data: stationsData }, { data: productsData }] =
+    await Promise.all([
+      supabase
+        .from("orders")
+        .select("*")
+        .in("outlet_id", scoped)
+        .in("status", ACTIVE)
+        .order("placed_at", { ascending: true }), // FIFO — oldest first
+      supabase
+        .from("kitchen_stations")
+        .select("*")
+        .in("outlet_id", scoped)
+        .eq("status", "active")
+        .order("sort_order"),
+      supabase
+        .from("products")
+        .select("id, station_id")
+        .in("outlet_id", scoped),
+    ]);
 
   const orders = (ordersData ?? []) as Order[];
+  const stations = (stationsData ?? []) as KitchenStation[];
+  const stationNameById = new Map(stations.map((s) => [s.id, s.name]));
 
-  let itemsByOrder = new Map<string, OrderItem[]>();
+  const productStationMap: Record<string, string> = {};
+  for (const p of (productsData ?? []) as Pick<Product, "id" | "station_id">[]) {
+    if (p.station_id && stationNameById.has(p.station_id)) {
+      productStationMap[p.id] = stationNameById.get(p.station_id)!;
+    }
+  }
+
+  const itemsByOrder = new Map<string, OrderItem[]>();
   if (orders.length > 0) {
     const { data: itemsData } = await supabase
       .from("order_items")
@@ -54,15 +78,19 @@ export default async function KitchenPage({
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
-        title="Kitchen Display"
-        description="Live tickets across all outlets. Bump each order as it's cooked and handed off."
+        title="Kitchen (KDS)"
+        description="Live kitchen tickets grouped by stage."
       />
 
-      {/* Always mounted, even with no tickets: the board is what polls for
-          new orders and rings the bell, so an empty kitchen must keep it. */}
-      <KitchenBoard slug={params.slug} orders={withItems} />
+      <KitchenBoard
+        slug={params.slug}
+        initialOrders={withItems}
+        outlets={outlets}
+        stations={stations}
+        productStationMap={productStationMap}
+      />
     </div>
   );
 }

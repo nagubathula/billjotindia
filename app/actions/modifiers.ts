@@ -22,7 +22,7 @@ export type ProductModifiers = {
 export async function getProductModifiers(
   productId: string,
 ): Promise<ProductModifiers> {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data: links } = await supabase
     .from("product_customizations")

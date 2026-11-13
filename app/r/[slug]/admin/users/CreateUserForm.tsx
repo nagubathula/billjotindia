@@ -150,7 +150,7 @@ export function CreateUserForm({ restaurantId }: { restaurantId: string }) {
       )}
 
       {result?.kind === "ok" && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+        <div className="rounded-md bg-emerald-500/10 p-3 text-sm">
           <p className="font-medium text-emerald-900">User created.</p>
           <p className="mt-1 text-emerald-800">
             <span className="text-muted-foreground">Email:</span>{" "}

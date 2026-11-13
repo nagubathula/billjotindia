@@ -1,19 +1,12 @@
 "use client";
 
-// Mobile fallback for admin pages. Shows a hamburger button that opens the
-// admin sidebar as a Sheet drawer. Sidebar is hidden via Tailwind below md;
-// this nav is hidden above it.
-
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Store } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Menu, MonitorSmartphone, Store } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { cn } from "@/lib/utils";
 import type { AppRole, Restaurant } from "@/lib/types";
 
 export function MobileAdminNav({
@@ -31,33 +24,42 @@ export function MobileAdminNav({
 
   return (
     <>
-      <header className="glass sticky top-0 z-30 flex items-center justify-between border-b border-black/5 px-3 py-2 md:hidden">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setOpen(true)}
-          aria-label="Open menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+      <header className="glass-page sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border px-3 md:hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu className="h-[18px] w-[18px]" />
+          </Button>
+          <Link
+            href={`/r/${restaurant.slug}/admin`}
+            className="flex min-w-0 items-center gap-1.5"
+          >
+            <Store className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate text-sm font-semibold tracking-tight">
+              {restaurant.name}
+            </span>
+          </Link>
+        </div>
         <Link
-          href={`/r/${restaurant.slug}/admin`}
-          className="flex min-w-0 items-center gap-1.5"
+          href={`/r/${restaurant.slug}/pos`}
+          className={cn(buttonVariants({ variant: "default", size: "xs" }))}
         >
-          <Store className="h-4 w-4 shrink-0 text-primary" />
-          <span className="truncate text-sm font-semibold">{restaurant.name}</span>
+          <MonitorSmartphone className="mr-1 h-3 w-3" />
+          POS
         </Link>
-        <div className="w-9" /> {/* spacer to centre the title */}
       </header>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-64 p-0">
+        <SheetContent side="left" className="w-72 p-0" showCloseButton={false}>
           <SheetTitle className="sr-only">Admin navigation</SheetTitle>
-          {/* Reuse the same sidebar component. It hides itself above md via
-              its hidden md:flex class — but inside a Sheet (always visible)
-              the responsive class is overridden by the sheet container, so
-              we wrap with a class to force visibility. */}
-          <div className="flex h-full [&_aside]:flex [&_aside]:!h-full [&_aside]:!w-full">
+          <div
+            onClick={() => setOpen(false)}
+            className="flex h-full [&_aside]:flex [&_aside]:!h-full [&_aside]:!w-full"
+          >
             <AdminSidebar
               restaurant={restaurant}
               role={role}
