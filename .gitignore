@@ -9,3 +9,6 @@ build
 *.log
 next-env.d.ts
 templates/
+
+# Internal API docs: never commit or deploy (repo is public)
+private-docs/
