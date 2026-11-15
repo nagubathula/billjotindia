@@ -1,15 +1,29 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  getCurrentUser,
+  isSafeInternalNext,
+  resolveDefaultHome,
+} from "@/lib/auth";
 import { LoginForm } from "./LoginForm";
 
 type SearchParams = { next?: string; error?: string };
 
 export default async function LoginPage(props: { searchParams: Promise<SearchParams> }) {
   const searchParams = await props.searchParams;
-  // Empty next = "no specific destination requested"; the sign-in action
-  // will then resolve to the user's primary restaurant's POS, or /dashboard.
   const next = searchParams.next ?? "";
   const forbidden = searchParams.error === "forbidden";
+
+  // If already signed in (and not deliberately switching accounts after a
+  // forbidden bounce), go straight into the workspace.
+  if (!forbidden) {
+    const user = await getCurrentUser();
+    if (user) {
+      redirect(isSafeInternalNext(next) ? next : await resolveDefaultHome());
+    }
+  }
+
   const otherError =
     searchParams.error && searchParams.error !== "forbidden"
       ? decodeURIComponent(searchParams.error)
@@ -23,7 +37,7 @@ export default async function LoginPage(props: { searchParams: Promise<SearchPar
       <div className="mt-6 text-center">
         <h1 className="text-3xl font-bold">Sign in to Billjot</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          One account for staff and customers.
+          Sign in to your restaurant workspace.
         </p>
       </div>
 

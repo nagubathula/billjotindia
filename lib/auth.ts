@@ -201,6 +201,37 @@ export const getPrimaryRestaurant = cache(
 );
 
 /**
+ * True when `requestedNext` is a safe internal app path (`/r/<slug>...`,
+ * `/brands...`, or `/dashboard`) and not an open redirect (`//...`).
+ */
+export function isSafeInternalNext(requestedNext: string | undefined | null): requestedNext is string {
+  if (!requestedNext) return false;
+  return (
+    requestedNext.startsWith("/") &&
+    !requestedNext.startsWith("//") &&
+    (/^\/r\/[^/]+(\/|$)/.test(requestedNext) ||
+      /^\/brands(\/|$)/.test(requestedNext) ||
+      requestedNext === "/dashboard")
+  );
+}
+
+/**
+ * Resolves the default workspace landing route for an authenticated user:
+ * - `admin` / `manager` -> `/r/<slug>/admin/orders`
+ * - `user` (Cashier) / `captain` -> `/r/<slug>/pos`
+ * - No restaurant role -> `/dashboard`
+ */
+export async function resolveDefaultHome(): Promise<string> {
+  const list = await getUserRestaurants();
+  const primary = list[0];
+  if (!primary) return "/dashboard";
+  if (primary.role === "admin" || primary.role === "manager") {
+    return `/r/${primary.restaurant.slug}/admin/orders`;
+  }
+  return `/r/${primary.restaurant.slug}/pos`;
+}
+
+/**
  * Brands visible to the current signed-in user: brands they own directly OR
  * brands attached to any restaurant where they hold the `admin` role.
  */

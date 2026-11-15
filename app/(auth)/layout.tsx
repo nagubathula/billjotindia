@@ -9,8 +9,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <main className="flex flex-1 items-center justify-center px-5 py-12">
         <div className="w-full max-w-[400px]">
           <Link
-            href="/"
-            aria-label="Billjot home"
+            href="/login"
+            aria-label="Billjot sign in"
             className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-card transition-transform duration-200 hover:scale-105"
           >
             <Receipt className="h-7 w-7" />
@@ -19,7 +19,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
       </main>
       <footer className="pb-8 text-center text-xs text-muted-foreground">
-        Billjot · POS, kitchen display and online ordering for Indian restaurants
+        Billjot · Restaurant Operations &amp; POS
       </footer>
     </div>
   );

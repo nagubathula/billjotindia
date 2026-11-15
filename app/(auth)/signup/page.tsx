@@ -62,14 +62,13 @@ export default async function SignupPage() {
         </CardContent>
       </Card>
 
-      <div className="mt-6 space-y-1.5 text-center text-xs text-muted-foreground">
+      <div className="mt-6 text-center text-xs text-muted-foreground">
         <p>
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
             Sign in
           </Link>
         </p>
-        <p>Customer ordering sign-up is per restaurant, and coming soon.</p>
       </div>
     </>
   );
