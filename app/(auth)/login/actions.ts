@@ -13,7 +13,7 @@ type State = { error?: string } | null;
 //     protected route's redirect), honour it
 //   - otherwise pick a destination based on role:
 //       admin / manager → /r/<slug>/admin/orders (ops overview)
-//       user (cashier)  → /r/<slug>/pos        (billing tool)
+//       user (cashier) / captain → /r/<slug>/pos (billing / table orders)
 //       no role         → /dashboard           (signed-in customer)
 export async function signInAction(_prev: State, formData: FormData): Promise<State> {
   const email = String(formData.get("email") ?? "").trim();
@@ -35,10 +35,16 @@ export async function signInAction(_prev: State, formData: FormData): Promise<St
 
   revalidatePath("/", "layout");
 
-  // Honour explicit /r/.../ destinations (e.g. the user was bounced from a
-  // specific protected page; we should send them back there).
-  const looksRestaurantScoped = /^\/r\/[^/]+\//.test(requestedNext);
-  if (looksRestaurantScoped) {
+  // Honour safe internal destinations (e.g. the user was bounced from a
+  // specific admin sub-page, POS route, or brand HQ page). Reject protocol-
+  // relative (`//...`) or external URLs to prevent open redirects.
+  const isSafeInternalNext =
+    requestedNext.startsWith("/") &&
+    !requestedNext.startsWith("//") &&
+    (/^\/r\/[^/]+(\/|$)/.test(requestedNext) ||
+      /^\/brands(\/|$)/.test(requestedNext) ||
+      requestedNext === "/dashboard");
+  if (isSafeInternalNext) {
     redirect(requestedNext);
   }
 

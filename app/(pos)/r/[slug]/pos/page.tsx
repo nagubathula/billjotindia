@@ -4,15 +4,17 @@ import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/aut
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import { getPublicPaymentConfig } from "@/lib/payments";
 import { PosBilling } from "./PosBilling";
-import type { AppRole, Category, Product } from "@/lib/types";
+import {
+  POS_ROLES,
+  ROLE_LABEL,
+  canOpenAdmin,
+  canTakeNonTableOrders,
+  canTakePayment,
+  canVoidSentItems,
+} from "@/lib/roles";
+import type { Category, Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const ROLE_LABEL: Record<AppRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  user: "Cashier",
-};
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -27,7 +29,7 @@ export default async function PosPage(props: Props) {
   // Outlet reads are RLS-scoped, so it's safe to start them alongside the
   // role check rather than after it.
   const [{ user, role }, outlet, outlets] = await Promise.all([
-    requireRole(["admin", "manager", "user"], {
+    requireRole(POS_ROLES, {
       restaurantSlug: params.slug,
       redirectTo: `/r/${params.slug}/pos`,
     }),
@@ -41,7 +43,7 @@ export default async function PosPage(props: Props) {
         <div className="max-w-md space-y-2">
           <h1 className="text-xl font-semibold">No outlet configured</h1>
           <p className="text-sm text-muted-foreground">
-            {restaurant.name} doesn't have any outlets yet. An admin needs to
+            {restaurant.name} doesn&apos;t have any outlets yet. An admin needs to
             create one in Settings (coming soon) before the POS can be used.
           </p>
         </div>
@@ -78,6 +80,10 @@ export default async function PosPage(props: Props) {
       restaurantName={restaurant.name}
       staffEmail={user.email ?? "unknown"}
       staffRoleLabel={ROLE_LABEL[role]}
+      canTakePayment={canTakePayment(role)}
+      canTakeNonTableOrders={canTakeNonTableOrders(role)}
+      canVoidSentItems={canVoidSentItems(role)}
+      canOpenAdmin={canOpenAdmin(role)}
     />
   );
 }

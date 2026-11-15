@@ -29,7 +29,9 @@ export default async function ApiKeysPage(props: Props) {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("restaurant_api_keys")
-    .select("id, name, key_prefix, outlet_id, scopes, created_at, last_used_at, revoked_at")
+    .select(
+      "id, name, key_prefix, outlet_id, scopes, allowed_origins, webhook_url, created_at, last_used_at, revoked_at",
+    )
     .eq("restaurant_id", restaurant.id)
     .order("revoked_at", { ascending: true, nullsFirst: true })
     .order("created_at", { ascending: false });
@@ -56,6 +58,8 @@ export default async function ApiKeysPage(props: Props) {
     prefix: k.key_prefix,
     outlet: k.outlet_id ? (outletName.get(k.outlet_id) ?? "Removed outlet") : null,
     scopes: (k.scopes ?? []).filter(isApiKeyScope),
+    allowedOrigins: Array.isArray(k.allowed_origins) ? k.allowed_origins : [],
+    webhookUrl: k.webhook_url ?? null,
     created: date(k.created_at),
     lastUsed: k.last_used_at ? dateTime(k.last_used_at) : null,
     revoked: k.revoked_at ? date(k.revoked_at) : null,

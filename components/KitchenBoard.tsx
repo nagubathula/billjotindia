@@ -9,6 +9,7 @@ import {
   Check,
   ChefHat,
   Clock,
+  Flame,
   Printer,
   RefreshCw,
   X,
@@ -35,7 +36,15 @@ import type {
   ProductConfig,
 } from "@/lib/types";
 
-export type KitchenOrder = Order & { items: OrderItem[] };
+export type KitchenBoardItem = OrderItem & {
+  kotRound?: number;
+  kotAddedAt?: string | null;
+};
+
+export type KitchenOrder = Order & {
+  items: KitchenBoardItem[];
+  kotCount?: number;
+};
 
 type StageKey = "new" | "preparing" | "ready";
 
@@ -121,18 +130,27 @@ function getOrderChannelLabel(o: KitchenOrder): string {
   return "Dine-in";
 }
 
+function countAllUnits(list: KitchenOrder[]): number {
+  return list.reduce(
+    (sum, o) => sum + o.items.reduce((s, it) => s + Number(it.quantity || 0), 0),
+    0,
+  );
+}
+
 export function KitchenBoard({
   slug,
   outlets,
   stations = [],
   productStationMap = {},
   initialOrders,
+  canCancelOrder = true,
 }: {
   slug: string;
   outlets: Outlet[];
   stations?: KitchenStation[];
   productStationMap?: Record<string, string>;
   initialOrders: KitchenOrder[];
+  canCancelOrder?: boolean;
 }) {
   const router = useRouter();
   const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
@@ -145,14 +163,22 @@ export function KitchenBoard({
   const [cancellingOrder, setCancellingOrder] = useState<KitchenOrder | null>(
     null,
   );
-  const prevCountRef = useRef<number>(initialOrders.length);
+  const prevCountRef = useRef<{ orders: number; units: number }>({
+    orders: initialOrders.length,
+    units: countAllUnits(initialOrders),
+  });
 
   useEffect(() => {
     setOrders(initialOrders);
-    if (soundOn && initialOrders.length > prevCountRef.current) {
+    const nextUnits = countAllUnits(initialOrders);
+    if (
+      soundOn &&
+      (initialOrders.length > prevCountRef.current.orders ||
+        nextUnits > prevCountRef.current.units)
+    ) {
       playBeep();
     }
-    prevCountRef.current = initialOrders.length;
+    prevCountRef.current = { orders: initialOrders.length, units: nextUnits };
   }, [initialOrders, soundOn]);
 
   useEffect(() => {
@@ -168,6 +194,17 @@ export function KitchenBoard({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as
+            | { outlet_id?: string }
+            | undefined;
+          if (row?.outlet_id && !outletIds.has(row.outlet_id)) return;
+          router.refresh();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "kot_tickets" },
         (payload) => {
           const row = (payload.new ?? payload.old) as
             | { outlet_id?: string }
@@ -248,23 +285,39 @@ export function KitchenBoard({
     const isSlow = elapsedMins >= 20 && stage.key !== "ready";
     const token = o.token_number ?? o.daily_order_number;
     const channelLabel = getOrderChannelLabel(o);
+    const maxRound = Math.max(
+      o.kotCount ?? 1,
+      ...o.items.map((it) => it.kotRound ?? 1),
+    );
+    const hasAddOnsRound = maxRound > 1;
 
     return (
       <div
         key={o.id}
-        className="flex flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-sm"
+        className={cn(
+          "flex flex-col justify-between rounded-xl border bg-card p-4 shadow-xs transition-shadow hover:shadow-sm",
+          hasAddOnsRound && stage.key !== "ready"
+            ? "border-amber-500/50"
+            : "border-border",
+        )}
       >
         <div>
           {/* Card Header */}
           <div className="flex items-start justify-between gap-2 pb-3 border-b border-border/60">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-mono text-base font-bold text-foreground">
                   {token ? `#${token}` : `#${o.id.slice(0, 4).toUpperCase()}`}
                 </span>
                 <Badge variant="secondary" className="text-[11px] font-medium">
                   {channelLabel}
                 </Badge>
+                {hasAddOnsRound && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                    <Flame className="h-3 w-3" />
+                    KOT #{maxRound} added
+                  </span>
+                )}
               </div>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {o.customer_name || "Walk-in"}
@@ -292,17 +345,42 @@ export function KitchenBoard({
           )}
 
           {/* Items List */}
-          <ul className="my-3 space-y-2.5">
+          <ul className="my-3 space-y-2">
             {o.items.map((it) => {
               const cfg = configOf(it);
               const mods = cfg?.selected_options ?? [];
+              const itemRound = it.kotRound ?? 1;
+              const isLaterKot = itemRound > 1;
+              const isNewestBatch = isLaterKot && itemRound === maxRound;
+
               return (
-                <li key={it.id} className="text-sm">
-                  <div className="flex items-baseline gap-2 font-medium text-foreground">
-                    <span className="font-mono text-xs font-semibold text-muted-foreground tabular-nums">
-                      {it.quantity}×
-                    </span>
-                    <span className="leading-snug">{cfg?.name ?? "Item"}</span>
+                <li
+                  key={it.id}
+                  className={cn(
+                    "text-sm",
+                    isLaterKot &&
+                      "rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1.5",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-2 font-medium text-foreground">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-xs font-semibold text-muted-foreground tabular-nums">
+                        {it.quantity}×
+                      </span>
+                      <span className="leading-snug">{cfg?.name ?? "Item"}</span>
+                    </div>
+                    {isLaterKot && (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide",
+                          isNewestBatch
+                            ? "bg-amber-500 text-white"
+                            : "bg-amber-500/20 text-amber-800 dark:text-amber-300",
+                        )}
+                      >
+                        {isNewestBatch ? `+ NEW · KOT ${itemRound}` : `KOT ${itemRound}`}
+                      </span>
+                    )}
                   </div>
                   {mods.length > 0 && (
                     <p className="pl-6 text-xs text-muted-foreground">
@@ -339,16 +417,18 @@ export function KitchenBoard({
           >
             <Printer className="h-3.5 w-3.5" />
           </Link>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={pending}
-            onClick={() => setCancellingOrder(o)}
-            title="Cancel order"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
+          {canCancelOrder && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={pending}
+              onClick={() => setCancellingOrder(o)}
+              title="Cancel order"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -358,7 +438,7 @@ export function KitchenBoard({
     <div className="space-y-5">
       {/* Single Clean Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
+        <div className="inline-flex flex-wrap items-center rounded-lg border border-border bg-muted/40 p-1">
           <button
             type="button"
             onClick={() => setStageFilter("all")}
@@ -399,7 +479,9 @@ export function KitchenBoard({
               onValueChange={(v) => v && setStationFilter(v)}
             >
               <SelectTrigger size="sm" className="w-44 text-xs">
-                <SelectValue placeholder="All stations" />
+                <SelectValue>
+                  {stationFilter === "all" ? "All stations" : stationFilter}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All stations</SelectItem>
@@ -418,7 +500,12 @@ export function KitchenBoard({
               onValueChange={(v) => v && setOutletFilter(v)}
             >
               <SelectTrigger size="sm" className="w-44 text-xs">
-                <SelectValue placeholder="All outlets" />
+                <SelectValue>
+                  {outletFilter === "all"
+                    ? "All outlets"
+                    : (outlets.find((o) => String(o.id) === outletFilter)?.name ??
+                      "All outlets")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All outlets</SelectItem>
@@ -511,7 +598,7 @@ export function KitchenBoard({
         </div>
       )}
 
-      {cancellingOrder && (
+      {canCancelOrder && cancellingOrder && (
         <CancelOrderDialog
           slug={slug}
           orderId={cancellingOrder.id}

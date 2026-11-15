@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { strongestRole } from "@/lib/roles";
 import type { AppRole, Brand, Restaurant } from "@/lib/types";
 
 type Props = {
@@ -40,11 +41,8 @@ export function WorkspaceSidebar({
       .join("")
       .toUpperCase() || "BJ";
 
-  const highestRole: AppRole = restaurants.some((r) => r.role === "admin")
-    ? "admin"
-    : restaurants.some((r) => r.role === "manager")
-      ? "manager"
-      : "user";
+  const highestRole: AppRole =
+    strongestRole(restaurants.map((r) => r.role)) ?? "user";
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex">

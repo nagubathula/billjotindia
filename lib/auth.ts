@@ -14,16 +14,13 @@
 // Every helper is React-cached, so a single render only hits Supabase once.
 
 import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { AppRole, Restaurant } from "@/lib/types";
-
-const ROLE_PRECEDENCE: Record<AppRole, number> = {
-  admin: 3,
-  manager: 2,
-  user: 1,
-};
+import { createAdminClient } from "@/lib/supabase/admin";
+import { ROLE_PRECEDENCE } from "@/lib/roles";
+import type { AppRole, Brand, Restaurant } from "@/lib/types";
 
 export const getCurrentUser = cache(async (): Promise<User | null> => {
   const supabase = await createClient();
@@ -164,7 +161,7 @@ export const getPublicOutlets = cache(
 
 /**
  * All restaurants the current user holds any role in, with their effective
- * role per restaurant (admin > manager > user). Cached per-request.
+ * role per restaurant (admin > manager > cashier > captain). Cached per-request.
  */
 export const getUserRestaurants = cache(
   async (): Promise<Array<{ restaurant: Restaurant; role: AppRole }>> => {
@@ -204,6 +201,70 @@ export const getPrimaryRestaurant = cache(
 );
 
 /**
+ * Brands visible to the current signed-in user: brands they own directly OR
+ * brands attached to any restaurant where they hold the `admin` role.
+ */
+export const getUserBrands = cache(
+  async (): Promise<
+    Array<{ brand: Brand; isOwner: boolean; restaurantCount: number }>
+  > => {
+    const [user, ownRestaurants] = await Promise.all([
+      getCurrentUser(),
+      getUserRestaurants(),
+    ]);
+    if (!user) return [];
+
+    const adminBrandIds = [
+      ...new Set(
+        ownRestaurants
+          .filter((r) => r.role === "admin" && r.restaurant.brand_id)
+          .map((r) => r.restaurant.brand_id as string),
+      ),
+    ];
+
+    const admin = createAdminClient();
+    const [ownedRes, attachedRes] = await Promise.all([
+      admin.from("brands").select("*").eq("owner_user_id", user.id),
+      adminBrandIds.length > 0
+        ? admin.from("brands").select("*").in("id", adminBrandIds)
+        : Promise.resolve({ data: [] as Brand[] }),
+    ]);
+
+    const byId = new Map<string, Brand>();
+    for (const b of (ownedRes.data ?? []) as Brand[]) byId.set(b.id, b);
+    for (const b of (attachedRes.data ?? []) as Brand[]) byId.set(b.id, b);
+
+    const brands = [...byId.values()].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    if (brands.length === 0) return [];
+
+    const { data: brandRestRows } = await admin
+      .from("restaurants")
+      .select("id, brand_id")
+      .in(
+        "brand_id",
+        brands.map((b) => b.id),
+      );
+
+    const countByBrand = new Map<string, number>();
+    for (const row of brandRestRows ?? []) {
+      if (!row.brand_id) continue;
+      countByBrand.set(
+        row.brand_id,
+        (countByBrand.get(row.brand_id) ?? 0) + 1,
+      );
+    }
+
+    return brands.map((brand) => ({
+      brand,
+      isOwner: brand.owner_user_id === user.id,
+      restaurantCount: countByBrand.get(brand.id) ?? 0,
+    }));
+  },
+);
+
+/**
  * Return the default outlet for a restaurant — for now, just the lowest-id
  * outlet in that restaurant. Multi-outlet picking lands later.
  */
@@ -237,7 +298,15 @@ type RequireRoleOpts = {
  * success so the caller doesn't re-query.
  */
 export async function requireRole(allowed: AppRole[], opts: RequireRoleOpts = {}) {
-  const next = opts.redirectTo ?? "/";
+  let next = opts.redirectTo;
+  if (!next) {
+    try {
+      const reqHeaders = await headers();
+      next = reqHeaders.get("x-current-path") ?? "/";
+    } catch {
+      next = "/";
+    }
+  }
 
   // Independent lookups run concurrently: the auth check + role rows (which
   // chain internally) alongside the restaurant row. All are request-cached,

@@ -1,7 +1,7 @@
 // Create a staff user directly with email + password. No invite email,
 // no confirmation step — admin sets the password and shares it securely.
-// Idempotent: if the email already exists, the password is reset and the
-// role is reapplied.
+// Idempotent: if the email already exists, the password and name are reset
+// and the role in the given restaurant is reapplied.
 //
 // Usage (from project root):
 //   node --env-file=.env.local scripts/create-user.mjs <email> [role] [password] [name] [restaurant_slug]
@@ -11,6 +11,11 @@
 //     → creates with a generated password, name derived from email, default restaurant.
 //   node --env-file=.env.local scripts/create-user.mjs cashier@x.com user MyPass123! 'Priya K' coffee-day-a3b
 //     → adds Priya as a cashier of the 'coffee-day-a3b' restaurant.
+//   node --env-file=.env.local scripts/create-user.mjs captain@x.com captain - 'Ravi Captain' coffee-day-a3b
+//     → adds Ravi as a captain (waiter) with a generated password.
+//
+// Pass `-` as the password to generate one. (An empty '' doesn't work in
+// PowerShell: it drops the argument and every later one shifts left.)
 //
 // Defaults to the 'default' restaurant slug — useful for the legacy seeded
 // tenant. For SaaS sign-ups, pass the explicit slug.
@@ -30,12 +35,14 @@ if (!url || !key) {
 const email = (process.argv[2] ?? "").trim().toLowerCase();
 const role = (process.argv[3] ?? "admin").trim();
 let password = (process.argv[4] ?? "").trim();
+if (password === "-") password = "";
 const explicitName = (process.argv[5] ?? "").trim();
 const restaurantSlug = (process.argv[6] ?? "default").trim();
 
-const ALLOWED = ["admin", "manager", "user"];
+// Keep in step with lib/roles.ts (ROLES).
+const ALLOWED = ["admin", "manager", "user", "captain"];
 if (!email || !email.includes("@")) {
-  console.error("usage: create-user.mjs <email> [admin|manager|user] [password] [name]");
+  console.error("usage: create-user.mjs <email> [admin|manager|user|captain] [password|-] [name] [restaurant_slug]");
   process.exit(1);
 }
 
@@ -68,6 +75,21 @@ if (password.length < 8) {
 const admin = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+// --- 0. Resolve the restaurant first, so a wrong slug changes nothing -------
+const { data: restaurant, error: restErr } = await admin
+  .from("restaurants")
+  .select("id, name")
+  .eq("slug", restaurantSlug)
+  .maybeSingle();
+if (restErr || !restaurant) {
+  console.error(
+    `Restaurant with slug '${restaurantSlug}' not found. Nothing was changed. Available slugs:`,
+  );
+  const { data: all } = await admin.from("restaurants").select("slug, name");
+  for (const r of all ?? []) console.error(`  - ${r.slug}  (${r.name})`);
+  process.exit(1);
+}
 
 // --- 1. Find or create the user --------------------------------------------
 let userId;
@@ -119,28 +141,15 @@ console.log(`  name:    ${displayName}`);
 console.log(`  email:   ${email}`);
 console.log(`  user_id: ${userId}`);
 
-// --- 2. Assign role (replace any existing roles for this user) -------------
+// --- 2. Assign role (replaces their role in THIS restaurant only) ---------
+// Roles in other restaurants are left alone, like the Staff page does.
 const { error: delErr } = await admin
   .from("user_roles")
   .delete()
-  .eq("user_id", userId);
+  .eq("user_id", userId)
+  .eq("restaurant_id", restaurant.id);
 if (delErr) {
   console.error("Failed to clear existing roles:", delErr.message);
-  process.exit(1);
-}
-
-// Resolve restaurant by slug.
-const { data: restaurant, error: restErr } = await admin
-  .from("restaurants")
-  .select("id, name")
-  .eq("slug", restaurantSlug)
-  .maybeSingle();
-if (restErr || !restaurant) {
-  console.error(
-    `Restaurant with slug '${restaurantSlug}' not found. Available slugs:`,
-  );
-  const { data: all } = await admin.from("restaurants").select("slug, name");
-  for (const r of all ?? []) console.error(`  - ${r.slug}  (${r.name})`);
   process.exit(1);
 }
 

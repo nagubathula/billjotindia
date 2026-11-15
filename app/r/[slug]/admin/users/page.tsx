@@ -21,15 +21,10 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/PageHeader";
 import { CreateUserForm } from "./CreateUserForm";
 import { UserRowActions } from "./UserRowActions";
+import { ROLE_LABEL, ROLE_PRECEDENCE } from "@/lib/roles";
 import type { AppRole } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const ROLE_LABEL: Record<AppRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  user: "Cashier",
-};
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -61,9 +56,8 @@ export default async function UsersPage(props: Props) {
   const rolesByUser = new Map<string, AppRole>();
   for (const r of rolesRows ?? []) {
     const existing = rolesByUser.get(r.user_id);
-    const precedence: Record<AppRole, number> = { admin: 3, manager: 2, user: 1 };
     const incoming = r.role as AppRole;
-    if (!existing || precedence[incoming] > precedence[existing]) {
+    if (!existing || ROLE_PRECEDENCE[incoming] > ROLE_PRECEDENCE[existing]) {
       rolesByUser.set(r.user_id, incoming);
     }
   }

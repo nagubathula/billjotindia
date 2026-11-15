@@ -4,9 +4,10 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ROLES } from "@/lib/roles";
 import type { AppRole } from "@/lib/types";
 
-const ALLOWED: AppRole[] = ["admin", "manager", "user"];
+const ALLOWED: AppRole[] = ROLES;
 
 type ActionResult =
   | { ok: true; password?: string }

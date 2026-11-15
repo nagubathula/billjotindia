@@ -39,7 +39,7 @@ export default async function AdminRegisterPage(props: Props) {
   const { data: todayOrdersData } = await supabase
     .from("orders")
     .select(
-      "id, outlet_id, source, status, customer_email, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
+      "id, outlet_id, source, status, customer_name, customer_email, token_number, placed_at, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
     )
     .in("outlet_id", scoped)
     .gte("placed_at", todayStart.toISOString());
@@ -50,7 +50,10 @@ export default async function AdminRegisterPage(props: Props) {
     | "outlet_id"
     | "source"
     | "status"
+    | "customer_name"
     | "customer_email"
+    | "token_number"
+    | "placed_at"
     | "total_amount"
     | "cgst_amount"
     | "sgst_amount"
@@ -63,6 +66,7 @@ export default async function AdminRegisterPage(props: Props) {
     const valid = outletOrders.filter((ord) => ord.status !== "cancelled");
     const cancelled = outletOrders.filter((ord) => ord.status === "cancelled");
 
+    let settledCount = 0;
     let grossSales = 0;
     let cgst = 0;
     let sgst = 0;
@@ -73,16 +77,33 @@ export default async function AdminRegisterPage(props: Props) {
     let webSales = 0;
     let aggregatorGross = 0;
     let aggregatorNet = 0;
+    let openTablesAmount = 0;
+    const openTables: OutletShiftSummary["openTables"] = [];
 
     for (const ord of valid) {
       const amt = Number(ord.total_amount ?? 0);
-      grossSales += amt;
-      cgst += Number(ord.cgst_amount ?? 0);
-      sgst += Number(ord.sgst_amount ?? 0);
-      discounts += Number(ord.discount_amount ?? 0);
 
       if (ord.source === "pos") {
         const email = (ord.customer_email ?? "").toLowerCase();
+        // An open table (running order not yet settled) isn't money in the
+        // drawer yet — track separately so cashiers settle before Z-close.
+        if (email.startsWith("pos+open")) {
+          openTablesAmount += amt;
+          openTables.push({
+            id: ord.id,
+            label: ord.customer_name || "Open Table",
+            tokenNumber: ord.token_number ?? null,
+            amount: amt,
+            placedAt: ord.placed_at ?? null,
+          });
+          continue;
+        }
+        settledCount += 1;
+        grossSales += amt;
+        cgst += Number(ord.cgst_amount ?? 0);
+        sgst += Number(ord.sgst_amount ?? 0);
+        discounts += Number(ord.discount_amount ?? 0);
+
         if (email.startsWith("pos+upi") || email.startsWith("pos+razorpay")) {
           upiSales += amt;
         } else if (
@@ -94,8 +115,18 @@ export default async function AdminRegisterPage(props: Props) {
           cashSales += amt;
         }
       } else if (ord.source === "web" || ord.source === "kiosk") {
+        settledCount += 1;
+        grossSales += amt;
+        cgst += Number(ord.cgst_amount ?? 0);
+        sgst += Number(ord.sgst_amount ?? 0);
+        discounts += Number(ord.discount_amount ?? 0);
         webSales += amt;
       } else {
+        settledCount += 1;
+        grossSales += amt;
+        cgst += Number(ord.cgst_amount ?? 0);
+        sgst += Number(ord.sgst_amount ?? 0);
+        discounts += Number(ord.discount_amount ?? 0);
         aggregatorGross += amt;
         aggregatorNet += Number(ord.net_payout ?? amt * 0.78);
       }
@@ -105,8 +136,11 @@ export default async function AdminRegisterPage(props: Props) {
       outletId: o.id,
       outletName: o.name,
       gstin: o.gstin,
-      totalOrders: valid.length,
+      totalOrders: settledCount,
       cancelledOrders: cancelled.length,
+      openTablesCount: openTables.length,
+      openTablesAmount,
+      openTables,
       grossSales,
       cgst,
       sgst,
@@ -135,7 +169,11 @@ export default async function AdminRegisterPage(props: Props) {
         description="Reconcile physical cash drawer denominations, log petty cash vouchers, and print thermal day-end closing slips."
       />
 
-      <RegisterWorkbench summaries={summaries} dateLabel={dateLabel} />
+      <RegisterWorkbench
+        summaries={summaries}
+        dateLabel={dateLabel}
+        restaurantSlug={params.slug}
+      />
     </div>
   );
 }

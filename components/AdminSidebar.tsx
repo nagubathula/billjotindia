@@ -26,13 +26,8 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ROLE_LABEL } from "@/lib/roles";
 import type { AppRole, Restaurant } from "@/lib/types";
-
-const ROLE_LABEL: Record<AppRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  user: "Cashier",
-};
 
 type Props = {
   restaurant: Restaurant;

@@ -13,6 +13,8 @@ export type RawPosTab = {
     product?: { name?: string };
   }>;
   updated_at: string;
+  // The table's running kitchen order (after a KOT), if any.
+  order_id?: string | null;
 };
 
 export type OutletInfo = {

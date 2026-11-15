@@ -4,23 +4,29 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowUpRight,
   Check,
   ChevronDown,
   Clock,
   Copy,
   Ellipsis,
+  ExternalLink,
+  Grid3X3,
   LayoutGrid,
   LayoutTemplate,
   MonitorSmartphone,
   Plus,
-  Printer,
+  QrCode,
   Rows3,
   Search,
   SearchX,
+  Users,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { QrCodeSvg } from "@/components/QrCodeSvg";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -73,6 +79,7 @@ export type { OutletInfo, RawPosTab };
 export type ActiveTableOrder = {
   id: string;
   outlet_id: string;
+  table_id?: string | null;
   unique_order_id: string | null;
   token_number: number | null;
   status: string | null;
@@ -102,30 +109,49 @@ type TableStatus = "free" | "open" | "kitchen" | "ready";
 
 const STATUS_META: Record<
   TableStatus,
-  { label: string; dot: string; tile: string; text: string }
+  {
+    label: string;
+    dot: string;
+    chair: string;
+    surface: string;
+    badge: string;
+    text: string;
+  }
 > = {
   free: {
-    label: "Free",
-    dot: "bg-muted-foreground/40",
-    tile: "border-border bg-card hover:border-foreground/25",
+    label: "Available",
+    dot: "bg-zinc-300 dark:bg-zinc-600",
+    chair: "bg-zinc-300/90 group-hover:bg-zinc-400 dark:bg-zinc-700",
+    surface:
+      "border-zinc-200/90 bg-card hover:border-zinc-400/80 dark:border-zinc-800 dark:hover:border-zinc-600",
+    badge: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
     text: "text-muted-foreground",
   },
   open: {
-    label: "Open bill",
+    label: "Seated · Bill Open",
     dot: "bg-amber-500",
-    tile: "border-amber-300 bg-amber-50 hover:border-amber-400 dark:border-amber-500/40 dark:bg-amber-500/10",
+    chair: "bg-amber-400 dark:bg-amber-500/80",
+    surface:
+      "border-amber-300/90 bg-card ring-1 ring-amber-500/15 hover:border-amber-400 dark:border-amber-500/40",
+    badge: "bg-amber-500/12 text-amber-800 dark:text-amber-300",
     text: "text-amber-800 dark:text-amber-300",
   },
   kitchen: {
-    label: "In kitchen",
+    label: "Cooking in Kitchen",
     dot: "bg-violet-500",
-    tile: "border-violet-300 bg-violet-50 hover:border-violet-400 dark:border-violet-500/40 dark:bg-violet-500/10",
+    chair: "bg-violet-400 dark:bg-violet-500/80",
+    surface:
+      "border-violet-300/90 bg-card ring-1 ring-violet-500/15 hover:border-violet-400 dark:border-violet-500/40",
+    badge: "bg-violet-500/12 text-violet-800 dark:text-violet-300",
     text: "text-violet-800 dark:text-violet-300",
   },
   ready: {
-    label: "Ready to serve",
+    label: "Ready to Serve",
     dot: "bg-emerald-500",
-    tile: "border-emerald-300 bg-emerald-50 hover:border-emerald-400 dark:border-emerald-500/40 dark:bg-emerald-500/10",
+    chair: "bg-emerald-500 dark:bg-emerald-500/85",
+    surface:
+      "border-emerald-400/90 bg-card ring-1 ring-emerald-500/20 hover:border-emerald-500 dark:border-emerald-500/50",
+    badge: "bg-emerald-500/12 text-emerald-800 dark:text-emerald-300",
     text: "text-emerald-800 dark:text-emerald-300",
   },
 };
@@ -146,35 +172,35 @@ const TEMPLATES: {
 }[] = [
   {
     id: "12-table",
-    name: "Café",
+    name: "Cafe & Bistro",
     summary: "12 tables · 56 seats",
-    blurb: "Coffee shops, quick-service counters and small bistros.",
+    blurb: "Compact floor for specialty cafes, bakeries, and QSR dining rooms.",
     areas: [
-      { name: "Main Hall", detail: "8 tables, 2 to 6 seats" },
-      { name: "Family AC", detail: "2 tables of 6" },
-      { name: "VIP Cabin", detail: "2 tables of 8" },
+      { name: "Main Hall", detail: "8 tables (2 to 6 seats)" },
+      { name: "Family AC", detail: "2 tables of 6 seats" },
+      { name: "VIP Cabin", detail: "2 tables of 8 seats" },
     ],
   },
   {
     id: "300-seat",
-    name: "Restaurant",
+    name: "Full-Service Restaurant",
     summary: "65 tables · 300 seats",
-    blurb: "Full-service dining rooms and meals halls.",
+    blurb: "Multi-hall layout for high-volume casual dining and family AC sections.",
     areas: [
-      { name: "Ground Main Hall", detail: "30 tables of 4" },
-      { name: "1st Floor Family AC", detail: "20 tables of 4" },
-      { name: "Group & Bhojanam Hall", detail: "10 tables of 6" },
-      { name: "Banquet & VIP Cabins", detail: "5 tables of 8" },
+      { name: "Ground Main Hall", detail: "30 tables of 4 seats" },
+      { name: "1st Floor Family AC", detail: "20 tables of 4 seats" },
+      { name: "Group & Bhojanam Hall", detail: "10 tables of 6 seats" },
+      { name: "Banquet & VIP Cabins", detail: "5 tables of 8 seats" },
     ],
   },
   {
     id: "3000-seat",
-    name: "Banquet hall",
+    name: "Convention & Mega Hall",
     summary: "500 tables · 3,000 seats",
-    blurb: "Convention dining, food courts and multi-floor banquets.",
+    blurb: "Five-zone layout for convention dining halls, food courts, and banquets.",
     areas: [
-      { name: "Halls A, B, C and D", detail: "100 tables of 6 each" },
-      { name: "Grand Banquet & Lawn", detail: "100 tables of 6" },
+      { name: "Halls A, B, C & D", detail: "400 tables (100 × 6 seats per hall)" },
+      { name: "Grand Banquet & Lawn", detail: "100 tables of 6 seats" },
     ],
   },
 ];
@@ -215,11 +241,10 @@ function elapsed(iso: string): string {
     1,
     Math.round((Date.now() - new Date(iso).getTime()) / 60000),
   );
-  if (mins < 60) return `${mins} min`;
-  return `${Math.floor(mins / 60)} h ${mins % 60} min`;
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-// Mirrors bulkCreateTableRangeAction so the preview matches what gets created.
 function rangeCode(prefix: string, n: number, end: number) {
   const clean = (prefix || "T-").trim();
   const sep = clean.endsWith("-") || clean.endsWith(" ") ? "" : "-";
@@ -228,6 +253,7 @@ function rangeCode(prefix: string, n: number, end: number) {
 
 type DialogKind = "single" | "bulk" | "template" | null;
 type StatusFilter = "all" | "occupied" | "free";
+type FloorDensity = "spatial" | "matrix" | "list";
 
 export function TableFloorBoard({
   slug,
@@ -252,6 +278,11 @@ export function TableFloorBoard({
   const [selectedZone, setSelectedZone] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [density, setDensity] = useState<FloorDensity>(() =>
+    tabs.filter((t) => t.outlet_id === (outlets[0]?.id ?? "")).length > 140
+      ? "matrix"
+      : "spatial",
+  );
 
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -265,12 +296,13 @@ export function TableFloorBoard({
   const [bulkSeats, setBulkSeats] = useState("4");
   const [templateId, setTemplateId] = useState<CapacityPresetId>("300-seat");
 
-  // The id stays set while the panel animates closed, so its content doesn't
-  // blank out mid-slide; `detailsOpen` alone drives visibility.
   const [inspectedTableId, setInspectedTableId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirming, setConfirming] = useState<"clear" | "remove" | null>(null);
-  const [removeArea, setRemoveArea] = useState<{ zone: string; count: number } | null>(null);
+  const [removeArea, setRemoveArea] = useState<{
+    zone: string;
+    count: number;
+  } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -293,8 +325,11 @@ export function TableFloorBoard({
             total: qty * Number(l.unitPrice ?? 0),
           };
         });
-        const matchedOrders = outletOrders.filter((o) =>
-          matchesTableOrder(code, o),
+        const matchedOrders = outletOrders.filter(
+          (o) =>
+            o.table_id === t.id ||
+            o.id === t.order_id ||
+            (!o.table_id && matchesTableOrder(code, o)),
         );
         return {
           id: t.id,
@@ -307,17 +342,28 @@ export function TableFloorBoard({
           cartTotal: cartLines.reduce((s, l) => s + l.total, 0),
           cartQty: cartLines.reduce((s, l) => s + l.qty, 0),
           activeOrders: matchedOrders,
-          orderTotal: matchedOrders.reduce((s, o) => s + Number(o.total_amount), 0),
+          orderTotal: matchedOrders
+            .filter((o) => o.id !== t.order_id)
+            .reduce((s, o) => s + Number(o.total_amount), 0),
           updatedAt: t.updated_at,
         };
       })
-      .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+      .sort((a, b) =>
+        a.code.localeCompare(b.code, undefined, { numeric: true }),
+      );
   }, [tabs, activeOrders, selectedOutletId]);
 
   const zoneStats = useMemo(() => {
     const map = new Map<
       string,
-      { zone: string; tables: number; seats: number; occupied: number; value: number; emptyBills: number }
+      {
+        zone: string;
+        tables: number;
+        seats: number;
+        occupied: number;
+        value: number;
+        emptyBills: number;
+      }
     >();
     for (const t of parsedTables) {
       const cur = map.get(t.zone) ?? {
@@ -334,7 +380,6 @@ export function TableFloorBoard({
         cur.occupied += 1;
         cur.value += t.cartTotal + t.orderTotal;
       }
-      // The server removes tables whose bill has no items.
       if (t.cartLines.length === 0) cur.emptyBills += 1;
       map.set(t.zone, cur);
     }
@@ -379,10 +424,13 @@ export function TableFloorBoard({
   const freeTables = totalTables - occupiedTables;
   const totalSeats = parsedTables.reduce((s, t) => s + t.seats, 0);
   const occupiedSeats = occupied.reduce((s, t) => s + t.seats, 0);
-  const runningValue = occupied.reduce((s, t) => s + t.cartTotal + t.orderTotal, 0);
-  const occupancyPct = totalTables ? Math.round((occupiedTables / totalTables) * 100) : 0;
-  const filtersActive =
-    statusFilter !== "all" || selectedZone !== "all" || searchQuery.trim() !== "";
+  const runningValue = occupied.reduce(
+    (s, t) => s + t.cartTotal + t.orderTotal,
+    0,
+  );
+  const occupancyPct = totalTables
+    ? Math.round((occupiedTables / totalTables) * 100)
+    : 0;
 
   const inspected = useMemo(
     () => parsedTables.find((t) => t.id === inspectedTableId) ?? null,
@@ -461,11 +509,20 @@ export function TableFloorBoard({
     const template = TEMPLATES.find((t) => t.id === templateId)!;
     setDialogError(null);
     startTransition(async () => {
-      const res = await applyCapacityPresetAction(slug, selectedOutletId, templateId, true);
+      const res = await applyCapacityPresetAction(
+        slug,
+        selectedOutletId,
+        templateId,
+        true,
+      );
       if (!res.ok) return setDialogError(res.error);
       setDialog(null);
       resetFilters();
-      done(`Applied the ${template.name.toLowerCase()} template: ${res.created} tables added.`);
+      if (templateId === "3000-seat") setDensity("matrix");
+      else setDensity("spatial");
+      done(
+        `Applied ${template.name} layout (${res.created} tables provisioned).`,
+      );
     });
   }
 
@@ -507,7 +564,7 @@ export function TableFloorBoard({
       setCopiedId(t.id);
       setTimeout(() => setCopiedId((c) => (c === t.id ? null : c)), 1800);
     } catch {
-      setError("Couldn't copy the link. Your browser blocked clipboard access.");
+      setError("Could not copy link. Clipboard permission was denied.");
     }
   }
 
@@ -518,18 +575,16 @@ export function TableFloorBoard({
   const zoneNames = zoneStats.map((z) => z.zone);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
-        title="Tables & Floor"
+        title="Floor & Tables"
         description={
-          outlets.length > 1
-            ? "Who's seated, what's on their bill, and your floor layout."
-            : outlet
-              ? `${outlet.name}${outlet.city ? `, ${outlet.city}` : ""}`
-              : undefined
+          outlet
+            ? `${outlet.name}${outlet.city ? ` · ${outlet.city}` : ""} — ${num(totalTables)} tables · ${num(totalSeats)} seats`
+            : "Live dining room floor plan, table bills, and QR standees."
         }
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-2">
             {outlets.length > 1 && (
               <Select
                 value={selectedOutletId}
@@ -540,9 +595,11 @@ export function TableFloorBoard({
                   setDetailsOpen(false);
                 }}
               >
-                <SelectTrigger size="sm" className="w-52">
+                <SelectTrigger size="sm" className="h-8 w-52 bg-card text-xs">
                   <SelectValue>
-                    {(v: string) => outlets.find((o) => o.id === v)?.name ?? "Outlet"}
+                    {(v: string) =>
+                      outlets.find((o) => o.id === v)?.name ?? "Select outlet"
+                    }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -554,32 +611,56 @@ export function TableFloorBoard({
                 </SelectContent>
               </Select>
             )}
+
+            <Link
+              href={`/r/${slug}/pos`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "bg-card",
+              )}
+            >
+              <MonitorSmartphone className="h-3.5 w-3.5" />
+              Open POS
+            </Link>
+
             <Link
               href={`/r/${slug}/admin/tables/qr-sheet`}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "bg-card",
+              )}
             >
-              <Printer /> Print QR codes
+              <QrCode className="h-3.5 w-3.5" />
+              QR Standees
             </Link>
+
             <DropdownMenu>
               <DropdownMenuTrigger
-                render={<Button size="sm" disabled={pending || !selectedOutletId} />}
+                render={
+                  <Button
+                    size="sm"
+                    disabled={pending || !selectedOutletId}
+                  />
+                }
               >
-                <Plus /> Add tables <ChevronDown className="opacity-70" />
+                <Plus className="h-3.5 w-3.5" />
+                Add Tables
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onClick={() => openDialog("single")}>
-                  <Plus /> One table
+                  <Plus /> Add single table
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openDialog("bulk")}>
-                  <Rows3 /> A numbered range
+                  <Rows3 /> Generate table range
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => openDialog("template")}>
-                  <LayoutTemplate /> From a floor template
+                  <LayoutTemplate /> Apply floor preset
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </>
+          </div>
         }
       />
 
@@ -587,10 +668,10 @@ export function TableFloorBoard({
         <div
           role={error ? "alert" : "status"}
           className={cn(
-            "flex items-center justify-between gap-3 rounded-lg px-3.5 py-2.5 text-xs",
+            "flex items-center justify-between gap-3 rounded-lg border px-3.5 py-2 text-xs font-medium",
             error
-              ? "bg-destructive/10 text-destructive"
-              : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+              ? "border-destructive/25 bg-destructive/10 text-destructive"
+              : "border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
           )}
         >
           <span>{error ?? notice}</span>
@@ -609,18 +690,24 @@ export function TableFloorBoard({
       )}
 
       {totalTables === 0 ? (
-        <div className="rounded-xl border border-border bg-card">
+        <div className="rounded-2xl border border-border bg-card shadow-2xs">
           <EmptyState
             icon={LayoutGrid}
-            title="No tables yet"
-            description="Add tables one at a time, as a numbered range, or start from a ready-made floor and adjust it later."
+            title="No tables on this floor yet"
+            description="Start from a ready-made restaurant floor layout (Cafe, 300-seat Restaurant, or 3,000-seat Banquet) or add tables individually."
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => openDialog("template")}>
-                  <LayoutTemplate /> Start from a template
+                  <LayoutTemplate className="h-3.5 w-3.5" />
+                  Choose floor preset
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => openDialog("single")}>
-                  <Plus /> Add one table
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openDialog("single")}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add single table
                 </Button>
               </div>
             }
@@ -628,189 +715,468 @@ export function TableFloorBoard({
         </div>
       ) : (
         <>
-          {/* Summary */}
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
-            <Stat label="Occupied" value={num(occupiedTables)} suffix={`of ${num(totalTables)} tables`}>
-              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+          {/* Compact Live Floor Telemetry Strip */}
+          <div className="grid grid-cols-2 divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-2xs sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+            <div className="px-4 py-3">
+              <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                <span>Table Occupancy</span>
+                <span className="tabular-nums">{occupancyPct}%</span>
+              </div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-xl font-semibold tabular-nums tracking-tight">
+                  {num(occupiedTables)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  / {num(totalTables)} seated
+                </span>
+              </div>
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full bg-foreground transition-[width]"
                   style={{ width: `${occupancyPct}%` }}
                 />
               </div>
-            </Stat>
-            <Stat
-              label="Seats in use"
-              value={num(occupiedSeats)}
-              suffix={`of ${num(totalSeats)}`}
-              hint={`${num(freeTables)} tables free`}
-            />
-            <Stat
-              label="On tables now"
-              value={inr(runningValue)}
-              hint="Open bills and kitchen orders"
-            />
-            <Stat
-              label="Dine-in today"
-              value={inr(todayDineInRevenue)}
-              hint={
-                todayDineInCount > 0
-                  ? `${todayDineInCount} ${todayDineInCount === 1 ? "bill" : "bills"} · avg ${inr(todayDineInRevenue / todayDineInCount)}`
-                  : "No dine-in bills yet"
-              }
-            />
-          </div>
-
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-full sm:w-64">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Find a table, guest or token"
-                aria-label="Find a table"
-                className="h-8 pl-8 text-xs"
-              />
             </div>
 
-            <div className="flex items-center rounded-lg bg-muted p-0.5 text-xs">
-              {(
-                [
-                  { id: "all", label: "All", count: totalTables },
-                  { id: "occupied", label: "Occupied", count: occupiedTables },
-                  { id: "free", label: "Free", count: freeTables },
-                ] as const
-              ).map((f) => (
+            <div className="border-l border-border px-4 py-3 sm:border-l-0">
+              <div className="text-[11px] font-medium text-muted-foreground">
+                Seating Capacity
+              </div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-xl font-semibold tabular-nums tracking-tight">
+                  {num(totalSeats)}
+                </span>
+                <span className="text-xs text-muted-foreground">seats</span>
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {num(occupiedSeats)} active · {num(totalSeats - occupiedSeats)} open
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-[11px] font-medium text-muted-foreground">
+                Live Floor Value
+              </div>
+              <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight">
+                {inr(runningValue)}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                Running tabs &amp; active KOTs
+              </div>
+            </div>
+
+            <div className="border-l border-border px-4 py-3 sm:border-l-0">
+              <div className="text-[11px] font-medium text-muted-foreground">
+                Dine-In Revenue Today
+              </div>
+              <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight">
+                {inr(todayDineInRevenue)}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {todayDineInCount > 0
+                  ? `${todayDineInCount} settled ${todayDineInCount === 1 ? "bill" : "bills"} · avg ${inr(todayDineInRevenue / todayDineInCount)}`
+                  : "No settled dine-in bills yet"}
+              </div>
+            </div>
+          </div>
+
+          {/* Unified Floor Section Bar + Controls */}
+          <div className="rounded-2xl border border-border bg-card shadow-2xs">
+            {/* Hall / Dining Section Underline Tabs */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pt-2.5 pb-2">
+              <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
                 <button
-                  key={f.id}
                   type="button"
-                  aria-pressed={statusFilter === f.id}
-                  onClick={() => setStatusFilter(f.id)}
+                  onClick={() => setSelectedZone("all")}
                   className={cn(
-                    "inline-flex h-7 items-center gap-1.5 rounded-md px-3 font-medium transition-colors",
-                    statusFilter === f.id
-                      ? "bg-card text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    selectedZone === "all"
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                   )}
                 >
-                  {f.label}
-                  <span className="tabular-nums text-muted-foreground">{num(f.count)}</span>
+                  <span>All Floors</span>
+                  <span className="rounded bg-background px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground shadow-2xs">
+                    {num(totalTables)}
+                  </span>
                 </button>
-              ))}
-            </div>
 
-            {zoneStats.length > 1 && (
-              <Select
-                value={selectedZone}
-                onValueChange={(v) => v && setSelectedZone(v)}
-              >
-                <SelectTrigger size="sm" className="h-8 min-w-40 text-xs">
-                  <SelectValue>
-                    {(v: string) => (v === "all" ? "All areas" : v)}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All areas</SelectItem>
-                  {zoneNames.map((z) => (
-                    <SelectItem key={z} value={z}>
-                      {z}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            <div className="ml-auto hidden items-center gap-4 text-xs text-muted-foreground lg:flex">
-              {(["open", "kitchen", "ready"] as const).map((s) => (
-                <span key={s} className="inline-flex items-center gap-1.5">
-                  <span className={cn("h-2 w-2 rounded-full", STATUS_META[s].dot)} />
-                  {STATUS_META[s].label}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Floor */}
-          {sections.length === 0 ? (
-            <div className="rounded-xl border border-border bg-card">
-              <EmptyState
-                icon={SearchX}
-                title="No tables match"
-                description="Try a different search, or show every table again."
-                action={
-                  <Button size="sm" variant="outline" onClick={resetFilters}>
-                    Clear filters
-                  </Button>
-                }
-              />
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {sections.map(({ stat, tables: list }) => (
-                <section key={stat.zone} aria-label={stat.zone}>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-baseline gap-2.5">
-                      <h2 className="truncate text-sm font-semibold">{stat.zone}</h2>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {num(stat.tables)} tables · {num(stat.seats)} seats
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {stat.occupied > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">{stat.occupied}</span>{" "}
-                          occupied · {inr(stat.value)}
-                        </span>
+                {zoneStats.map((z) => {
+                  const active = selectedZone === z.zone;
+                  return (
+                    <button
+                      key={z.zone}
+                      type="button"
+                      onClick={() => setSelectedZone(z.zone)}
+                      className={cn(
+                        "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                        active
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                       )}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`${stat.zone} options`}
-                              className="text-muted-foreground"
-                            />
-                          }
-                        >
-                          <Ellipsis />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setBulkZone(stat.zone);
-                              openDialog("bulk");
-                            }}
-                          >
-                            <Plus /> Add tables to this area
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            disabled={stat.emptyBills === 0}
-                            onClick={() =>
-                              setRemoveArea({ zone: stat.zone, count: stat.emptyBills })
+                    >
+                      <span>{z.zone}</span>
+                      <span className="rounded bg-background px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground shadow-2xs">
+                        {num(z.tables)}
+                      </span>
+                      {z.occupied > 0 && (
+                        <span
+                          title={`${z.occupied} occupied`}
+                          className="h-1.5 w-1.5 rounded-full bg-amber-500"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Right-side compact search + status + density */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-48 sm:w-56">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Table, guest, token..."
+                    aria-label="Find a table"
+                    className="h-7 bg-background pl-8 text-xs"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5 text-[11px]">
+                  {(
+                    [
+                      { id: "all", label: "All", count: totalTables },
+                      { id: "occupied", label: "Seated", count: occupiedTables },
+                      { id: "free", label: "Open", count: freeTables },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setStatusFilter(f.id)}
+                      className={cn(
+                        "inline-flex h-6 items-center gap-1 rounded-md px-2 font-medium transition-colors",
+                        statusFilter === f.id
+                          ? "bg-card text-foreground shadow-2xs"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <span>{f.label}</span>
+                      <span className="tabular-nums opacity-70">
+                        {num(f.count)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5"
+                  role="group"
+                  aria-label="Floor density"
+                >
+                  <button
+                    type="button"
+                    title="Spatial Floor Plan (Tables with Seats)"
+                    onClick={() => setDensity("spatial")}
+                    className={cn(
+                      "inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors",
+                      density === "spatial"
+                        ? "bg-card text-foreground shadow-2xs"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <LayoutGrid className="h-3 w-3" />
+                    <span className="hidden sm:inline">Floor</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="High-Density Matrix (Banquet / 500+ Tables)"
+                    onClick={() => setDensity("matrix")}
+                    className={cn(
+                      "inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors",
+                      density === "matrix"
+                        ? "bg-card text-foreground shadow-2xs"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Grid3X3 className="h-3 w-3" />
+                    <span className="hidden sm:inline">Matrix</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Detailed Table & Bill List View"
+                    onClick={() => setDensity("list")}
+                    className={cn(
+                      "inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors",
+                      density === "list"
+                        ? "bg-card text-foreground shadow-2xs"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Rows3 className="h-3 w-3" />
+                    <span className="hidden sm:inline">List</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Legend Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-muted/25 px-4 py-1.5 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-4">
+                {(["free", "open", "kitchen", "ready"] as const).map((s) => (
+                  <span key={s} className="inline-flex items-center gap-1.5">
+                    <span
+                      className={cn("h-2 w-2 rounded-full", STATUS_META[s].dot)}
+                    />
+                    {STATUS_META[s].label}
+                  </span>
+                ))}
+              </div>
+              <span>Click any table to inspect bill &amp; QR standee</span>
+            </div>
+
+            {/* Architectural Floor Canvas */}
+            <div className="bg-[radial-gradient(#d4d4d8_1px,transparent_1px)] dark:bg-[radial-gradient(#27272a_1px,transparent_1px)] [background-size:18px_18px] bg-zinc-50/75 dark:bg-zinc-950/50 p-4 sm:p-6">
+              {sections.length === 0 ? (
+                <div className="rounded-xl border border-border bg-card">
+                  <EmptyState
+                    icon={SearchX}
+                    title="No matching tables"
+                    description="Adjust your search or status filter to see the rest of the floor."
+                    action={
+                      <Button size="sm" variant="outline" onClick={resetFilters}>
+                        Reset filters
+                      </Button>
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="space-y-7">
+                  {sections.map(({ stat, tables: list }) => (
+                    <section key={stat.zone} aria-label={stat.zone}>
+                      {/* Dining Hall Header */}
+                      <div className="mb-3.5 flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <h2 className="truncate text-xs font-semibold uppercase tracking-wider text-foreground/85">
+                            {stat.zone}
+                          </h2>
+                          <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground shadow-2xs">
+                            {num(stat.tables)} tables · {num(stat.seats)} seats
+                          </span>
+                          {stat.occupied > 0 && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[11px] font-medium"
+                            >
+                              {stat.occupied} active · {inr(stat.value)}
+                            </Badge>
+                          )}
+                        </div>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={`${stat.zone} options`}
+                                className="bg-card/80 text-muted-foreground shadow-2xs hover:bg-card hover:text-foreground"
+                              />
                             }
                           >
-                            Remove empty tables
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
+                            <Ellipsis className="h-3.5 w-3.5" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setNewZone(stat.zone);
+                                openDialog("single");
+                              }}
+                            >
+                              <Plus /> Add table to {stat.zone}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setBulkZone(stat.zone);
+                                openDialog("bulk");
+                              }}
+                            >
+                              <Rows3 /> Add range to {stat.zone}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={stat.emptyBills === 0}
+                              onClick={() =>
+                                setRemoveArea({
+                                  zone: stat.zone,
+                                  count: stat.emptyBills,
+                                })
+                              }
+                            >
+                              Clear unoccupied tables
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
 
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2">
-                    {list.map((t) => (
-                      <TableTile key={t.id} table={t} onOpen={() => openTable(t.id)} />
-                    ))}
-                  </div>
-                </section>
-              ))}
+                      {density === "spatial" ? (
+                        <div className="grid grid-cols-2 gap-x-3.5 gap-y-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+                          {list.map((t) => (
+                            <SpatialTableCard
+                              key={t.id}
+                              table={t}
+                              slug={slug}
+                              onOpen={() => openTable(t.id)}
+                            />
+                          ))}
+                        </div>
+                      ) : density === "matrix" ? (
+                        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12">
+                          {list.map((t) => (
+                            <MatrixTableCell
+                              key={t.id}
+                              table={t}
+                              onOpen={() => openTable(t.id)}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-2xs">
+                          {list.map((t) => {
+                            const st = tableStatus(t);
+                            const meta = STATUS_META[st];
+                            const totalVal = t.cartTotal + t.orderTotal;
+                            const latestOrder = t.activeOrders[0] ?? null;
+                            const itemPreview =
+                              t.cartLines.length > 0
+                                ? t.cartLines
+                                    .slice(0, 3)
+                                    .map((l) => `${l.qty}× ${l.name}`)
+                                    .join(", ") +
+                                  (t.cartLines.length > 3
+                                    ? ` +${t.cartLines.length - 3} more`
+                                    : "")
+                                : latestOrder?.item_summary.slice(0, 3).join(", ") ??
+                                  "";
+
+                            return (
+                              <div
+                                key={t.id}
+                                onClick={() => openTable(t.id)}
+                                className="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs transition hover:bg-muted/40"
+                              >
+                                <div className="flex min-w-0 flex-1 items-center gap-3">
+                                  <span
+                                    className={cn(
+                                      "h-2.5 w-2.5 shrink-0 rounded-full",
+                                      meta.dot,
+                                    )}
+                                  />
+                                  <div className="w-20 shrink-0 font-semibold text-foreground">
+                                    {t.code}
+                                  </div>
+                                  <span className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                                    <Users className="h-3 w-3" />
+                                    {t.seats}p
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                      meta.badge,
+                                    )}
+                                  >
+                                    {meta.label}
+                                  </span>
+                                  {itemPreview ? (
+                                    <span className="hidden min-w-0 truncate text-muted-foreground md:inline">
+                                      {latestOrder?.token_number != null && (
+                                        <span className="mr-1.5 font-mono text-[11px] text-foreground">
+                                          #{latestOrder.token_number}
+                                        </span>
+                                      )}
+                                      {itemPreview}
+                                    </span>
+                                  ) : (
+                                    <span className="hidden text-muted-foreground/60 md:inline">
+                                      No open items
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2.5">
+                                  {latestOrder?.placed_at && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
+                                      <Clock className="h-3 w-3" />
+                                      {elapsed(latestOrder.placed_at)}
+                                    </span>
+                                  )}
+                                  {totalVal > 0 && (
+                                    <span className="w-16 text-right font-semibold tabular-nums text-foreground">
+                                      {inr(totalVal)}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyQrLink(t);
+                                    }}
+                                    className={cn(
+                                      buttonVariants({
+                                        variant: "ghost",
+                                        size: "xs",
+                                      }),
+                                      "h-7 px-2 text-[11px]",
+                                    )}
+                                    title="Copy guest QR ordering link"
+                                  >
+                                    {copiedId === t.id ? (
+                                      <Check className="h-3 w-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                  <Link
+                                    href={`/r/${slug}/pos?table=${encodeURIComponent(t.rawName)}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      buttonVariants({
+                                        variant: "outline",
+                                        size: "xs",
+                                      }),
+                                      "h-7 px-2 text-[11px]",
+                                    )}
+                                  >
+                                    POS
+                                    <ArrowUpRight className="ml-0.5 h-3 w-3" />
+                                  </Link>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </>
       )}
 
-      {/* Table details */}
+      {/* Slide-over Table Inspector & QR Standee */}
       <Sheet
         open={detailsOpen && inspected !== null}
         onOpenChange={(open) => {
@@ -840,28 +1206,31 @@ export function TableFloorBoard({
         </SheetContent>
       </Sheet>
 
-      {/* Add one table */}
-      <Dialog open={dialog === "single"} onOpenChange={(o) => !o && setDialog(null)}>
+      {/* Add single table */}
+      <Dialog
+        open={dialog === "single"}
+        onOpenChange={(o) => !o && setDialog(null)}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add a table</DialogTitle>
             <DialogDescription>
-              It shows up in the POS right away and gets its own QR ordering link.
+              Appears immediately on the floor map and Counter POS with its own QR ordering link.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddSingleTable} className="grid gap-4">
-            <Field label="Table name" htmlFor="tbl-code">
+            <Field label="Table code" htmlFor="tbl-code">
               <Input
                 id="tbl-code"
-                placeholder="T-31"
+                placeholder="e.g. T-31 or VIP-06"
                 value={newCode}
                 onChange={(e) => setNewCode(e.target.value)}
                 required
                 autoFocus
               />
             </Field>
-            <div className="grid grid-cols-[1fr_6rem] gap-3">
-              <Field label="Area" htmlFor="tbl-zone">
+            <div className="grid grid-cols-[1fr_6.5rem] gap-3">
+              <Field label="Dining hall / area" htmlFor="tbl-zone">
                 <Input
                   id="tbl-zone"
                   list="table-areas"
@@ -882,32 +1251,39 @@ export function TableFloorBoard({
             </div>
             <DialogError message={dialogError} />
             <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDialog(null)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={pending || !newCode.trim()}>
-                {pending ? "Adding…" : "Add table"}
+                {pending ? "Adding..." : "Add table"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Add a numbered range */}
-      <Dialog open={dialog === "bulk"} onOpenChange={(o) => !o && setDialog(null)}>
+      {/* Generate numbered range */}
+      <Dialog
+        open={dialog === "bulk"}
+        onOpenChange={(o) => !o && setDialog(null)}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add a range of tables</DialogTitle>
+            <DialogTitle>Generate numbered table range</DialogTitle>
             <DialogDescription>
-              Number a whole area at once. Names that already exist are skipped.
+              Provision an entire dining hall in seconds. Existing table codes are safely skipped.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleBulkGenerate} className="grid gap-4">
-            <Field label="Area" htmlFor="bulk-zone">
+            <Field label="Dining hall / area" htmlFor="bulk-zone">
               <Input
                 id="bulk-zone"
                 list="table-areas"
-                placeholder="2nd Floor Banquet"
+                placeholder="e.g. 2nd Floor Banquet"
                 value={bulkZone}
                 onChange={(e) => setBulkZone(e.target.value)}
                 required
@@ -960,36 +1336,47 @@ export function TableFloorBoard({
               Creates{" "}
               <span className="font-medium text-foreground">
                 {rangeCode(bulkPrefix, bulkFrom, bulkTo)}
-                {bulkCount > 1 && ` to ${rangeCode(bulkPrefix, bulkTo, bulkTo)}`}
-              </span>
-              : {num(bulkCount)} {bulkCount === 1 ? "table" : "tables"},{" "}
-              {num(bulkSeatTotal)} seats.
-              {bulkCount > 600 && " That's more than 600, so split it into smaller ranges."}
+                {bulkCount > 1 && ` – ${rangeCode(bulkPrefix, bulkTo, bulkTo)}`}
+              </span>{" "}
+              ({num(bulkCount)} {bulkCount === 1 ? "table" : "tables"} ·{" "}
+              {num(bulkSeatTotal)} seats).
+              {bulkCount > 600 &&
+                " Maximum 600 tables per batch — split into smaller ranges."}
             </p>
             <DialogError message={dialogError} />
             <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDialog(null)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={pending || bulkCount > 600}>
-                {pending ? "Adding…" : `Add ${num(bulkCount)} tables`}
+                {pending ? "Generating..." : `Add ${num(bulkCount)} tables`}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Floor templates */}
-      <Dialog open={dialog === "template"} onOpenChange={(o) => !o && setDialog(null)}>
+      {/* Floor Preset Dialog */}
+      <Dialog
+        open={dialog === "template"}
+        onOpenChange={(o) => !o && setDialog(null)}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Start from a floor template</DialogTitle>
+            <DialogTitle>Apply floor capacity preset</DialogTitle>
             <DialogDescription>
-              Pick the layout closest to yours. You can rename, add or remove
-              tables afterwards.
+              Provision a multi-hall restaurant layout in one click. Occupied tables with active bills are always preserved.
             </DialogDescription>
           </DialogHeader>
-          <div role="radiogroup" aria-label="Floor template" className="grid gap-3 sm:grid-cols-3">
+          <div
+            role="radiogroup"
+            aria-label="Floor preset"
+            className="grid gap-3 sm:grid-cols-3"
+          >
             {TEMPLATES.map((tpl) => {
               const selected = tpl.id === templateId;
               return (
@@ -998,30 +1385,35 @@ export function TableFloorBoard({
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  aria-label={`${tpl.name}, ${tpl.summary}`}
                   onClick={() => setTemplateId(tpl.id)}
                   className={cn(
-                    "flex flex-col rounded-xl border p-4 text-left transition-colors",
+                    "flex flex-col rounded-xl border p-4 text-left transition-all",
                     selected
-                      ? "border-foreground ring-1 ring-foreground"
-                      : "border-border hover:border-foreground/30",
+                      ? "border-foreground bg-muted/30 ring-1 ring-foreground"
+                      : "border-border bg-card hover:border-foreground/30",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">{tpl.name}</span>
                     <span
                       className={cn(
-                        "grid h-4 w-4 place-items-center rounded-full border",
-                        selected ? "border-foreground bg-foreground text-background" : "border-border",
+                        "grid h-4 w-4 shrink-0 place-items-center rounded-full border",
+                        selected
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border",
                       )}
                     >
-                      {selected && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+                      {selected && (
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                      )}
                     </span>
                   </div>
                   <span className="mt-0.5 text-xs font-medium text-foreground/80">
                     {tpl.summary}
                   </span>
-                  <span className="mt-2 text-xs text-muted-foreground">{tpl.blurb}</span>
+                  <span className="mt-2 text-xs text-muted-foreground">
+                    {tpl.blurb}
+                  </span>
                   <dl className="mt-3 space-y-1.5 border-t border-border pt-3 text-xs">
                     {tpl.areas.map((a) => (
                       <div key={a.name}>
@@ -1034,40 +1426,56 @@ export function TableFloorBoard({
               );
             })}
           </div>
-          <p className="rounded-lg bg-muted px-3.5 py-2.5 text-xs text-muted-foreground">
-            Tables on {outlet?.name ?? "this outlet"} with no items on their bill
-            are replaced. Tables with an open bill are kept.
-          </p>
           <DialogError message={dialogError} />
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDialog(null)}
+            >
               Cancel
             </Button>
-            <Button type="button" onClick={handleApplyTemplate} disabled={pending}>
+            <Button
+              type="button"
+              onClick={handleApplyTemplate}
+              disabled={pending}
+            >
               {pending
-                ? "Applying…"
-                : `Use ${TEMPLATES.find((t) => t.id === templateId)!.name.toLowerCase()} layout`}
+                ? "Applying..."
+                : `Apply ${TEMPLATES.find((t) => t.id === templateId)!.name}`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirm area removal */}
-      <Dialog open={removeArea !== null} onOpenChange={(o) => !o && setRemoveArea(null)}>
+      {/* Confirm removing unoccupied area tables */}
+      <Dialog
+        open={removeArea !== null}
+        onOpenChange={(o) => !o && setRemoveArea(null)}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove empty tables?</DialogTitle>
+            <DialogTitle>Remove unoccupied tables?</DialogTitle>
             <DialogDescription>
               {removeArea &&
-                `${num(removeArea.count)} ${removeArea.count === 1 ? "table" : "tables"} in ${removeArea.zone} with nothing on the bill will be deleted, along with their QR links. Tables with an open bill stay.`}
+                `${num(removeArea.count)} unoccupied ${removeArea.count === 1 ? "table" : "tables"} in ${removeArea.zone} will be removed. Tables with open bills stay untouched.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setRemoveArea(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRemoveArea(null)}
+            >
               Cancel
             </Button>
-            <Button type="button" variant="destructive" onClick={handleRemoveArea} disabled={pending}>
-              {pending ? "Removing…" : "Remove tables"}
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleRemoveArea}
+              disabled={pending}
+            >
+              {pending ? "Removing..." : "Remove tables"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1082,64 +1490,155 @@ export function TableFloorBoard({
   );
 }
 
-function Stat({
-  label,
-  value,
-  suffix,
-  hint,
-  children,
+/**
+ * Spatial Architectural Tabletop Card:
+ * Renders top & bottom geometric chair backs proportional to table seat count,
+ * wider proportions for 6+ seat family/banquet tables, and clear live status.
+ */
+function SpatialTableCard({
+  table: t,
+  slug,
+  onOpen,
 }: {
-  label: string;
-  value: string;
-  suffix?: string;
-  hint?: string;
-  children?: React.ReactNode;
+  table: ParsedTable;
+  slug: string;
+  onOpen: () => void;
 }) {
-  return (
-    <div className="bg-card px-5 py-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-2xl font-semibold tabular-nums tracking-tight">{value}</span>
-        {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
-      </div>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-      {children}
-    </div>
-  );
-}
-
-function TableTile({ table: t, onOpen }: { table: ParsedTable; onOpen: () => void }) {
   const status = tableStatus(t);
   const meta = STATUS_META[status];
+  const isLargeTable = t.seats >= 6;
+  const chairsPerEdge = Math.min(4, Math.max(1, Math.ceil(t.seats / 2)));
+  const chairs = Array.from({ length: chairsPerEdge });
   const oldest = t.activeOrders.reduce<string | null>(
     (min, o) => (!min || o.placed_at < min ? o.placed_at : min),
     null,
   );
+  const totalAmount = t.cartTotal + t.orderTotal;
+
+  return (
+    <div
+      className={cn(
+        "group relative flex flex-col items-center select-none",
+        isLargeTable && "sm:col-span-2",
+      )}
+    >
+      {/* Top edge architectural chairs */}
+      <div className="mb-1 flex w-4/5 items-center justify-around gap-1.5 px-2">
+        {chairs.map((_, idx) => (
+          <span
+            key={idx}
+            className={cn(
+              "h-1 flex-1 max-w-7 rounded-t-full transition-colors",
+              meta.chair,
+            )}
+          />
+        ))}
+      </div>
+
+      {/* Tabletop surface */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${t.code}, ${t.seats} seats, ${meta.label}`}
+        className={cn(
+          "relative flex h-[78px] w-full flex-col justify-between rounded-xl border px-3 py-2.5 text-left shadow-2xs transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+          meta.surface,
+        )}
+      >
+        <div className="flex w-full items-center justify-between gap-1.5">
+          <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+            {t.code}
+          </span>
+
+          {status === "free" ? (
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <Users className="h-2.5 w-2.5 opacity-70" />
+              {t.seats}
+            </span>
+          ) : (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                meta.badge,
+              )}
+              suppressHydrationWarning
+            >
+              <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+              {oldest ? elapsed(oldest) : "Live"}
+            </span>
+          )}
+        </div>
+
+        {status === "free" ? (
+          <div className="flex w-full items-center justify-between text-[11px] text-muted-foreground">
+            <span>Available</span>
+            <Link
+              href={`/r/${slug}/pos?table=${encodeURIComponent(t.rawName)}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-0.5 font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:underline"
+            >
+              POS <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          </div>
+        ) : (
+          <div className="flex w-full items-baseline justify-between gap-2">
+            <span className="text-xs font-semibold tabular-nums text-foreground">
+              {inr(totalAmount)}
+            </span>
+            <span className={cn("truncate text-[11px] font-medium", meta.text)}>
+              {t.activeOrders.length > 0
+                ? `${t.activeOrders.length} KOT`
+                : `${t.cartQty} ${t.cartQty === 1 ? "item" : "items"}`}
+            </span>
+          </div>
+        )}
+      </button>
+
+      {/* Bottom edge architectural chairs */}
+      <div className="mt-1 flex w-4/5 items-center justify-around gap-1.5 px-2">
+        {chairs.map((_, idx) => (
+          <span
+            key={idx}
+            className={cn(
+              "h-1 flex-1 max-w-7 rounded-b-full transition-colors",
+              meta.chair,
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * High-Density Matrix Cell for 3,000-Seat / 500-Table Banquets
+ */
+function MatrixTableCell({
+  table: t,
+  onOpen,
+}: {
+  table: ParsedTable;
+  onOpen: () => void;
+}) {
+  const status = tableStatus(t);
+  const meta = STATUS_META[status];
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`${t.code}, ${meta.label}`}
       className={cn(
-        "flex h-[72px] flex-col justify-between rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-        meta.tile,
+        "flex h-12 flex-col justify-between rounded-lg border px-2 py-1.5 text-left shadow-2xs transition-colors",
+        meta.surface,
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-semibold">{t.code}</span>
-        {status !== "free" && <span className={cn("h-2 w-2 shrink-0 rounded-full", meta.dot)} />}
+      <div className="flex items-center justify-between gap-1">
+        <span className="truncate text-[11px] font-semibold">{t.code}</span>
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
       </div>
-      {status === "free" ? (
-        <span className="text-xs text-muted-foreground">{t.seats} seats</span>
-      ) : (
-        <div className={cn("flex items-baseline justify-between gap-2 text-xs", meta.text)}>
-          <span className="font-semibold tabular-nums">{inr(t.cartTotal + t.orderTotal)}</span>
-          <span className="truncate opacity-80" suppressHydrationWarning>
-            {oldest ? elapsed(oldest) : `${t.cartQty} ${t.cartQty === 1 ? "item" : "items"}`}
-          </span>
-        </div>
-      )}
+      <div className="truncate text-[10px] tabular-nums text-muted-foreground">
+        {status === "free" ? `${t.seats}p` : inr(t.cartTotal + t.orderTotal)}
+      </div>
     </button>
   );
 }
@@ -1169,43 +1668,61 @@ function TableDetails({
   const meta = STATUS_META[status];
   const hasCart = t.cartQty > 0;
   const total = t.cartTotal + t.orderTotal;
+  const guestMenuUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/r/${slug}?table=${encodeURIComponent(t.code)}`
+      : `/r/${slug}?table=${encodeURIComponent(t.code)}`;
 
   return (
     <>
-      <SheetHeader className="border-b border-border">
-        <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", meta.text)}>
-          <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
-          {meta.label}
-        </span>
-        <SheetTitle className="text-xl">{t.code}</SheetTitle>
+      <SheetHeader className="border-b border-border bg-muted/20">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+              meta.badge,
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+            {meta.label}
+          </span>
+        </div>
+        <SheetTitle className="mt-1 text-xl">{t.code}</SheetTitle>
         <SheetDescription>
           {t.zone} · {t.seats} seats
         </SheetDescription>
       </SheetHeader>
 
-      <div className="flex-1 space-y-6 overflow-y-auto p-5">
+      <div className="flex-1 space-y-5 overflow-y-auto p-5">
         {status === "free" ? (
-          <p className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">
-            Nobody is seated here. Open it in the POS to start a bill.
-          </p>
+          <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3.5 text-xs text-muted-foreground">
+            Table is currently available. Launch Counter POS below to start a dine-in tab, or let guests scan the table QR code.
+          </div>
         ) : (
           <>
             {t.activeOrders.length > 0 && (
               <section>
-                <h3 className="text-xs font-medium text-muted-foreground">Kitchen orders</h3>
-                <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Active Kitchen Tickets
+                </h3>
+                <ul className="mt-2 divide-y divide-border rounded-xl border border-border bg-card">
                   {t.activeOrders.map((o) => (
                     <li key={o.id} className="px-3.5 py-3">
                       <div className="flex items-center justify-between gap-3 text-sm">
                         <Link
                           href={`/r/${slug}/admin/orders/${o.id}`}
-                          className="font-medium hover:underline"
+                          className="font-semibold hover:underline"
                         >
-                          Token {o.token_number ?? o.unique_order_id?.slice(-4) ?? "—"}
+                          Token #{o.token_number ?? o.unique_order_id?.slice(-4) ?? "—"}
                         </Link>
                         <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                          {ORDER_STATUS_LABEL[o.status ?? ""] ?? o.status}
-                          <span className="inline-flex items-center gap-1" suppressHydrationWarning>
+                          <Badge variant="outline" className="text-[10px]">
+                            {ORDER_STATUS_LABEL[o.status ?? ""] ?? o.status}
+                          </Badge>
+                          <span
+                            className="inline-flex items-center gap-1"
+                            suppressHydrationWarning
+                          >
                             <Clock className="h-3 w-3" />
                             {elapsed(o.placed_at)}
                           </span>
@@ -1224,83 +1741,139 @@ function TableDetails({
 
             {hasCart && (
               <section>
-                <h3 className="text-xs font-medium text-muted-foreground">On the open bill</h3>
-                <ul className="mt-2 space-y-1.5 text-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Running Tab Items
+                </h3>
+                <ul className="mt-2 divide-y divide-border rounded-xl border border-border bg-card px-3.5 py-1 text-sm">
                   {t.cartLines.map((l, i) => (
-                    <li key={i} className="flex items-baseline justify-between gap-3">
-                      <span className="min-w-0">
-                        <span className="tabular-nums text-muted-foreground">{l.qty}×</span>{" "}
+                    <li
+                      key={i}
+                      className="flex items-baseline justify-between gap-3 py-2 text-xs"
+                    >
+                      <span className="min-w-0 font-medium">
+                        <span className="mr-1.5 tabular-nums text-muted-foreground">
+                          {l.qty}×
+                        </span>
                         {l.name}
                       </span>
-                      <span className="shrink-0 tabular-nums">{inr(l.total)}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">
+                        {inr(l.total)}
+                      </span>
                     </li>
                   ))}
                 </ul>
               </section>
             )}
 
-            <div className="flex items-baseline justify-between border-t border-border pt-4">
-              <span className="text-sm text-muted-foreground">Total so far</span>
-              <span className="text-xl font-semibold tabular-nums">{inr(total)}</span>
+            <div className="flex items-baseline justify-between rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <span className="text-xs font-medium text-muted-foreground">
+                Running Table Total
+              </span>
+              <span className="text-lg font-semibold tabular-nums">
+                {inr(total)}
+              </span>
             </div>
           </>
         )}
+
+        {/* Scannable Table QR Standee Card */}
+        <section className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-4">
+            <div className="shrink-0 rounded-lg border border-border bg-white p-2 shadow-2xs">
+              <QrCodeSvg value={guestMenuUrl} size={84} />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="text-xs font-semibold">Table QR Ordering</div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Guests scanning this code open the menu pre-linked to{" "}
+                <span className="font-medium text-foreground">{t.code}</span>.
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <Button variant="outline" size="xs" onClick={onCopy}>
+                  {copied ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-600" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      Copy URL
+                    </>
+                  )}
+                </Button>
+                <Link
+                  href={`/r/${slug}?table=${encodeURIComponent(t.code)}`}
+                  target="_blank"
+                  className={buttonVariants({ variant: "ghost", size: "xs" })}
+                >
+                  Preview Menu
+                  <ExternalLink className="ml-1 h-2.5 w-2.5" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <SheetFooter className="border-t border-border">
+      <SheetFooter className="border-t border-border bg-muted/15">
         {confirming ? (
-          <div className="space-y-3">
-            <p className="text-sm">
+          <div className="w-full space-y-3">
+            <p className="text-xs text-muted-foreground">
               {confirming === "clear"
-                ? `Clear ${t.cartQty} ${t.cartQty === 1 ? "item" : "items"} from ${t.code}'s bill? This can't be undone.`
-                : `Remove ${t.code} from the floor? Its QR link will stop working.`}
+                ? `Discard ${t.cartQty} ${t.cartQty === 1 ? "item" : "items"} on ${t.code}?`
+                : `Delete ${t.code} from ${t.zone}?`}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => onConfirm(null)} disabled={pending}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onConfirm(null)}
+                disabled={pending}
+              >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
+                size="sm"
                 onClick={confirming === "clear" ? onClearBill : onRemove}
                 disabled={pending}
               >
-                {confirming === "clear" ? "Clear bill" : "Remove table"}
+                {confirming === "clear" ? "Clear bill" : "Delete table"}
               </Button>
             </div>
           </div>
         ) : (
-          <>
+          <div className="w-full space-y-2">
             <Link
               href={`/r/${slug}/pos?table=${encodeURIComponent(t.rawName)}`}
-              className={cn(buttonVariants({ size: "lg" }), "w-full")}
+              className={cn(buttonVariants({ size: "default" }), "w-full")}
             >
-              <MonitorSmartphone />
-              {hasCart ? "Resume bill in POS" : "Open in POS"}
+              <MonitorSmartphone className="h-4 w-4" />
+              {hasCart ? "Resume Table Bill in POS" : "Start Bill in POS"}
             </Link>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={onCopy}>
-                {copied ? <Check className="text-emerald-600" /> : <Copy />}
-                {copied ? "Link copied" : "Copy QR link"}
-              </Button>
+            <div className="flex justify-end">
               {hasCart ? (
                 <Button
                   variant="ghost"
+                  size="xs"
                   className="text-muted-foreground hover:text-destructive"
                   onClick={() => onConfirm("clear")}
                 >
-                  Clear bill
+                  Clear open bill
                 </Button>
               ) : t.activeOrders.length === 0 ? (
                 <Button
                   variant="ghost"
+                  size="xs"
                   className="text-muted-foreground hover:text-destructive"
                   onClick={() => onConfirm("remove")}
                 >
-                  Remove table
+                  Delete table
                 </Button>
               ) : null}
             </div>
-          </>
+          </div>
         )}
       </SheetFooter>
     </>
@@ -1329,7 +1902,10 @@ function Field({
 function DialogError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" className="rounded-lg bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
+    <p
+      role="alert"
+      className="rounded-lg bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive"
+    >
       {message}
     </p>
   );

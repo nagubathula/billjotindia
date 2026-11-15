@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_rate_limits: {
+        Row: {
+          bucket_key: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket_key: string
+          hits?: number
+          window_start: string
+        }
+        Update: {
+          bucket_key?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       brands: {
         Row: {
           created_at: string
@@ -587,6 +605,7 @@ export type Database = {
       }
       order_items: {
         Row: {
+          created_at: string
           id: string
           instructions: string | null
           order_id: string | null
@@ -596,6 +615,7 @@ export type Database = {
           unit_price: number
         }
         Insert: {
+          created_at?: string
           id?: string
           instructions?: string | null
           order_id?: string | null
@@ -605,6 +625,7 @@ export type Database = {
           unit_price: number
         }
         Update: {
+          created_at?: string
           id?: string
           instructions?: string | null
           order_id?: string | null
@@ -634,6 +655,7 @@ export type Database = {
           cgst_amount: number
           commission_amount: number
           created_at: string | null
+          customer_account_id: string | null
           customer_email: string
           customer_name: string
           customer_phone: string | null
@@ -651,6 +673,8 @@ export type Database = {
           net_payout: number | null
           order_type: string | null
           outlet_id: string
+          payment_provider: string | null
+          payment_status: string | null
           placed_at: string
           platform_discount: number
           razorpay_order_id: string | null
@@ -658,12 +682,15 @@ export type Database = {
           sgst_amount: number
           source: string
           status: string | null
+          stripe_session_id: string | null
           subtotal: number | null
+          table_id: string | null
           takeaway_charges: number | null
           token_number: number | null
           total_amount: number
           unique_order_id: string | null
           updated_at: string | null
+          voided_items: Json
         }
         Insert: {
           cancel_note?: string | null
@@ -675,6 +702,7 @@ export type Database = {
           cgst_amount?: number
           commission_amount?: number
           created_at?: string | null
+          customer_account_id?: string | null
           customer_email: string
           customer_name: string
           customer_phone?: string | null
@@ -692,6 +720,8 @@ export type Database = {
           net_payout?: number | null
           order_type?: string | null
           outlet_id: string
+          payment_provider?: string | null
+          payment_status?: string | null
           placed_at?: string
           platform_discount?: number
           razorpay_order_id?: string | null
@@ -699,12 +729,15 @@ export type Database = {
           sgst_amount?: number
           source?: string
           status?: string | null
+          stripe_session_id?: string | null
           subtotal?: number | null
+          table_id?: string | null
           takeaway_charges?: number | null
           token_number?: number | null
           total_amount: number
           unique_order_id?: string | null
           updated_at?: string | null
+          voided_items?: Json
         }
         Update: {
           cancel_note?: string | null
@@ -716,6 +749,7 @@ export type Database = {
           cgst_amount?: number
           commission_amount?: number
           created_at?: string | null
+          customer_account_id?: string | null
           customer_email?: string
           customer_name?: string
           customer_phone?: string | null
@@ -733,6 +767,8 @@ export type Database = {
           net_payout?: number | null
           order_type?: string | null
           outlet_id?: string
+          payment_provider?: string | null
+          payment_status?: string | null
           placed_at?: string
           platform_discount?: number
           razorpay_order_id?: string | null
@@ -740,12 +776,15 @@ export type Database = {
           sgst_amount?: number
           source?: string
           status?: string | null
+          stripe_session_id?: string | null
           subtotal?: number | null
+          table_id?: string | null
           takeaway_charges?: number | null
           token_number?: number | null
           total_amount?: number
           unique_order_id?: string | null
           updated_at?: string | null
+          voided_items?: Json
         }
         Relationships: [
           {
@@ -756,10 +795,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "orders_customer_account_id_fkey"
+            columns: ["customer_account_id"]
+            isOneToOne: false
+            referencedRelation: "storefront_customers"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "orders_outlet_id_fkey"
             columns: ["outlet_id"]
             isOneToOne: false
             referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "pos_tabs"
             referencedColumns: ["id"]
           },
         ]
@@ -912,6 +965,7 @@ export type Database = {
           id: string
           lines: Json
           name: string
+          order_id: string | null
           outlet_id: string
           updated_at: string
         }
@@ -920,6 +974,7 @@ export type Database = {
           id?: string
           lines?: Json
           name: string
+          order_id?: string | null
           outlet_id: string
           updated_at?: string
         }
@@ -928,10 +983,18 @@ export type Database = {
           id?: string
           lines?: Json
           name?: string
+          order_id?: string | null
           outlet_id?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pos_tabs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pos_tabs_outlet_id_fkey"
             columns: ["outlet_id"]
@@ -1211,6 +1274,7 @@ export type Database = {
       }
       restaurant_api_keys: {
         Row: {
+          allowed_origins: string[]
           created_at: string
           created_by: string | null
           id: string
@@ -1222,8 +1286,11 @@ export type Database = {
           restaurant_id: string
           revoked_at: string | null
           scopes: string[]
+          webhook_secret: string | null
+          webhook_url: string | null
         }
         Insert: {
+          allowed_origins?: string[]
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1235,8 +1302,11 @@ export type Database = {
           restaurant_id: string
           revoked_at?: string | null
           scopes?: string[]
+          webhook_secret?: string | null
+          webhook_url?: string | null
         }
         Update: {
+          allowed_origins?: string[]
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1248,6 +1318,8 @@ export type Database = {
           restaurant_id?: string
           revoked_at?: string | null
           scopes?: string[]
+          webhook_secret?: string | null
+          webhook_url?: string | null
         }
         Relationships: [
           {
@@ -1306,6 +1378,83 @@ export type Database = {
             columns: ["brand_id"]
             isOneToOne: false
             referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      server_error_logs: {
+        Row: {
+          context: Json
+          created_at: string
+          digest: string | null
+          error_name: string | null
+          id: string
+          message: string
+          method: string | null
+          route: string
+          stack: string | null
+        }
+        Insert: {
+          context?: Json
+          created_at?: string
+          digest?: string | null
+          error_name?: string | null
+          id?: string
+          message: string
+          method?: string | null
+          route: string
+          stack?: string | null
+        }
+        Update: {
+          context?: Json
+          created_at?: string
+          digest?: string | null
+          error_name?: string | null
+          id?: string
+          message?: string
+          method?: string | null
+          route?: string
+          stack?: string | null
+        }
+        Relationships: []
+      }
+      storefront_customers: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          name: string
+          password_hash: string
+          phone: string | null
+          restaurant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          password_hash: string
+          phone?: string | null
+          restaurant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          password_hash?: string
+          phone?: string | null
+          restaurant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storefront_customers_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
             referencedColumns: ["id"]
           },
         ]
@@ -1380,6 +1529,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      consume_rate_limit: {
+        Args: { p_bucket: string; p_window_seconds?: number }
+        Returns: Json
+      }
       get_my_order: {
         Args: { p_order_id: string }
         Returns: {
@@ -1460,9 +1613,13 @@ export type Database = {
         Args: { allowed: string[]; rid: string }
         Returns: boolean
       }
+      user_is_brand_restaurant_admin: {
+        Args: { bid: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      app_role: "admin" | "user" | "manager"
+      app_role: "admin" | "user" | "manager" | "captain"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1590,7 +1747,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user", "manager"],
+      app_role: ["admin", "user", "manager", "captain"],
     },
   },
 } as const

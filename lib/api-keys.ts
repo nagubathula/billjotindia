@@ -6,6 +6,7 @@
 // can only be shown in full once, right after it is created.
 
 import { createHash, randomBytes } from "node:crypto";
+import { isOriginAllowedForKey } from "@/lib/api-cors";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const API_KEY_SCOPES = ["menu:read", "orders:write"] as const;
@@ -52,6 +53,7 @@ export type ApiKeyContext = {
   // null: every outlet of the restaurant.
   outletId: string | null;
   scopes: ApiKeyScope[];
+  allowedOrigins: string[];
 };
 
 export type ApiKeyCheck =
@@ -59,13 +61,15 @@ export type ApiKeyCheck =
   | { ok: false; status: 401 | 403; error: string };
 
 /**
- * Looks up the key a request carries and checks it may do `scope`.
- * Returns 401 for a missing, unknown or revoked key, and 403 when the key is
- * valid but wasn't given that permission.
+ * Looks up the key a request carries, checks `scope`, and verifies the caller's
+ * browser `Origin` (if any) is permitted for this key.
+ * Returns 401 for a missing, unknown or revoked key, and 403 when the key lacks
+ * permission or is called from an unauthorized browser origin.
  */
 export async function authenticateApiKey(
   request: Request,
   scope: ApiKeyScope,
+  supabaseClient?: ReturnType<typeof createAdminClient>,
 ): Promise<ApiKeyCheck> {
   const presented = presentedApiKey(request);
   if (!presented) {
@@ -76,10 +80,12 @@ export async function authenticateApiKey(
     };
   }
 
-  const supabase = createAdminClient();
+  const supabase = supabaseClient ?? createAdminClient();
   const { data: row } = await supabase
     .from("restaurant_api_keys")
-    .select("id, restaurant_id, outlet_id, scopes, revoked_at, last_used_at")
+    .select(
+      "id, restaurant_id, outlet_id, scopes, allowed_origins, revoked_at, last_used_at",
+    )
     .eq("key_hash", hashApiKey(presented))
     .maybeSingle();
 
@@ -93,6 +99,18 @@ export async function authenticateApiKey(
       ok: false,
       status: 403,
       error: `This API key can't ${scope === "menu:read" ? "read the menu" : "place orders"}.`,
+    };
+  }
+
+  const allowedOrigins = Array.isArray(row.allowed_origins)
+    ? row.allowed_origins
+    : [];
+  const origin = request.headers.get("origin");
+  if (!isOriginAllowedForKey(origin, allowedOrigins, request.url)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "This API key isn't allowed from this website origin.",
     };
   }
 
@@ -116,6 +134,7 @@ export async function authenticateApiKey(
       restaurantId: row.restaurant_id,
       outletId: row.outlet_id,
       scopes,
+      allowedOrigins,
     },
   };
 }

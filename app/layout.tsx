@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 // Apple devices render San Francisco via the system font stack in globals.css;
@@ -96,10 +97,10 @@ const stripExtensionAttrsScript = `
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: stripExtensionAttrsScript }} />
-      </head>
       <body className="min-h-screen bg-background text-foreground antialiased" suppressHydrationWarning>
+        <Script id="strip-extension-attrs" strategy="beforeInteractive">
+          {stripExtensionAttrsScript}
+        </Script>
         {children}
       </body>
     </html>

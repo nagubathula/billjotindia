@@ -21,9 +21,9 @@ Then open http://localhost:3000.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Same screen, `service_role` key. Server-only — never expose to the browser. |
 | `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | **UUID** of the outlet to use when a client doesn't specify one (`select id from outlets where slug = 'main'`). All ids are uuids since the `20260719000000_uuid_refactor` migration. |
-| `STOREFRONT_ORDER_TOKEN` | Optional shared secret that standalone storefronts (e.g. `billjotdemocafe`) send when forwarding orders. |
-| `STOREFRONT_ALLOWED_ORIGINS` | Optional comma-separated list of websites allowed to call the order API from a browser. |
+| `STOREFRONT_ALLOWED_ORIGINS` | Optional fallback comma-separated list of websites allowed to call public endpoints from a browser when a per-key website allowlist is not set. |
 | `CHANNEL_ORDER_TOKEN` | Optional secret for delivery-platform adapters. It is the only way to store an order at prices the server didn't compute; while unset, platform orders are refused. |
+| `ERROR_ALERT_WEBHOOK_URL` / `SENTRY_DSN` | Optional 5xx server error alert webhook or Sentry DSN. |
 
 ## Database migrations
 

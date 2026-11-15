@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
+import { POS_ROLES } from "@/lib/roles";
 import { outletCookieName } from "@/lib/outlet-context";
 
 /**
@@ -17,7 +18,7 @@ export async function setSelectedOutletAction(
   const restaurant = await getRestaurantBySlug(restaurantSlug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };
 
-  await requireRole(["admin", "manager", "user"], {
+  await requireRole(POS_ROLES, {
     restaurantId: restaurant.id,
   });
 

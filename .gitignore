@@ -7,8 +7,12 @@ build
 .env*.local
 .DS_Store
 *.log
+*.tsbuildinfo
 next-env.d.ts
 templates/
 
 # Internal API docs: never commit or deploy (repo is public)
 private-docs/
+
+# Local to-do list: mentions security gaps and private work (repo is public)
+todo.md

@@ -37,9 +37,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -47,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { FullscreenToggle } from "@/components/FullscreenToggle";
 import { ModifierDialog } from "@/components/ModifierDialog";
 import { QrCodeSvg } from "@/components/QrCodeSvg";
@@ -60,7 +63,20 @@ import {
   createTabAction,
   saveTabAction,
   deleteTabAction,
+  moveTabAction,
+  sendKotAction,
+  settleTabAction,
+  voidSentItemAction,
 } from "./tab-actions";
+
+const VOID_REASONS = [
+  { code: "customer_changed_mind", label: "Customer changed mind" },
+  { code: "wrong_item_punched", label: "Wrong item punched" },
+  { code: "out_of_stock", label: "Item out of stock" },
+  { code: "kitchen_delay", label: "Kitchen delay" },
+  { code: "quality_issue", label: "Quality / remake" },
+  { code: "other", label: "Other reason" },
+] as const;
 
 type Line = {
   configKey: string;
@@ -69,6 +85,8 @@ type Line = {
   selectedOptions: SelectedOption[];
   unitPrice: number;
   instructions?: string;
+  // How many of qty the kitchen already has (sent with a KOT).
+  sentQty?: number;
 };
 
 type Tender = "cash" | "upi" | "card";
@@ -86,6 +104,8 @@ type Tab = {
   discountFlat?: number;
   createdAt: number;
   persisted?: boolean;
+  // The table's running kitchen order, once a KOT has been sent.
+  orderId?: string | null;
 };
 
 const DEFAULT_TAB_ID = "counter";
@@ -115,6 +135,15 @@ type Props = {
   restaurantName: string;
   staffEmail: string;
   staffRoleLabel: string;
+  // False for captains: they build table orders but don't settle bills,
+  // give discounts or set packing charges.
+  canTakePayment: boolean;
+  // False for captains: restricted strictly to Dine-in / Floor table orders.
+  canTakeNonTableOrders: boolean;
+  // True for managers & admins: may void items already sent to the kitchen.
+  canVoidSentItems: boolean;
+  // False for cashiers and captains: admin area & settings links are hidden.
+  canOpenAdmin: boolean;
 };
 
 type RazorpayConstructor = new (options: Record<string, unknown>) => {
@@ -162,6 +191,10 @@ export function PosBilling({
   restaurantName,
   staffEmail,
   staffRoleLabel,
+  canTakePayment,
+  canTakeNonTableOrders,
+  canVoidSentItems,
+  canOpenAdmin,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -173,8 +206,14 @@ export function PosBilling({
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [vegFilter, setVegFilter] = useState<VegFilter>("all");
-  const [tabs, setTabs] = useState<Tab[]>(() => [makeDefaultTab()]);
-  const [activeTabId, setActiveTabId] = useState<string>(DEFAULT_TAB_ID);
+  const [tabs, setTabs] = useState<Tab[]>(() =>
+    canTakeNonTableOrders ? [makeDefaultTab()] : [],
+  );
+  const [activeTabId, setActiveTabId] = useState<string>(
+    canTakeNonTableOrders ? DEFAULT_TAB_ID : "",
+  );
+  const [tabsLoaded, setTabsLoaded] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"menu" | "bill">("menu");
   const [creatingTab, setCreatingTab] = useState(false);
   const [newTabName, setNewTabName] = useState("");
   const [tableModalOpen, setTableModalOpen] = useState(false);
@@ -185,9 +224,19 @@ export function PosBilling({
   >("all");
   const [posting, setPosting] = useState<Tender | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sendingKot, setSendingKot] = useState(false);
+  const [movingTable, setMovingTable] = useState(false);
   const [modProduct, setModProduct] = useState<Product | null>(null);
   const [editingLineNoteKey, setEditingLineNoteKey] = useState<string | null>(null);
   const [showOrderDetails, setShowOrderDetails] = useState(false);
+
+  // Manager / Admin Void Sent Item dialog state
+  const [voidTargetLine, setVoidTargetLine] = useState<Line | null>(null);
+  const [voidQty, setVoidQty] = useState<number>(1);
+  const [voidReason, setVoidReason] = useState<string>("customer_changed_mind");
+  const [voidNote, setVoidNote] = useState<string>("");
+  const [voidBusy, setVoidBusy] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
 
   // Online / Gateway QR Settlement dialog state
   const [onlinePayOpen, setOnlinePayOpen] = useState(false);
@@ -209,7 +258,9 @@ export function PosBilling({
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const lines = activeTab?.lines ?? [];
-  const orderType: OrderType = activeTab?.orderType ?? "dine-in";
+  const orderType: OrderType = canTakeNonTableOrders
+    ? (activeTab?.orderType ?? "dine-in")
+    : "dine-in";
   const customerName = activeTab?.customerName ?? "";
   const orderNote = activeTab?.orderNote ?? "";
   const packingCharge = Number(activeTab?.packingCharge ?? 0);
@@ -220,11 +271,12 @@ export function PosBilling({
 
   useEffect(() => {
     let cancelled = false;
-    setTabs([makeDefaultTab()]);
-    setActiveTabId(DEFAULT_TAB_ID);
+    setTabsLoaded(false);
+    setTabs(canTakeNonTableOrders ? [makeDefaultTab()] : []);
+    setActiveTabId(canTakeNonTableOrders ? DEFAULT_TAB_ID : "");
     listTabsAction(restaurantSlug, outletId)
       .then((dbTabs) => {
-        if (cancelled || dbTabs.length === 0) return;
+        if (cancelled) return;
         const mapped: Tab[] = dbTabs.map((t) => ({
           id: t.id,
           name: t.name,
@@ -232,9 +284,11 @@ export function PosBilling({
           orderType: "dine-in",
           createdAt: t.createdAt,
           persisted: true,
+          orderId: t.orderId,
         }));
-        const all = [makeDefaultTab(), ...mapped];
+        const all = canTakeNonTableOrders ? [makeDefaultTab(), ...mapped] : mapped;
         setTabs(all);
+        setTabsLoaded(true);
         if (requestedTable) {
           const reqNorm = requestedTable.split("·")[0].trim().toLowerCase();
           const match = mapped.find(
@@ -242,14 +296,22 @@ export function PosBilling({
               t.name.toLowerCase() === requestedTable.toLowerCase() ||
               t.name.split("·")[0].trim().toLowerCase() === reqNorm,
           );
-          if (match) setActiveTabId(match.id);
+          if (match) {
+            setActiveTabId(match.id);
+            return;
+          }
+        }
+        if (!canTakeNonTableOrders && mapped[0]) {
+          setActiveTabId(mapped[0].id);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setTabsLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [restaurantSlug, outletId, requestedTable]);
+  }, [restaurantSlug, outletId, requestedTable, canTakeNonTableOrders]);
 
   const scheduleSave = (tab: Tab) => {
     if (!tab.persisted) return;
@@ -309,6 +371,10 @@ export function PosBilling({
 
   const closeTab = async (id: string) => {
     const tab = tabs.find((t) => t.id === id);
+    if (tab?.orderId) {
+      setError(`${tab.name.split("·")[0].trim()} has a kitchen order. Settle the bill before closing it.`);
+      return;
+    }
     if (tab && tab.lines.length > 0 && !confirm(`Discard tab "${tab.name}"?`)) {
       return;
     }
@@ -378,21 +444,29 @@ export function PosBilling({
 
   const handleProductClick = useCallback(
     (product: Product) => {
+      if (!activeTab) {
+        setTableModalOpen(true);
+        return;
+      }
       if (product.has_addons) {
         setModProduct(product);
       } else {
         addLine(product);
       }
     },
-    [addLine],
+    [activeTab, addLine],
   );
 
   const setQty = (configKey: string, qty: number) => {
-    updateActiveLines((prev) =>
-      qty <= 0
+    updateActiveLines((prev) => {
+      // Items already sent to the kitchen stay on the bill; voiding them is a
+      // separate (manager) step.
+      const sent = prev.find((l) => l.configKey === configKey)?.sentQty ?? 0;
+      const next = Math.max(qty, sent);
+      return next <= 0
         ? prev.filter((l) => l.configKey !== configKey)
-        : prev.map((l) => (l.configKey === configKey ? { ...l, qty } : l)),
-    );
+        : prev.map((l) => (l.configKey === configKey ? { ...l, qty: next } : l));
+    });
   };
 
   const setLineNote = (configKey: string, note: string) => {
@@ -434,8 +508,62 @@ export function PosBilling({
     };
   }, [lines, orderType, packingCharge, discountPct, discountFlat]);
 
-  const transferCurrentBillTo = (targetTabId: string) => {
-    if (!activeTab || activeTab.lines.length === 0 || targetTabId === activeTabId) return;
+  const transferCurrentBillTo = async (targetTabId: string) => {
+    if (!activeTab || activeTab.lines.length === 0 || targetTabId === activeTabId || movingTable) {
+      return;
+    }
+    const targetTab = tabs.find((t) => t.id === targetTabId);
+    if (!targetTab) return;
+
+    if (activeTab.orderId && !targetTab.persisted) {
+      setError("A table with a kitchen order can only be moved to another floor table, not the Counter.");
+      setTableModalOpen(false);
+      return;
+    }
+
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+
+    if (activeTab.persisted && targetTab.persisted) {
+      setMovingTable(true);
+      setError(null);
+      try {
+        const res = await moveTabAction(
+          restaurantSlug,
+          activeTab.id,
+          targetTab.id,
+          activeTab.lines,
+        );
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setTabs((prev) =>
+          prev.map((t) => {
+            if (t.id === activeTab.id) {
+              return { ...t, lines: [], orderId: null };
+            }
+            if (t.id === targetTab.id) {
+              return {
+                ...t,
+                lines: res.targetLines as Line[],
+                orderId: res.targetOrderId,
+              };
+            }
+            return t;
+          }),
+        );
+        setActiveTabId(targetTab.id);
+        setTableModalOpen(false);
+        const dstShort = targetTab.name.split("·")[0].trim();
+        setKotSavedMsg(`Moved table order to ${dstShort}`);
+        setTimeout(() => setKotSavedMsg(null), 3000);
+      } finally {
+        setMovingTable(false);
+      }
+      return;
+    }
+
+    // Walk-in Counter (unpersisted) → Floor table transfer
     const sourceLines = [...activeTab.lines];
     const sourceId = activeTab.id;
     const sourceName = activeTab.name;
@@ -461,41 +589,151 @@ export function PosBilling({
     setTableModalOpen(false);
   };
 
-  const holdAndSendKot = useCallback(async () => {
-    if (!activeTab || activeTab.lines.length === 0) return;
-    if (activeTab.persisted) {
-      await saveTabAction(restaurantSlug, activeTab.id, activeTab.name, activeTab.lines).catch(
-        () => {},
-      );
-    } else {
-      const res = await createTabAction(
-        restaurantSlug,
-        outletId,
-        customerName.trim() || `Table Hold ${tabs.length}`,
-      );
-      if (res.ok) {
-        await saveTabAction(restaurantSlug, res.tab.id, res.tab.name, activeTab.lines).catch(
-          () => {},
-        );
+  function openVoidModal(line: Line) {
+    setVoidTargetLine(line);
+    setVoidQty(1);
+    setVoidReason("customer_changed_mind");
+    setVoidNote("");
+    setVoidError(null);
+  }
+
+  async function handleConfirmVoid(e: React.FormEvent) {
+    e.preventDefault();
+    if (!voidTargetLine || !activeTab?.persisted || voidBusy) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setVoidBusy(true);
+    setVoidError(null);
+    try {
+      const res = await voidSentItemAction(restaurantSlug, activeTab.id, {
+        configKey: voidTargetLine.configKey,
+        quantity: voidQty,
+        reason: voidReason,
+        note: voidNote,
+        currentLines: activeTab.lines,
+      });
+      if (!res.ok) {
+        setVoidError(res.error);
+        return;
       }
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? { ...t, lines: res.lines as Line[], orderId: res.orderId }
+            : t,
+        ),
+      );
+      setVoidTargetLine(null);
+      setKotSavedMsg(`Voided ${voidQty}× ${voidTargetLine.product.name}`);
+      setTimeout(() => setKotSavedMsg(null), 3000);
+    } finally {
+      setVoidBusy(false);
     }
-    const count = activeTab.lines.reduce((s, l) => s + l.qty, 0);
-    const short = activeTab.name.split("·")[0].trim();
-    setKotSavedMsg(`KOT synced for ${short} (${count} items)`);
-    setTimeout(() => setKotSavedMsg(null), 2600);
-  }, [activeTab, restaurantSlug, outletId, customerName, tabs.length]);
+  }
+
+  // Send KOT: the table's new items go to the kitchen board now. The first
+  // KOT creates the table's running order; later ones add to it. A walk-in
+  // bill on the Counter becomes a held table first.
+  const holdAndSendKot = useCallback(async () => {
+    if (!activeTab || activeTab.lines.length === 0 || sendingKot) return;
+    setSendingKot(true);
+    setError(null);
+    // A pending debounced save would overwrite the sent markers.
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    try {
+      let tab = activeTab;
+      if (!tab.persisted) {
+        const created = await createTabAction(
+          restaurantSlug,
+          outletId,
+          customerName.trim() || `Table Hold ${tabs.length}`,
+        );
+        if (!created.ok) {
+          setError(created.error);
+          return;
+        }
+        const held: Tab = {
+          ...tab,
+          id: created.tab.id,
+          name: created.tab.name,
+          createdAt: created.tab.createdAt,
+          persisted: true,
+          orderId: null,
+        };
+        setTabs((prev) => [
+          ...prev.map((t) => (t.id === tab.id ? { ...t, lines: [] } : t)),
+          held,
+        ]);
+        setActiveTabId(held.id);
+        tab = held;
+        // Keep the items even if the kitchen step below fails.
+        await saveTabAction(restaurantSlug, held.id, held.name, held.lines).catch(() => {});
+      }
+
+      const res = await sendKotAction(
+        restaurantSlug,
+        tab.id,
+        tab.name,
+        tab.lines,
+        customerName,
+      );
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tab.id ? { ...t, lines: res.lines as Line[], orderId: res.orderId } : t,
+        ),
+      );
+      const short = tab.name.split("·")[0].trim();
+      setKotSavedMsg(
+        res.sentItems > 0
+          ? `Sent ${res.sentItems} ${res.sentItems === 1 ? "item" : "items"} to the kitchen for ${short}${res.tokenNumber ? ` · Token #${res.tokenNumber}` : ""}`
+          : `Nothing new to send for ${short}`,
+      );
+      setTimeout(() => setKotSavedMsg(null), 3200);
+    } finally {
+      setSendingKot(false);
+    }
+  }, [activeTab, sendingKot, restaurantSlug, outletId, customerName, tabs.length]);
 
   const tender = useCallback(
     async (mode: Tender) => {
-      if (lines.length === 0 || posting) return;
+      if (!canTakePayment || lines.length === 0 || posting) return;
       setPosting(mode);
       setError(null);
 
-      const resolvedCustomer =
-        customerName.trim() ||
-        (activeTab && activeTab.id !== DEFAULT_TAB_ID
+      // A table with a running kitchen order is settled in place: same
+      // order, now with the discount, rounding and payment mode.
+      if (activeTab?.persisted && activeTab.orderId) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        const settled = await settleTabAction(restaurantSlug, activeTab.id, {
+          mode,
+          lines: activeTab.lines,
+          customerName: customerName.trim() || undefined,
+          note: orderNote.trim() || undefined,
+          discountPct,
+          discountFlat,
+        });
+        if (!settled.ok) {
+          setError(settled.error);
+          setPosting(null);
+          return;
+        }
+        clearSettledActiveTab();
+        router.push(`/r/${restaurantSlug}/pos/receipt/${settled.orderId}`);
+        return;
+      }
+
+      const tabTableCode =
+        activeTab && activeTab.id !== DEFAULT_TAB_ID
           ? activeTab.name.split("·")[0].trim()
-          : "Walk-in");
+          : "";
+      const resolvedCustomer = tabTableCode
+        ? customerName.trim()
+          ? `${tabTableCode} · ${customerName.trim()}`
+          : tabTableCode
+        : customerName.trim() || "Walk-in";
 
       try {
         const res = await fetch("/api/orders", {
@@ -503,6 +741,10 @@ export function PosBilling({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             outlet_id: outletId,
+            table_id:
+              activeTab?.persisted && orderType === "dine-in"
+                ? activeTab.id
+                : null,
             source: "pos",
             customer_name: resolvedCustomer,
             customer_email: `pos+${mode}@billjot.local`,
@@ -552,6 +794,9 @@ export function PosBilling({
       orderNote,
       restaurantSlug,
       router,
+      canTakePayment,
+      discountPct,
+      discountFlat,
     ],
   );
 
@@ -561,7 +806,7 @@ export function PosBilling({
     const isFloorTable = Boolean(activeTab?.name.includes("·"));
     if (isFloorTable && activeTab) {
       setTabs((prev) =>
-        prev.map((t) => (t.id === settledId ? { ...t, lines: [] } : t)),
+        prev.map((t) => (t.id === settledId ? { ...t, lines: [], orderId: null } : t)),
       );
       if (wasPersisted) {
         saveTabAction(restaurantSlug, settledId, activeTab.name, []).catch(
@@ -594,18 +839,76 @@ export function PosBilling({
     }));
   }
 
+  function resolvePosCustomerDisplay(): string {
+    const code =
+      activeTab && activeTab.id !== DEFAULT_TAB_ID
+        ? activeTab.name.split("·")[0].trim()
+        : "";
+    if (code) {
+      return customerName.trim() ? `${code} · ${customerName.trim()}` : code;
+    }
+    return customerName.trim() || "Walk-in";
+  }
+
+  /**
+   * When settling a table that already has a running kitchen order via Razorpay
+   * or Stripe, flush any unsent lines first so `order_items` on the running
+   * order is complete before creating the gateway payment session.
+   */
+  async function syncRunningOrderBeforeGateway(): Promise<{
+    ok: true;
+    existingOrderId: string | null;
+    posTabId: string | null;
+  } | { ok: false; error: string }> {
+    if (!activeTab?.persisted || !activeTab.orderId) {
+      return {
+        ok: true,
+        existingOrderId: null,
+        posTabId: activeTab?.persisted ? activeTab.id : null,
+      };
+    }
+    const hasUnsent = activeTab.lines.some((l) => l.qty > (l.sentQty ?? 0));
+    if (!hasUnsent) {
+      return {
+        ok: true,
+        existingOrderId: activeTab.orderId,
+        posTabId: activeTab.id,
+      };
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const kotRes = await sendKotAction(
+      restaurantSlug,
+      activeTab.id,
+      activeTab.name,
+      activeTab.lines,
+      customerName,
+    );
+    if (!kotRes.ok) return kotRes;
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTab.id
+          ? { ...t, lines: kotRes.lines as Line[], orderId: kotRes.orderId }
+          : t,
+      ),
+    );
+    return {
+      ok: true,
+      existingOrderId: kotRes.orderId ?? activeTab.orderId,
+      posTabId: activeTab.id,
+    };
+  }
+
   async function handleRazorpayPosCheckout() {
     if (lines.length === 0 || onlineBusy) return;
     setOnlineBusy(true);
     setOnlineError(null);
 
-    const resolvedCustomer =
-      customerName.trim() ||
-      (activeTab && activeTab.id !== DEFAULT_TAB_ID
-        ? activeTab.name.split("·")[0].trim()
-        : "Walk-in");
+    const resolvedCustomer = resolvePosCustomerDisplay();
 
     try {
+      const synced = await syncRunningOrderBeforeGateway();
+      if (!synced.ok) throw new Error(synced.error);
+
       const Razorpay = await loadRazorpaySdk();
       if (!Razorpay) {
         throw new Error(
@@ -619,6 +922,12 @@ export function PosBilling({
         body: JSON.stringify({
           outlet_id: outletId,
           restaurant_slug: restaurantSlug,
+          table_id:
+            activeTab?.persisted && orderType === "dine-in"
+              ? activeTab.id
+              : null,
+          existing_order_id: synced.existingOrderId,
+          pos_tab_id: synced.posTabId,
           source: "pos",
           customer_name: resolvedCustomer,
           customer_email: "pos+razorpay@billjot.local",
@@ -668,7 +977,7 @@ export function PosBilling({
             const verifyRes = await fetch("/api/payments/razorpay/verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(resp),
+              body: JSON.stringify({ outlet_id: outletId, ...resp }),
             });
             const verifyJson = (await verifyRes.json().catch(() => ({}))) as {
               order?: { id: string };
@@ -705,19 +1014,24 @@ export function PosBilling({
     setOnlineBusy(true);
     setOnlineError(null);
 
-    const resolvedCustomer =
-      customerName.trim() ||
-      (activeTab && activeTab.id !== DEFAULT_TAB_ID
-        ? activeTab.name.split("·")[0].trim()
-        : "Walk-in");
+    const resolvedCustomer = resolvePosCustomerDisplay();
 
     try {
+      const synced = await syncRunningOrderBeforeGateway();
+      if (!synced.ok) throw new Error(synced.error);
+
       const res = await fetch("/api/payments/stripe/create-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           outlet_id: outletId,
           restaurant_slug: restaurantSlug,
+          table_id:
+            activeTab?.persisted && orderType === "dine-in"
+              ? activeTab.id
+              : null,
+          existing_order_id: synced.existingOrderId,
+          pos_tab_id: synced.posTabId,
           return_context: "pos",
           source: "pos",
           customer_name: resolvedCustomer,
@@ -796,6 +1110,7 @@ export function PosBilling({
         searchInputRef.current?.select();
         return;
       }
+      if (!canTakePayment) return;
       if (e.key === "F8") {
         e.preventDefault();
         tender("cash");
@@ -814,14 +1129,18 @@ export function PosBilling({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [tender, lines.length]);
+  }, [tender, lines.length, canTakePayment]);
 
   const totalItems = lines.reduce((s, l) => s + l.qty, 0);
+  const floorTablesCount = tabs.filter((t) => t.id !== DEFAULT_TAB_ID).length;
+  const occupiedTablesCount = tabs.filter(
+    (t) => t.id !== DEFAULT_TAB_ID && t.lines.length > 0,
+  ).length;
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground select-none">
+    <div className="flex h-dvh flex-col bg-background text-foreground select-none">
       {/* Top operational bar */}
-      <header className="flex h-13 shrink-0 items-center gap-3 border-b border-border bg-card px-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2 md:h-13 md:flex-nowrap md:gap-3 md:py-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-[11px] font-semibold text-primary-foreground">
             POS
@@ -855,8 +1174,11 @@ export function PosBilling({
               });
             }}
           >
-            <SelectTrigger size="sm" className="w-40">
-              <SelectValue />
+            <SelectTrigger size="sm" className="w-36 sm:w-40">
+              <SelectValue>
+                {outlets.find((o) => String(o.id) === String(outletId))?.name ??
+                  outlet.name}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {outlets.map((o) => (
@@ -872,8 +1194,54 @@ export function PosBilling({
           </Badge>
         )}
 
+        {/* Quick links to Tables, Kitchen & Admin */}
+        <div className="ml-auto flex items-center gap-1.5 md:order-last md:ml-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setTableModalOpen(true)}
+            className="h-8 px-2.5 text-xs"
+            title="Select Floor Table"
+          >
+            <LayoutGrid className="h-3.5 w-3.5 sm:mr-1" />
+            <span className="hidden sm:inline">
+              Tables ({occupiedTablesCount}/{floorTablesCount})
+            </span>
+          </Button>
+          <Link
+            href={
+              canOpenAdmin
+                ? `/r/${restaurantSlug}/admin/kitchen`
+                : `/r/${restaurantSlug}/kitchen`
+            }
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "h-8 px-2.5 text-xs",
+            )}
+            title="Open Kitchen Display"
+          >
+            <ChefHat className="h-3.5 w-3.5 sm:mr-1" />
+            <span className="hidden sm:inline">KDS</span>
+          </Link>
+          {canOpenAdmin && (
+            <Link
+              href={`/r/${restaurantSlug}/admin`}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "hidden h-8 text-xs lg:inline-flex",
+              )}
+              title="Open Admin Portal"
+            >
+              <LayoutDashboard className="mr-1 h-3.5 w-3.5" />
+              Admin
+            </Link>
+          )}
+          <FullscreenToggle />
+        </div>
+
         {/* Search input with Enter-to-add */}
-        <div className="relative ml-auto w-56 sm:w-72 lg:w-80">
+        <div className="relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-80">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={searchInputRef}
@@ -892,7 +1260,6 @@ export function PosBilling({
             }}
             placeholder="Search item, code… (Press /)"
             className="h-8 pl-8 pr-14 text-xs"
-            autoFocus
           />
           <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground sm:inline-block">
             ↵ Add
@@ -900,7 +1267,7 @@ export function PosBilling({
         </div>
 
         {/* Dietary filter */}
-        <div className="hidden items-center rounded-[10px] bg-muted p-0.5 md:flex">
+        <div className="hidden items-center rounded-[10px] bg-muted p-0.5 lg:flex">
           {(
             [
               { key: "all", label: "All" },
@@ -924,45 +1291,16 @@ export function PosBilling({
             </button>
           ))}
         </div>
-
-        {/* Quick links to Tables, Kitchen & Admin */}
-        <div className="hidden items-center gap-1.5 sm:flex">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setTableModalOpen(true)}
-            className="h-8 text-xs"
-            title="Select Floor Table"
-          >
-            <LayoutGrid className="mr-1 h-3.5 w-3.5" />
-            Tables ({tabs.filter((t) => t.id !== DEFAULT_TAB_ID && t.lines.length > 0).length}/
-            {Math.max(0, tabs.length - 1)})
-          </Button>
-          <Link
-            href={`/r/${restaurantSlug}/admin/kitchen`}
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8 text-xs")}
-            title="Open Kitchen Display"
-          >
-            <ChefHat className="mr-1 h-3.5 w-3.5" />
-            KDS
-          </Link>
-          <Link
-            href={`/r/${restaurantSlug}/admin`}
-            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-8 text-xs")}
-            title="Open Admin Portal"
-          >
-            <LayoutDashboard className="mr-1 h-3.5 w-3.5" />
-            Admin
-          </Link>
-        </div>
-
-        <FullscreenToggle />
       </header>
 
       <div className="flex min-h-0 flex-1">
         {/* Left: Menu Catalog */}
-        <section className="flex min-w-0 flex-1 flex-col bg-background">
+        <section
+          className={cn(
+            "flex min-w-0 flex-1 flex-col bg-background",
+            mobilePane === "bill" && "hidden md:flex",
+          )}
+        >
           {/* Category strip */}
           <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-2 [scrollbar-width:none]">
             <button
@@ -1122,7 +1460,12 @@ export function PosBilling({
         </section>
 
         {/* Right: Active Bill & Settlement */}
-        <aside className="flex w-96 shrink-0 flex-col border-l border-border bg-card">
+        <aside
+          className={cn(
+            "flex w-full shrink-0 flex-col border-l border-border bg-card md:w-88 lg:w-96",
+            mobilePane === "menu" && "hidden md:flex",
+          )}
+        >
           {/* Open Tabs / Tables strip */}
           <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-muted/40 px-2.5 py-1.5 [scrollbar-width:none]">
             <button
@@ -1173,76 +1516,104 @@ export function PosBilling({
                         </span>
                       )}
                     </button>
-                    {t.id !== DEFAULT_TAB_ID && !isFloorTable && (
-                      <button
-                        type="button"
-                        onClick={() => closeTab(t.id)}
-                        className="ml-0.5 opacity-60 transition hover:opacity-100"
-                        aria-label={`Close ${shortName}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
+                    {canTakeNonTableOrders &&
+                      t.id !== DEFAULT_TAB_ID &&
+                      !isFloorTable && (
+                        <button
+                          type="button"
+                          onClick={() => closeTab(t.id)}
+                          className="ml-0.5 opacity-60 transition hover:opacity-100"
+                          aria-label={`Close ${shortName}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                   </div>
                 );
               })}
 
-            {creatingTab ? (
-              <input
-                autoFocus
-                value={newTabName}
-                onChange={(e) => setNewTabName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") createTab();
-                  if (e.key === "Escape") {
-                    setCreatingTab(false);
-                    setNewTabName("");
-                  }
-                }}
-                onBlur={() => {
-                  if (newTabName.trim()) createTab();
-                  else setCreatingTab(false);
-                }}
-                placeholder="Table 4 / Hold…"
-                className="h-6 w-28 shrink-0 rounded-md border border-primary bg-card px-2 text-xs outline-none placeholder:text-muted-foreground"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCreatingTab(true)}
-                className="flex shrink-0 items-center gap-1 rounded-md border border-dashed border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground transition hover:border-foreground hover:text-foreground"
-              >
-                <Plus className="h-3 w-3" /> Hold
-              </button>
+            {!canTakeNonTableOrders && tabsLoaded && tabs.length === 0 && (
+              <span className="px-1.5 text-[11px] text-muted-foreground">
+                No floor tables configured
+              </span>
             )}
+
+            {canTakeNonTableOrders &&
+              (creatingTab ? (
+                <input
+                  autoFocus
+                  value={newTabName}
+                  onChange={(e) => setNewTabName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") createTab();
+                    if (e.key === "Escape") {
+                      setCreatingTab(false);
+                      setNewTabName("");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (newTabName.trim()) createTab();
+                    else setCreatingTab(false);
+                  }}
+                  placeholder="Table 4 / Hold…"
+                  className="h-6 w-28 shrink-0 rounded-md border border-primary bg-card px-2 text-xs outline-none placeholder:text-muted-foreground"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCreatingTab(true)}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-dashed border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground transition hover:border-foreground hover:text-foreground"
+                >
+                  <Plus className="h-3 w-3" /> Hold
+                </button>
+              ))}
           </div>
 
           {/* Order Type selector + Customer/Notes toggle */}
           <div className="space-y-2 border-b border-border p-2.5">
-            <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-0.5">
-              {ORDER_TYPES.map((t) => {
-                const Icon = t.icon;
-                const active = orderType === t.value;
-                return (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() =>
-                      updateActiveTab((prev) => ({ ...prev, orderType: t.value }))
-                    }
-                    className={cn(
-                      "flex items-center justify-center gap-1.5 rounded-md py-1 text-xs font-medium transition-all",
-                      active
-                        ? "bg-card text-foreground shadow-control"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-3 w-3" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
+            {canTakeNonTableOrders ? (
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-0.5">
+                {ORDER_TYPES.map((t) => {
+                  const Icon = t.icon;
+                  const active = orderType === t.value;
+                  return (
+                    <button
+                      key={t.value}
+                      type="button"
+                      onClick={() =>
+                        updateActiveTab((prev) => ({ ...prev, orderType: t.value }))
+                      }
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 rounded-md py-1 text-xs font-medium transition-all",
+                        active
+                          ? "bg-card text-foreground shadow-control"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="h-3 w-3" />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg bg-muted/60 px-2.5 py-1.5 text-xs">
+                <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                  <Utensils className="h-3.5 w-3.5 text-muted-foreground" />
+                  Dine-in ·{" "}
+                  {activeTab
+                    ? activeTab.name.split("·")[0].trim()
+                    : "Select a floor table"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTableModalOpen(true)}
+                  className="font-medium text-primary hover:underline"
+                >
+                  Switch table
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center justify-between px-0.5 text-xs">
               <button
@@ -1280,7 +1651,7 @@ export function PosBilling({
                   placeholder="Kitchen note (e.g. less spicy, extra cutlery)…"
                   className="h-7 bg-card text-xs"
                 />
-                {orderType !== "dine-in" && (
+                {canTakePayment && orderType !== "dine-in" && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] text-muted-foreground">
                       Packing charge (₹)
@@ -1301,6 +1672,7 @@ export function PosBilling({
                     />
                   </div>
                 )}
+                {canTakePayment && (
                 <div className="space-y-1.5 border-t border-border pt-1.5">
                   <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                     <span>Discount</span>
@@ -1349,6 +1721,7 @@ export function PosBilling({
                     />
                   </div>
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -1361,102 +1734,125 @@ export function PosBilling({
                 <p>Tap any item or press / to search</p>
               </div>
             )}
-            {lines.map(
-              ({
+            {lines.map((line) => {
+              const {
                 configKey,
                 product,
                 qty,
                 selectedOptions,
                 unitPrice,
                 instructions,
-              }) => {
-                const isEditingNote = editingLineNoteKey === configKey;
-                return (
-                  <div key={configKey} className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-medium text-foreground">
-                            {product.name}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingLineNoteKey(
-                                isEditingNote ? null : configKey,
-                              )
-                            }
-                            title="Item cooking note"
-                            className={cn(
-                              "rounded-full px-1 py-0.5 text-[11px] transition-colors",
-                              instructions
-                                ? "bg-amber-500/10 font-medium text-amber-700"
-                                : "text-muted-foreground/60 hover:bg-muted hover:text-foreground",
-                            )}
-                          >
-                            {instructions ? "Note" : "+note"}
-                          </button>
-                        </div>
-                        {selectedOptions.length > 0 && (
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {selectedOptions.map((o) => o.option_name).join(" · ")}
-                          </div>
-                        )}
-                        {instructions && !isEditingNote && (
-                          <div className="truncate text-[11px] text-amber-700">
-                            “{instructions}”
-                          </div>
-                        )}
-                        <div className="text-[11px] tabular-nums text-muted-foreground">
-                          ₹{unitPrice.toFixed(0)} × {qty}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="icon-xs"
-                          onClick={() => setQty(configKey, qty - 1)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-6 text-center text-xs font-medium tabular-nums">
-                          {qty}
+                sentQty = 0,
+              } = line;
+              const isEditingNote = editingLineNoteKey === configKey;
+              return (
+                <div key={configKey} className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {product.name}
                         </span>
-                        <Button
-                          variant="outline"
-                          size="icon-xs"
-                          onClick={() => setQty(configKey, qty + 1)}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingLineNoteKey(
+                              isEditingNote ? null : configKey,
+                            )
+                          }
+                          title="Item cooking note"
+                          className={cn(
+                            "rounded-full px-1 py-0.5 text-[11px] transition-colors",
+                            instructions
+                              ? "bg-amber-500/10 font-medium text-amber-700"
+                              : "text-muted-foreground/60 hover:bg-muted hover:text-foreground",
+                          )}
                         >
-                          <Plus className="h-3 w-3" />
-                        </Button>
+                          {instructions ? "Note" : "+note"}
+                        </button>
                       </div>
-
-                      <div className="w-14 text-right text-xs font-semibold tabular-nums">
-                        ₹{(unitPrice * qty).toFixed(0)}
+                      {selectedOptions.length > 0 && (
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {selectedOptions.map((o) => o.option_name).join(" · ")}
+                        </div>
+                      )}
+                      {instructions && !isEditingNote && (
+                        <div className="truncate text-[11px] text-amber-700">
+                          “{instructions}”
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground">
+                        <span>
+                          ₹{unitPrice.toFixed(0)} × {qty}
+                        </span>
+                        {sentQty > 0 && (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/10 px-1 font-medium text-emerald-700">
+                            <ChefHat className="h-2.5 w-2.5" />
+                            {sentQty >= qty ? "Sent" : `${sentQty} sent`}
+                          </span>
+                        )}
+                        {sentQty > 0 &&
+                          canVoidSentItems &&
+                          activeTab?.persisted &&
+                          activeTab.orderId && (
+                            <button
+                              type="button"
+                              onClick={() => openVoidModal(line)}
+                              className="rounded bg-destructive/10 px-1.5 py-0.2 text-[10px] font-medium text-destructive transition hover:bg-destructive/20"
+                              title="Void sent item (Manager / Admin)"
+                            >
+                              Void
+                            </button>
+                          )}
                       </div>
                     </div>
 
-                    {isEditingNote && (
-                      <div className="mt-1.5">
-                        <Input
-                          autoFocus
-                          value={instructions ?? ""}
-                          onChange={(e) => setLineNote(configKey, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === "Escape") {
-                              setEditingLineNoteKey(null);
-                            }
-                          }}
-                          placeholder="Item note (e.g. no onion, extra roast)…"
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        onClick={() => setQty(configKey, qty - 1)}
+                        disabled={qty <= sentQty}
+                        title={qty <= sentQty ? "Already sent to the kitchen" : undefined}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <span className="w-6 text-center text-xs font-medium tabular-nums">
+                        {qty}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        onClick={() => setQty(configKey, qty + 1)}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+
+                    <div className="w-14 text-right text-xs font-semibold tabular-nums">
+                      ₹{(unitPrice * qty).toFixed(0)}
+                    </div>
                   </div>
-                );
-              },
-            )}
+
+                  {isEditingNote && (
+                    <div className="mt-1.5">
+                      <Input
+                        autoFocus
+                        value={instructions ?? ""}
+                        onChange={(e) => setLineNote(configKey, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === "Escape") {
+                            setEditingLineNoteKey(null);
+                          }
+                        }}
+                        placeholder="Item note (e.g. no onion, extra roast)…"
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Totals + Tender Pad */}
@@ -1499,11 +1895,16 @@ export function PosBilling({
                 variant="outline"
                 size="sm"
                 onClick={holdAndSendKot}
-                disabled={lines.length === 0 || posting !== null}
+                disabled={
+                  sendingKot ||
+                  posting !== null ||
+                  !lines.some((l) => l.qty > (l.sentQty ?? 0))
+                }
                 className="flex-1 text-xs font-medium"
+                title="Send new items to the kitchen"
               >
                 <ChefHat className="mr-1.5 h-3.5 w-3.5" />
-                Save KOT / Hold Table
+                {sendingKot ? "Sending…" : "Send KOT"}
               </Button>
               <Button
                 type="button"
@@ -1518,6 +1919,8 @@ export function PosBilling({
               </Button>
             </div>
 
+            {canTakePayment ? (
+            <>
             <div className="mt-3 grid grid-cols-3 gap-2">
               <TenderButton
                 label="Cash"
@@ -1568,18 +1971,92 @@ export function PosBilling({
                 F11
               </span>
             </Button>
+            </>
+            ) : (
+              <p className="mt-3 rounded-lg bg-muted px-3 py-2.5 text-xs text-muted-foreground">
+                Captains take orders; the bill is settled at the counter.
+                Use <span className="font-medium text-foreground">Send KOT</span> to send
+                new items to the kitchen.
+              </p>
+            )}
 
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => updateActiveLines(() => [])}
-              disabled={lines.length === 0 || posting !== null}
+              onClick={() =>
+                // Items the kitchen already has stay; only unsent ones go.
+                updateActiveLines((prev) =>
+                  prev
+                    .filter((l) => (l.sentQty ?? 0) > 0)
+                    .map((l) => ({ ...l, qty: l.sentQty ?? l.qty })),
+                )
+              }
+              disabled={!lines.some((l) => l.qty > (l.sentQty ?? 0)) || posting !== null}
               className="mt-1.5 w-full text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="mr-1 h-3 w-3" /> Clear current bill
             </Button>
           </div>
         </aside>
+      </div>
+
+      {/* Phone-friendly bottom switcher for Captains & floor staff */}
+      <div className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-2.5 py-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setTableModalOpen(true)}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2 text-xs font-medium text-foreground"
+        >
+          <LayoutGrid className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="max-w-24 truncate">
+            {activeTab
+              ? activeTab.name.split("·")[0].trim()
+              : "Pick table"}
+          </span>
+        </button>
+
+        <div className="grid flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+          <button
+            type="button"
+            onClick={() => setMobilePane("menu")}
+            className={cn(
+              "rounded-md py-1.5 text-xs font-semibold transition-colors",
+              mobilePane === "menu"
+                ? "bg-card text-foreground shadow-control"
+                : "text-muted-foreground",
+            )}
+          >
+            Menu
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane("bill")}
+            className={cn(
+              "flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-semibold transition-colors",
+              mobilePane === "bill"
+                ? "bg-card text-foreground shadow-control"
+                : "text-muted-foreground",
+            )}
+          >
+            <span>Bill</span>
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.2 text-[11px] tabular-nums text-foreground">
+              {totalItems} · ₹{totals.total.toFixed(0)}
+            </span>
+          </button>
+        </div>
+
+        {mobilePane === "menu" && lines.some((l) => l.qty > (l.sentQty ?? 0)) && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={holdAndSendKot}
+            disabled={sendingKot}
+            className="h-8 shrink-0 px-2.5 text-xs"
+          >
+            <ChefHat className="mr-1 h-3.5 w-3.5" />
+            {sendingKot ? "…" : "KOT"}
+          </Button>
+        )}
       </div>
 
       <ModifierDialog
@@ -1656,7 +2133,7 @@ export function PosBilling({
                   placeholder="Merchant UPI ID (e.g. restaurant@okicici)"
                   className="h-8 text-xs font-mono"
                 />
-                {!paymentConfig.upiVpa && (
+                {!paymentConfig.upiVpa && canOpenAdmin && (
                   <Link
                     href={`/r/${restaurantSlug}/admin/settings`}
                     className="shrink-0 text-[11px] text-muted-foreground underline hover:text-foreground"
@@ -1684,12 +2161,16 @@ export function PosBilling({
               ) : (
                 <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
                   Enter your restaurant UPI VPA above (or configure it permanently in{" "}
-                  <Link
-                    href={`/r/${restaurantSlug}/admin/settings`}
-                    className="font-medium text-foreground underline"
-                  >
-                    Admin Settings
-                  </Link>
+                  {canOpenAdmin ? (
+                    <Link
+                      href={`/r/${restaurantSlug}/admin/settings`}
+                      className="font-medium text-foreground underline"
+                    >
+                      Admin Settings
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-foreground">Admin Settings</span>
+                  )}
                   ) to generate an amount-locked Dynamic UPI QR code.
                 </div>
               )}
@@ -1729,12 +2210,16 @@ export function PosBilling({
                 {!paymentConfig.razorpayEnabled && (
                   <p className="mt-2 text-[11px] text-amber-700">
                     Configure Razorpay Key ID &amp; Secret in{" "}
-                    <Link
-                      href={`/r/${restaurantSlug}/admin/settings`}
-                      className="font-semibold underline"
-                    >
-                      Outlet Settings
-                    </Link>{" "}
+                    {canOpenAdmin ? (
+                      <Link
+                        href={`/r/${restaurantSlug}/admin/settings`}
+                        className="font-semibold underline"
+                      >
+                        Outlet Settings
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">Outlet Settings</span>
+                    )}{" "}
                     to enable live collection.
                   </p>
                 )}
@@ -1781,12 +2266,16 @@ export function PosBilling({
                 {!paymentConfig.stripeEnabled && (
                   <p className="mt-2 text-[11px] text-amber-700">
                     Configure Stripe Secret Key in{" "}
-                    <Link
-                      href={`/r/${restaurantSlug}/admin/settings`}
-                      className="font-semibold underline"
-                    >
-                      Outlet Settings
-                    </Link>{" "}
+                    {canOpenAdmin ? (
+                      <Link
+                        href={`/r/${restaurantSlug}/admin/settings`}
+                        className="font-semibold underline"
+                      >
+                        Outlet Settings
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">Outlet Settings</span>
+                    )}{" "}
                     to enable Stripe Checkout.
                   </p>
                 )}
@@ -1889,7 +2378,7 @@ export function PosBilling({
               <div className="flex items-center gap-2">
                 <span>Floor Tables & Running Tabs</span>
                 <Badge variant="secondary" className="text-[11px]">
-                  {tabs.length - 1} Tables ·{" "}
+                  {floorTablesCount} Tables ·{" "}
                   {tabs.reduce((sum, t) => {
                     const m = t.name.match(/(\d+)\s*p/i);
                     return sum + (m ? Number(m[1]) : 0);
@@ -1897,12 +2386,14 @@ export function PosBilling({
                   Seats
                 </Badge>
               </div>
-              <Link
-                href={`/r/${restaurantSlug}/admin/tables`}
-                className="text-xs font-normal text-muted-foreground hover:text-foreground hover:underline"
-              >
-                Manage Floor Plan & Capacity →
-              </Link>
+              {canOpenAdmin && (
+                <Link
+                  href={`/r/${restaurantSlug}/admin/tables`}
+                  className="text-xs font-normal text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Manage Floor Plan & Capacity →
+                </Link>
+              )}
             </DialogTitle>
             <DialogDescription>
               Search by table code (e.g. T-14, AC-05) or filter by hall/zone. Press Enter to jump directly to the first matching table.
@@ -2082,11 +2573,15 @@ export function PosBilling({
                           <div
                             onClick={(e) => {
                               e.stopPropagation();
-                              transferCurrentBillTo(t.id);
+                              if (!movingTable) transferCurrentBillTo(t.id);
                             }}
                             className="mt-1.5 rounded border border-dashed border-border bg-muted/50 py-0.5 text-center text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-foreground"
                           >
-                            {qty > 0 ? "Merge here" : "Transfer here"}
+                            {movingTable
+                              ? "Moving…"
+                              : qty > 0
+                                ? "Merge here"
+                                : "Transfer here"}
                           </div>
                         )}
                       </button>
@@ -2101,6 +2596,172 @@ export function PosBilling({
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Manager / Admin Void Sent Item Dialog */}
+      <Dialog
+        open={voidTargetLine !== null}
+        onOpenChange={(open) => {
+          if (!open && !voidBusy) setVoidTargetLine(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Void kitchen item</DialogTitle>
+            <DialogDescription>
+              Remove items already sent to the kitchen for{" "}
+              <span className="font-medium text-foreground">
+                {activeTab?.name.split("·")[0].trim() || "Table"}
+              </span>
+              . This is logged against the running order with your reason.
+            </DialogDescription>
+          </DialogHeader>
+
+          {voidTargetLine && (
+            <form onSubmit={handleConfirmVoid} className="space-y-3.5">
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                <div className="font-semibold text-foreground">
+                  {voidTargetLine.product.name}
+                </div>
+                {voidTargetLine.selectedOptions.length > 0 && (
+                  <div className="mt-0.5 text-muted-foreground">
+                    {voidTargetLine.selectedOptions
+                      .map((o) => o.option_name)
+                      .join(" · ")}
+                  </div>
+                )}
+                <div className="mt-1 tabular-nums text-muted-foreground">
+                  Sent to kitchen: {voidTargetLine.sentQty ?? 0} · ₹
+                  {voidTargetLine.unitPrice.toFixed(0)} each
+                </div>
+              </div>
+
+              {(voidTargetLine.sentQty ?? 1) > 1 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="void-qty" className="text-xs">
+                    Quantity to void
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={voidQty <= 1 || voidBusy}
+                      onClick={() => setVoidQty((q) => Math.max(1, q - 1))}
+                    >
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <Input
+                      id="void-qty"
+                      type="number"
+                      min={1}
+                      max={voidTargetLine.sentQty ?? 1}
+                      value={voidQty}
+                      onChange={(e) => {
+                        const max = voidTargetLine.sentQty ?? 1;
+                        const val = Math.max(
+                          1,
+                          Math.min(max, Number(e.target.value) || 1),
+                        );
+                        setVoidQty(val);
+                      }}
+                      className="h-8 w-20 text-center text-xs tabular-nums"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={
+                        voidQty >= (voidTargetLine.sentQty ?? 1) || voidBusy
+                      }
+                      onClick={() =>
+                        setVoidQty((q) =>
+                          Math.min(voidTargetLine.sentQty ?? 1, q + 1),
+                        )
+                      }
+                    >
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      of {voidTargetLine.sentQty ?? 1} sent
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reason</Label>
+                <Select
+                  value={voidReason}
+                  onValueChange={(v) => {
+                    if (v) setVoidReason(v);
+                  }}
+                >
+                  <SelectTrigger className="w-full text-xs">
+                    <SelectValue>
+                      {VOID_REASONS.find((r) => r.code === voidReason)?.label ??
+                        "Select reason"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VOID_REASONS.map((r) => (
+                      <SelectItem key={r.code} value={r.code}>
+                        {r.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="void-note" className="text-xs">
+                  Additional note (optional)
+                </Label>
+                <Textarea
+                  id="void-note"
+                  rows={2}
+                  value={voidNote}
+                  onChange={(e) => setVoidNote(e.target.value)}
+                  placeholder="Optional details for manager report…"
+                  className="text-xs"
+                />
+              </div>
+
+              {voidError && (
+                <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {voidError}
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={voidBusy}
+                  onClick={() => setVoidTargetLine(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  size="sm"
+                  disabled={voidBusy}
+                >
+                  {voidBusy ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Voiding…
+                    </>
+                  ) : (
+                    `Void ${voidQty} ${voidQty === 1 ? "item" : "items"}`
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

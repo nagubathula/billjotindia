@@ -37,7 +37,7 @@ export type ChannelOutlet        = Row<"channel_outlets">;
 export type ExternalOrderEvent   = Row<"external_order_events">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
-export type AppRole = "admin" | "user" | "manager";
+export type AppRole = "admin" | "user" | "manager" | "captain";
 
 export type OrderStatus =
   | "pending"

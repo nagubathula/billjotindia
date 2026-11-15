@@ -112,6 +112,12 @@ export function UserRowActions({
           <DropdownMenuGroup>
             <DropdownMenuLabel>Set role</DropdownMenuLabel>
             <DropdownMenuItem
+              disabled={currentRole === "captain"}
+              onSelect={() => setRole("captain")}
+            >
+              Captain
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={currentRole === "user"}
               onSelect={() => setRole("user")}
             >
@@ -161,7 +167,7 @@ export function UserRowActions({
             <DialogTitle>Reset password</DialogTitle>
             <DialogDescription>
               Set a new password for{" "}
-              <span className="font-medium">{userEmail}</span>. They'll need
+              <span className="font-medium">{userEmail}</span>. They&apos;ll need
               this to sign in next.
             </DialogDescription>
           </DialogHeader>
@@ -174,7 +180,7 @@ export function UserRowActions({
                 <span className="font-mono">{resetResult.password}</span>
               </p>
               <p className="mt-2 text-xs text-emerald-700">
-                Share securely. Won't be shown again.
+                Share securely. Won&apos;t be shown again.
               </p>
             </div>
           ) : (

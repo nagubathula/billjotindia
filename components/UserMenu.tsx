@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   LayoutDashboard,
   LogOut,
+  HandPlatter,
   ShieldCheck,
   Store,
   UserCog,
@@ -21,18 +22,14 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getCurrentUser, getUserRestaurants } from "@/lib/auth";
+import { ROLE_LABEL } from "@/lib/roles";
 import type { AppRole } from "@/lib/types";
-
-const ROLE_LABEL: Record<AppRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  user: "Cashier",
-};
 
 const ROLE_ICON: Record<AppRole, React.ComponentType<{ className?: string }>> = {
   admin: ShieldCheck,
   manager: UserCog,
   user: UserIcon,
+  captain: HandPlatter,
 };
 
 // Server component — reads session + all restaurants the user has access to

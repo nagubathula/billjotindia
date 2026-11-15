@@ -1,7 +1,12 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { isOutletOpen } from "@/lib/opening-hours";
+import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
 import type { Json } from "@/lib/database.types";
+
+const VALID_ORDER_TYPES = ["dine-in", "takeaway", "delivery"] as const;
+const RUNNING_POS_ORDER_EMAIL = "pos+open@billjot.local";
 
 // ---------------------------------------------------------------------------
 // Shared Storefront Coupons (validated server-side so clients cannot spoof)
@@ -341,6 +346,10 @@ export type CheckoutItemInput = {
 export type VerifiedOrderDraft = {
   outlet_id: string;
   restaurant_slug?: string;
+  table_id?: string | null;
+  customer_account_id?: string | null;
+  existing_order_id?: string | null;
+  pos_tab_id?: string | null;
   source: "web" | "pos" | "kiosk";
   customer_name: string;
   customer_email: string;
@@ -375,9 +384,50 @@ function cleanText(val: unknown, max: number): string | null {
   return t || null;
 }
 
+async function resolvePaymentTableId(
+  admin: ReturnType<typeof createAdminClient>,
+  outletId: string,
+  tableId: unknown,
+  customerName: string,
+): Promise<string | null> {
+  if (isUuid(tableId)) {
+    const { data } = await admin
+      .from("pos_tabs")
+      .select("id")
+      .eq("id", tableId)
+      .eq("outlet_id", outletId)
+      .maybeSingle();
+    return data?.id ?? null;
+  }
+  const explicitCode =
+    typeof tableId === "string" ? tableId.split("·")[0].trim() : "";
+  const raw = customerName.trim();
+  const candidate =
+    explicitCode ||
+    (raw.includes("·")
+      ? raw.split("·")[0].trim()
+      : /^[a-z]{1,6}[- ]?\d{1,4}$/i.test(raw)
+        ? raw
+        : "");
+  if (!candidate) return null;
+  const { data: tabs } = await admin
+    .from("pos_tabs")
+    .select("id, name")
+    .eq("outlet_id", outletId);
+  const needle = candidate.toLowerCase();
+  for (const t of tabs ?? []) {
+    if (t.name.split("·")[0].trim().toLowerCase() === needle) return t.id;
+  }
+  return null;
+}
+
 export async function buildVerifiedOrderDraft(input: {
   outletId: string;
   restaurantSlug?: string;
+  tableId?: string | null;
+  customerAccountId?: string | null;
+  existingOrderId?: string | null;
+  posTabId?: string | null;
   source: "web" | "pos" | "kiosk";
   customerName: string;
   customerEmail: string;
@@ -395,18 +445,131 @@ export async function buildVerifiedOrderDraft(input: {
   if (!isUuid(input.outletId)) {
     return { ok: false, error: "Invalid outlet ID" };
   }
-  if (!Array.isArray(input.items) || input.items.length === 0) {
-    return { ok: false, error: "Cart is empty" };
+  const normalizedOrderType = input.orderType?.trim() || "dine-in";
+  if (
+    !(VALID_ORDER_TYPES as readonly string[]).includes(normalizedOrderType)
+  ) {
+    return {
+      ok: false,
+      error: 'order_type must be "dine-in", "takeaway", or "delivery"',
+    };
   }
 
   const admin = createAdminClient();
   const { data: outletRow } = await admin
     .from("outlets")
-    .select("id, status")
+    .select("id, status, timezone, opening_hours")
     .eq("id", input.outletId)
     .maybeSingle();
   if (!outletRow || outletRow.status !== "active") {
     return { ok: false, error: "Outlet is inactive or not found" };
+  }
+
+  if (input.source !== "pos") {
+    const openCheck = isOutletOpen(
+      outletRow.opening_hours,
+      outletRow.timezone,
+    );
+    if (!openCheck.open) {
+      return {
+        ok: false,
+        error: openCheck.nextOpen
+          ? `This outlet is currently closed (opens ${openCheck.nextOpen}).`
+          : "This outlet is currently closed and not accepting orders right now.",
+      };
+    }
+  }
+
+  // Settling an already-running POS table order via online gateway (Razorpay/Stripe)
+  if (input.source === "pos" && isUuid(input.existingOrderId)) {
+    const { data: runningOrder } = await admin
+      .from("orders")
+      .select("id, outlet_id, table_id, customer_name, customer_email, status, instructions")
+      .eq("id", input.existingOrderId)
+      .eq("outlet_id", input.outletId)
+      .maybeSingle();
+    if (
+      !runningOrder ||
+      runningOrder.customer_email !== RUNNING_POS_ORDER_EMAIL ||
+      runningOrder.status === "cancelled" ||
+      runningOrder.status === "completed"
+    ) {
+      return {
+        ok: false,
+        error: "This table's running order is already settled or unavailable.",
+      };
+    }
+
+    const { data: runningItems, error: rItemsErr } = await admin
+      .from("order_items")
+      .select("product_config, quantity, unit_price, total_price, instructions")
+      .eq("order_id", runningOrder.id);
+    if (rItemsErr || !runningItems || runningItems.length === 0) {
+      return { ok: false, error: "Running order has no items to bill." };
+    }
+
+    let runningGross = 0;
+    let runningGst = 0;
+    for (const ri of runningItems) {
+      const lt = Number(ri.total_price ?? 0);
+      const cfg =
+        ri.product_config &&
+        typeof ri.product_config === "object" &&
+        !Array.isArray(ri.product_config)
+          ? (ri.product_config as { gst_rate?: unknown })
+          : {};
+      runningGross += lt;
+      runningGst += splitGst(lt, Number(cfg.gst_rate ?? 5));
+    }
+
+    const discount = Math.min(
+      runningGross,
+      Math.max(0, round2(Number(input.posDiscountAmount ?? 0))),
+    );
+    const netBeforeRound = Math.max(0, runningGross - discount);
+    const roundedTotal = Math.max(1, Math.round(netBeforeRound));
+    const rounding = round2(roundedTotal - netBeforeRound);
+
+    const resolvedTableId = isUuid(input.posTabId)
+      ? input.posTabId
+      : runningOrder.table_id;
+
+    return {
+      ok: true,
+      draft: {
+        outlet_id: input.outletId,
+        restaurant_slug: input.restaurantSlug,
+        table_id: resolvedTableId,
+        existing_order_id: runningOrder.id,
+        pos_tab_id: isUuid(input.posTabId) ? input.posTabId : null,
+        source: "pos",
+        customer_name:
+          input.customerName.trim() || runningOrder.customer_name || "Table",
+        customer_email: input.customerEmail.trim() || "pos+online@billjot.local",
+        customer_phone: cleanText(input.customerPhone, 30),
+        order_type: "dine-in",
+        instructions:
+          cleanText(input.instructions, 500) ?? runningOrder.instructions,
+        subtotal: round2(runningGross - runningGst),
+        cgst: round2(runningGst / 2),
+        sgst: round2(runningGst / 2),
+        takeaway_charges: 0,
+        discount_amount: discount,
+        rounding_amount: rounding,
+        total_amount: roundedTotal,
+        items: runningItems.map((ri) => ({
+          product_config: ri.product_config,
+          quantity: ri.quantity,
+          unit_price: Number(ri.unit_price),
+          total_price: Number(ri.total_price),
+          instructions: ri.instructions,
+        })),
+      },
+    };
+  }
+
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    return { ok: false, error: "Cart is empty" };
   }
 
   type CfgShape = {
@@ -592,16 +755,30 @@ export async function buildVerifiedOrderDraft(input: {
       : 0;
   const netTotal = round2(Math.max(1, runningGross + packing - discount + rounding));
 
+  const resolvedCustomerName = input.customerName.trim() || "Guest";
+  const resolvedTableId =
+    normalizedOrderType === "dine-in"
+      ? await resolvePaymentTableId(
+          admin,
+          input.outletId,
+          input.tableId ?? input.posTabId,
+          resolvedCustomerName,
+        )
+      : null;
+
   return {
     ok: true,
     draft: {
       outlet_id: input.outletId,
       restaurant_slug: input.restaurantSlug,
+      table_id: resolvedTableId,
+      customer_account_id: isUuid(input.customerAccountId) ? input.customerAccountId : null,
+      pos_tab_id: isUuid(input.posTabId) ? input.posTabId : null,
       source: input.source,
-      customer_name: input.customerName.trim() || "Guest",
+      customer_name: resolvedCustomerName,
       customer_email: input.customerEmail.trim() || "guest@billjot.local",
       customer_phone: cleanText(input.customerPhone, 30),
-      order_type: input.orderType || "dine-in",
+      order_type: normalizedOrderType,
       instructions: cleanText(input.instructions, 500),
       subtotal: round2(runningGross - runningGst),
       cgst: round2(runningGst / 2),
@@ -671,10 +848,70 @@ export async function finalizePaidOrderFromSession(params: {
     paid_at: new Date().toISOString(),
   };
 
+  // Settling an existing running table order in place
+  if (draft.existing_order_id && isUuid(draft.existing_order_id)) {
+    const { data: existingRunning } = await admin
+      .from("orders")
+      .select("*")
+      .eq("id", draft.existing_order_id)
+      .maybeSingle();
+
+    if (!existingRunning) {
+      return { ok: false, error: "Running order not found" };
+    }
+    if (existingRunning.customer_email !== RUNNING_POS_ORDER_EMAIL) {
+      return { ok: true, order: existingRunning };
+    }
+
+    const { data: settledOrder, error: settleErr } = await admin
+      .from("orders")
+      .update({
+        table_id: draft.table_id ?? existingRunning.table_id,
+        customer_name: draft.customer_name || existingRunning.customer_name,
+        customer_email: draft.customer_email,
+        discount_amount: draft.discount_amount,
+        rounding_amount: draft.rounding_amount,
+        total_amount: draft.total_amount,
+        payment_status: "paid",
+        payment_provider: params.gateway,
+        razorpay_order_id: params.razorpayOrderId ?? null,
+        external_order_id: extRef,
+        external_status: "paid",
+        external_payload: paymentMeta as unknown as Json,
+        ...(draft.instructions ? { instructions: draft.instructions } : {}),
+      })
+      .eq("id", draft.existing_order_id)
+      .select("*")
+      .single();
+
+    if (settleErr || !settledOrder) {
+      return {
+        ok: false,
+        error: settleErr?.message ?? "Failed to settle running order",
+      };
+    }
+
+    if (draft.pos_tab_id && isUuid(draft.pos_tab_id)) {
+      await admin
+        .from("pos_tabs")
+        .update({
+          lines: [],
+          order_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", draft.pos_tab_id);
+    }
+
+    void dispatchOrderStatusWebhooks(settledOrder.id, "order.updated");
+    return { ok: true, order: settledOrder };
+  }
+
   const { data: order, error: orderErr } = await admin
     .from("orders")
     .insert({
       outlet_id: draft.outlet_id,
+      table_id: draft.table_id ?? null,
+      customer_account_id: draft.customer_account_id ?? null,
       source: draft.source,
       customer_name: draft.customer_name,
       customer_email: draft.customer_email,
@@ -690,6 +927,8 @@ export async function finalizePaidOrderFromSession(params: {
       total_amount: draft.total_amount,
       token_number: tokenNumber,
       status: "confirmed",
+      payment_status: "paid",
+      payment_provider: params.gateway,
       unique_order_id: newOrderNumber(),
       razorpay_order_id: params.razorpayOrderId ?? null,
       external_order_id: extRef,
@@ -760,6 +999,7 @@ export async function finalizePaidOrderFromSession(params: {
     }
   }
 
+  void dispatchOrderStatusWebhooks(order.id, "order.created");
   return { ok: true, order };
 }
 

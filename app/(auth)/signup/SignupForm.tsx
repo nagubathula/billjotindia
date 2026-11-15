@@ -42,13 +42,13 @@ export function SignupForm() {
             <p className="mt-1 text-emerald-800">
               We sent a confirmation link to{" "}
               <span className="font-medium">{state.email}</span>. Click it to
-              verify your account — you'll land on your POS, signed in as
+              verify your account — you&apos;ll land on your POS, signed in as
               admin.
             </p>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Email didn't arrive? Check spam.
+          Email didn&apos;t arrive? Check spam.
         </p>
       </div>
     );

@@ -295,6 +295,15 @@ export async function clearTableTabAction(
   await requireRole(["admin", "manager", "user"], { restaurantId: restaurant.id });
 
   const admin = createAdminClient();
+  // Items already sent to the kitchen belong to a running order; clearing the
+  // tab would hide them from the bill. Those tables are settled in the POS.
+  const { data: tab } = await admin.from("pos_tabs").select("*").eq("id", tabId).maybeSingle();
+  if ((tab as { order_id?: string | null } | null)?.order_id) {
+    return {
+      ok: false,
+      error: "This table has items in the kitchen. Settle or change it in the POS.",
+    };
+  }
   const { error } = await admin
     .from("pos_tabs")
     .update({ lines: [], updated_at: new Date().toISOString() })

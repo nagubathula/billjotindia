@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
-import { apiCorsHeaders } from "@/lib/api-cors";
+import { apiCorsHeaders, preflightCorsHeaders } from "@/lib/api-cors";
 import { authenticateApiKey } from "@/lib/api-keys";
+import { isOutletOpen } from "@/lib/opening-hours";
+import { getPublicPaymentConfig } from "@/lib/payments";
+import {
+  checkRateLimit,
+  clientIpFromRequest,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // GET /api/menu — the restaurant, its outlets and one outlet's live menu, for
@@ -13,22 +20,53 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-function cors(request: Request) {
-  return apiCorsHeaders(request.headers.get("origin"), "GET, OPTIONS");
-}
-
 export async function OPTIONS(request: Request) {
-  return new NextResponse(null, { status: 204, headers: cors(request) });
+  const headers = await preflightCorsHeaders(request, "GET, OPTIONS");
+  return new NextResponse(null, { status: 204, headers });
 }
 
 export async function GET(request: Request) {
-  const headers = cors(request);
-  const fail = (status: number, error: string) =>
-    NextResponse.json({ error }, { status, headers });
+  const origin = request.headers.get("origin");
+  const ip = clientIpFromRequest(request);
+  let headers = apiCorsHeaders(origin, "GET, OPTIONS", null, request.url);
+
+  const ipLimit = await checkRateLimit({
+    bucket: `menu:ip:${ip}`,
+    limit: 180,
+    windowSeconds: 60,
+  });
+  if (!ipLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again shortly." },
+      { status: 429, headers: { ...headers, ...rateLimitHeaders(ipLimit) } },
+    );
+  }
 
   const check = await authenticateApiKey(request, "menu:read");
-  if (!check.ok) return fail(check.status, check.error);
+  if (!check.ok) {
+    return NextResponse.json(
+      { error: check.error },
+      { status: check.status, headers: { ...headers, ...rateLimitHeaders(ipLimit) } },
+    );
+  }
   const key = check.key;
+  headers = apiCorsHeaders(origin, "GET, OPTIONS", key.allowedOrigins, request.url);
+
+  const keyLimit = await checkRateLimit({
+    bucket: `menu:key:${key.id}`,
+    limit: 120,
+    windowSeconds: 60,
+  });
+  headers = { ...headers, ...rateLimitHeaders(keyLimit) };
+  if (!keyLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many menu requests for this API key. Slow down and retry." },
+      { status: 429, headers },
+    );
+  }
+
+  const fail = (status: number, error: string) =>
+    NextResponse.json({ error }, { status, headers });
 
   const supabase = createAdminClient();
   const [restaurantRes, outletsRes] = await Promise.all([
@@ -51,9 +89,12 @@ export async function GET(request: Request) {
   }
   if (!restaurantRes.data) return fail(404, "Restaurant not found");
 
-  const outlets = (outletsRes.data ?? []).filter(
-    (o) => key.outletId === null || o.id === key.outletId,
-  );
+  const outlets = (outletsRes.data ?? [])
+    .filter((o) => key.outletId === null || o.id === key.outletId)
+    .map((o) => ({
+      ...o,
+      is_open: isOutletOpen(o.opening_hours, o.timezone).open,
+    }));
   const requested = new URL(request.url).searchParams.get("outlet_id");
   const outlet = requested
     ? outlets.find((o) => o.id === requested)
@@ -66,13 +107,14 @@ export async function GET(request: Request) {
     restaurant: restaurantRes.data,
     outlets,
     outlet_id: null,
+    payment_methods: null,
     categories: [],
     products: [],
     modifier_groups: [],
   };
   if (!outlet) return NextResponse.json(empty, { headers });
 
-  const [categoriesRes, productsRes] = await Promise.all([
+  const [categoriesRes, productsRes, payCfg] = await Promise.all([
     supabase
       .from("categories")
       .select("id, name, emoji, sort_order")
@@ -88,6 +130,7 @@ export async function GET(request: Request) {
       .eq("status", "active")
       .order("category", { ascending: true })
       .order("name", { ascending: true }),
+    getPublicPaymentConfig(outlet.id),
   ]);
   if (categoriesRes.error || productsRes.error) {
     return fail(500, "Couldn't read the menu. Try again.");
@@ -144,6 +187,19 @@ export async function GET(request: Request) {
       restaurant: restaurantRes.data,
       outlets,
       outlet_id: outlet.id,
+      payment_methods: {
+        cod_enabled: payCfg.codEnabled,
+        online_enabled: payCfg.onlineEnabled,
+        razorpay: {
+          enabled: payCfg.razorpayEnabled && Boolean(payCfg.razorpayKeyId),
+          key_id: payCfg.razorpayKeyId,
+        },
+        stripe: {
+          enabled: payCfg.stripeEnabled,
+          publishable_key: payCfg.stripePublishableKey,
+        },
+        upi_vpa: payCfg.upiVpa,
+      },
       categories: categoriesRes.data ?? [],
       products: products.map((p) => ({
         ...p,

@@ -177,6 +177,8 @@ export function CheckoutForm({
     const customerDisplay = tableName
       ? `${tableName}${name ? ` · ${name}` : ""}`
       : name;
+    const resolvedTableCode =
+      orderType === "dine-in" && tableName ? tableName : null;
 
     const itemsPayload = buildItemsPayload();
 
@@ -196,6 +198,7 @@ export function CheckoutForm({
           body: JSON.stringify({
             outlet_id: outletId,
             restaurant_slug: restaurantSlug,
+            table_id: resolvedTableCode,
             source: "web",
             customer_name: customerDisplay,
             customer_phone: phone || null,
@@ -300,6 +303,7 @@ export function CheckoutForm({
           body: JSON.stringify({
             outlet_id: outletId,
             restaurant_slug: restaurantSlug,
+            table_id: resolvedTableCode,
             return_context: "storefront",
             source: "web",
             customer_name: customerDisplay,
@@ -334,6 +338,7 @@ export function CheckoutForm({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           outlet_id: outletId,
+          table_code: resolvedTableCode,
           source: "web",
           customer_name: customerDisplay,
           customer_phone: phone || null,

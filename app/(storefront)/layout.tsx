@@ -1,8 +1,6 @@
 import { AppNavbar } from "@/components/AppNavbar";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
-import { getCurrentUser, getUserRestaurants } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import type { Brand } from "@/lib/types";
+import { getCurrentUser, getUserBrands, getUserRestaurants } from "@/lib/auth";
 
 export default async function AppShellLayout({
   children,
@@ -19,17 +17,11 @@ export default async function AppShellLayout({
     );
   }
 
-  const [restaurants, supabase] = await Promise.all([
+  const [restaurants, brandEntries] = await Promise.all([
     getUserRestaurants(),
-    createClient(),
+    getUserBrands(),
   ]);
-
-  const { data: brandsData } = await supabase
-    .from("brands")
-    .select("*")
-    .eq("owner_user_id", user.id)
-    .order("name");
-  const brands = (brandsData ?? []) as Brand[];
+  const brands = brandEntries.map((b) => b.brand);
 
   const userName =
     (user.user_metadata?.display_name as string | undefined) ??
@@ -46,11 +38,11 @@ export default async function AppShellLayout({
         userName={userName}
         userEmail={userEmail}
       />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-zinc-50/55 dark:bg-background">
         <div className="md:hidden">
           <AppNavbar />
         </div>
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-8 sm:py-8">
+        <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-8 sm:py-7">
           {children}
         </main>
       </div>

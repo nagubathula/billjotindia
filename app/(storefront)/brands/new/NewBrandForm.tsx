@@ -32,7 +32,7 @@ export function NewBrandForm() {
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
-          We'll generate a URL like <span className="font-mono">/brands/my-coffee-co-…</span>
+          We&apos;ll generate a URL like <span className="font-mono">/brands/my-coffee-co-…</span>
         </p>
       </div>
 

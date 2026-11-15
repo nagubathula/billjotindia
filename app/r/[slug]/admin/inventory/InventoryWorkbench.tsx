@@ -22,6 +22,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -363,34 +371,32 @@ export function InventoryWorkbench({
             </TabsTrigger>
           </TabsList>
 
-          <Button size="sm" onClick={() => setAddingItem((v) => !v)}>
+          <Button size="sm" onClick={() => setAddingItem(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Add Raw Material
           </Button>
         </div>
 
-        {addingItem && (
-          <Card className="mt-4">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Add Raw Material to Store Ledger</CardTitle>
-              <CardDescription className="text-xs">
+        <Dialog open={addingItem} onOpenChange={setAddingItem}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Raw Material</DialogTitle>
+              <DialogDescription>
                 Set opening stock, unit, and minimum par level for low-stock alerts.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={handleAddMaterial}
-                className="grid gap-3 sm:grid-cols-6 sm:items-end"
-              >
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label className="text-xs">Material Name</Label>
-                  <Input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. Guntur Chilli Powder"
-                    required
-                  />
-                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleAddMaterial} className="grid gap-3.5">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Material Name</Label>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Guntur Chilli Powder"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Category</Label>
                   <select
@@ -408,21 +414,30 @@ export function InventoryWorkbench({
                   </select>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label className="text-xs">Stock &amp; Unit</Label>
-                  <div className="flex gap-1">
-                    <Input
-                      type="number"
-                      value={newStock}
-                      onChange={(e) => setNewStock(e.target.value)}
-                      className="w-16"
-                    />
-                    <Input
-                      value={newUnit}
-                      onChange={(e) => setNewUnit(e.target.value)}
-                      placeholder="kg"
-                      className="w-14"
-                    />
-                  </div>
+                  <Label className="text-xs">Supplier</Label>
+                  <Input
+                    value={newSupplier}
+                    onChange={(e) => setNewSupplier(e.target.value)}
+                    placeholder="Vendor name"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Opening Stock</Label>
+                  <Input
+                    type="number"
+                    value={newStock}
+                    onChange={(e) => setNewStock(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Unit</Label>
+                  <Input
+                    value={newUnit}
+                    onChange={(e) => setNewUnit(e.target.value)}
+                    placeholder="kg"
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Cost / Unit (₹)</Label>
@@ -432,23 +447,20 @@ export function InventoryWorkbench({
                     onChange={(e) => setNewCost(e.target.value)}
                   />
                 </div>
-                <div className="flex gap-2">
-                  <Button type="submit" size="sm">
-                    Save
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAddingItem(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setAddingItem(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit">Add Material</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* TAB 1: Raw Materials */}
         <TabsContent value="stock" className="mt-4 space-y-4">

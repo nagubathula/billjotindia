@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ROLE_DESCRIPTION, isRole } from "@/lib/roles";
 import { createUserAction } from "./actions";
 
 function randomPassword() {
@@ -91,11 +92,15 @@ export function CreateUserForm({ restaurantId }: { restaurantId: string }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="captain">Captain</SelectItem>
               <SelectItem value="user">Cashier</SelectItem>
               <SelectItem value="manager">Manager</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
             </SelectContent>
           </Select>
+          {isRole(role) && (
+            <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTION[role]}</p>
+          )}
         </div>
       </div>
 
@@ -161,7 +166,7 @@ export function CreateUserForm({ restaurantId }: { restaurantId: string }) {
             <span className="font-mono">{result.password}</span>
           </p>
           <p className="mt-2 text-xs text-emerald-700">
-            Share these credentials securely with the user. They won't be
+            Share these credentials securely with the user. They won&apos;t be
             shown again.
           </p>
         </div>

@@ -21,6 +21,7 @@ const RESERVED_PATHS = [
   "/logout",
   "/signup",
   "/dashboard",
+  "/brands",
 ];
 
 // Custom-domain → slug lookups hit the DB, so cache them (including negative

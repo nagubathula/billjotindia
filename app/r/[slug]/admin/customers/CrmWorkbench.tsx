@@ -23,6 +23,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -275,25 +283,22 @@ export function CrmWorkbench({
             </TabsTrigger>
           </TabsList>
 
-          <Button size="sm" onClick={() => setAddingCoupon((v) => !v)}>
+          <Button size="sm" onClick={() => setAddingCoupon(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Create Promo Coupon
           </Button>
         </div>
 
-        {addingCoupon && (
-          <Card className="mt-4">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Create Promo Code</CardTitle>
-              <CardDescription className="text-xs">
-                Coupons can be applied at the Counter POS or during online storefront checkout.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={handleAddCoupon}
-                className="grid gap-3 sm:grid-cols-5 sm:items-end"
-              >
+        <Dialog open={addingCoupon} onOpenChange={setAddingCoupon}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create Promo Coupon</DialogTitle>
+              <DialogDescription>
+                Coupons can be applied at Counter POS or during online storefront checkout.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleAddCoupon} className="grid gap-3.5">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Coupon Code</Label>
                   <Input
@@ -301,54 +306,60 @@ export function CrmWorkbench({
                     value={newCode}
                     onChange={(e) => setNewCode(e.target.value.toUpperCase())}
                     required
-                  />
-                </div>
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label className="text-xs">Offer Description</Label>
-                  <Input
-                    placeholder="20% off on orders above ₹499"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    required
+                    autoFocus
                   />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label className="text-xs">Type &amp; Value</Label>
-                  <div className="flex gap-1">
-                    <select
-                      value={newType}
-                      onChange={(e) =>
-                        setNewType(e.target.value as PromoCoupon["type"])
-                      }
-                      className="h-9 rounded-lg border border-input bg-card px-2 text-xs"
-                    >
-                      <option value="Percentage">%</option>
-                      <option value="Flat ₹">₹</option>
-                    </select>
-                    <Input
-                      type="number"
-                      value={newVal}
-                      onChange={(e) => setNewVal(e.target.value)}
-                    />
-                  </div>
+                  <Label className="text-xs">Minimum Order (₹)</Label>
+                  <Input
+                    type="number"
+                    value={newMin}
+                    onChange={(e) => setNewMin(e.target.value)}
+                  />
                 </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Offer Description</Label>
+                <Input
+                  placeholder="20% off on orders above ₹499"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Discount Type &amp; Value</Label>
                 <div className="flex gap-2">
-                  <Button type="submit" size="sm">
-                    Save Coupon
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setAddingCoupon(false)}
+                  <select
+                    value={newType}
+                    onChange={(e) =>
+                      setNewType(e.target.value as PromoCoupon["type"])
+                    }
+                    className="h-9 rounded-lg border border-input bg-card px-2.5 text-xs"
                   >
-                    Cancel
-                  </Button>
+                    <option value="Percentage">Percentage (%)</option>
+                    <option value="Flat ₹">Flat Amount (₹)</option>
+                  </select>
+                  <Input
+                    type="number"
+                    value={newVal}
+                    onChange={(e) => setNewVal(e.target.value)}
+                  />
                 </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setAddingCoupon(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit">Create Coupon</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* TAB 1: Customer Directory & Segments */}
         <TabsContent value="customers" className="mt-4 space-y-4">

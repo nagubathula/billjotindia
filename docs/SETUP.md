@@ -17,7 +17,8 @@ The application requires the following environment variables (defined in `.env.l
   - For local subdomain testing, set to `lvh.me` and visit `http://[slug].lvh.me:3000`.
 
 ### Security
-- `STOREFRONT_ORDER_TOKEN`: A shared secret. If set, external storefronts must send it with every order. Prevents spam if the API is exposed.
+- External storefronts authenticate with per-restaurant API keys created in **Admin → Administration → API keys** (scoped to outlet, permissions, and allowed websites).
+- `STOREFRONT_ALLOWED_ORIGINS`: Optional fallback comma-separated browser origins when an API key doesn't restrict specific websites.
 
 ---
 

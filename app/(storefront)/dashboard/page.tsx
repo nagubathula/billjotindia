@@ -5,6 +5,7 @@ import {
   Building2,
   MonitorSmartphone,
   Plus,
+  HandPlatter,
   ShieldCheck,
   Store,
   UserCog,
@@ -22,22 +23,17 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
-import { getCurrentUser, getUserRestaurants } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getUserBrands, getUserRestaurants } from "@/lib/auth";
+import { ROLE_LABEL } from "@/lib/roles";
 import type { AppRole, Brand } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const ROLE_LABEL: Record<AppRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  user: "Cashier",
-};
 
 const ROLE_ICON: Record<AppRole, React.ComponentType<{ className?: string }>> = {
   admin: ShieldCheck,
   manager: UserCog,
   user: UserIcon,
+  captain: HandPlatter,
 };
 
 function formatHandle(slug: string, fallbackName: string): string {
@@ -55,22 +51,19 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/dashboard");
 
-  const restaurants = await getUserRestaurants();
+  const [restaurants, brandEntries] = await Promise.all([
+    getUserRestaurants(),
+    getUserBrands(),
+  ]);
 
-  const supabase = await createClient();
-  const { data: brandsData } = await supabase
-    .from("brands")
-    .select("*")
-    .eq("owner_user_id", user.id)
-    .order("name");
-  const brands = (brandsData ?? []) as Brand[];
+  const brands = brandEntries.map((b) => b.brand);
   const brandById = new Map<string, Brand>(brands.map((b) => [b.id, b]));
-  const countByBrandId = new Map<string, number>();
-  for (const { restaurant: r } of restaurants) {
-    if (r.brand_id) {
-      countByBrandId.set(r.brand_id, (countByBrandId.get(r.brand_id) ?? 0) + 1);
-    }
-  }
+  const countByBrandId = new Map<string, number>(
+    brandEntries.map((b) => [b.brand.id, b.restaurantCount]),
+  );
+  const ownerByBrandId = new Map<string, boolean>(
+    brandEntries.map((b) => [b.brand.id, b.isOwner]),
+  );
 
   const displayName =
     (user.user_metadata?.display_name as string | undefined) ??
@@ -124,9 +117,11 @@ export default async function DashboardPage() {
               ? "Admin"
               : restaurants.some((r) => r.role === "manager")
                 ? "Manager"
-                : restaurants.length
+                : restaurants.some((r) => r.role === "user")
                   ? "Cashier"
-                  : "—"
+                  : restaurants.some((r) => r.role === "captain")
+                    ? "Captain"
+                    : "—"
           }
           sub="Full workspace permissions"
           icon={ShieldCheck}
@@ -289,6 +284,7 @@ export default async function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {brands.map((b) => {
               const count = countByBrandId.get(b.id) ?? 0;
+              const isOwner = ownerByBrandId.get(b.id) ?? false;
               return (
                 <Card key={b.id} className="justify-between">
                   <CardHeader className="space-y-2.5 pb-2">
@@ -296,9 +292,14 @@ export default async function DashboardPage() {
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60 text-foreground">
                         <Building2 className="h-4 w-4" />
                       </div>
-                      <Badge variant="secondary">
-                        {count} {count === 1 ? "restaurant" : "restaurants"}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="text-[11px]">
+                          {isOwner ? "Owner" : "Franchise Admin"}
+                        </Badge>
+                        <Badge variant="secondary">
+                          {count} {count === 1 ? "restaurant" : "restaurants"}
+                        </Badge>
+                      </div>
                     </div>
                     <div>
                       <CardTitle className="text-base font-semibold leading-snug">

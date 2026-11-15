@@ -262,15 +262,41 @@ export default async function ReportsPage(props: Props) {
   );
 
   // ---- Payment / Tender mode split (for cash drawer reconciliation) ----
+  const TENDER_META: Record<
+    string,
+    { label: string; unsettled?: boolean }
+  > = {
+    open: { label: "Unsettled (Open table)", unsettled: true },
+    cash: { label: "POS Cash" },
+    upi: { label: "POS UPI" },
+    card: { label: "POS Card" },
+    razorpay: { label: "POS Razorpay" },
+    stripe: { label: "POS Stripe" },
+    online: { label: "Storefront Online" },
+    aggregator: { label: "Delivery Platform" },
+  };
+
   const tenderTotals = new Map<string, { count: number; revenue: number }>();
   for (const o of orders) {
-    let mode = o.source === "pos" ? "cash" : o.source === "web" || o.source === "kiosk" ? "online" : "aggregator";
+    let mode =
+      o.source === "pos"
+        ? "cash"
+        : o.source === "web" || o.source === "kiosk"
+          ? "online"
+          : "aggregator";
     if (o.source === "pos") {
-      const firstIt = firstItemByOrder.get(o.id);
-      const cfg = firstIt?.product_config as unknown as { tender_mode?: string } | null;
-      if (cfg?.tender_mode) mode = cfg.tender_mode.toLowerCase();
-      else if (o.customer_email?.startsWith("pos+")) {
-        mode = o.customer_email.split("@")[0].replace("pos+", "");
+      const emailLower = (o.customer_email ?? "").toLowerCase();
+      if (emailLower.startsWith("pos+open")) {
+        mode = "open";
+      } else {
+        const firstIt = firstItemByOrder.get(o.id);
+        const cfg = firstIt?.product_config as unknown as {
+          tender_mode?: string;
+        } | null;
+        if (cfg?.tender_mode) mode = cfg.tender_mode.toLowerCase();
+        else if (emailLower.startsWith("pos+")) {
+          mode = emailLower.split("@")[0].replace("pos+", "");
+        }
       }
     }
     const cur = tenderTotals.get(mode) ?? { count: 0, revenue: 0 };
@@ -523,15 +549,22 @@ export default async function ReportsPage(props: Props) {
                 const pct = totalRevenue
                   ? Math.round((val.revenue / totalRevenue) * 100)
                   : 0;
+                const meta = TENDER_META[mode];
+                const isUnsettled = Boolean(meta?.unsettled);
                 return (
                   <div key={mode} className="text-xs">
                     <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Badge
                           variant="outline"
-                          className="font-mono text-[11px] uppercase"
+                          className={cn(
+                            "text-[11px]",
+                            isUnsettled
+                              ? "border-amber-500/40 bg-amber-500/10 font-medium text-amber-800"
+                              : "font-mono uppercase",
+                          )}
                         >
-                          {mode}
+                          {meta ? meta.label : mode}
                         </Badge>
                         <span className="text-muted-foreground">
                           {val.count} {val.count === 1 ? "bill" : "bills"}
@@ -543,7 +576,10 @@ export default async function ReportsPage(props: Props) {
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-primary/80"
+                        className={cn(
+                          "h-full rounded-full",
+                          isUnsettled ? "bg-amber-500/80" : "bg-primary/80",
+                        )}
                         style={{ width: `${pct}%` }}
                       />
                     </div>

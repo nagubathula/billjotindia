@@ -39,13 +39,14 @@ export default async function AdminTablesPage(props: Props) {
     await Promise.all([
       admin
         .from("pos_tabs")
-        .select("id, outlet_id, name, lines, updated_at")
+        // "*" so this works before the running-orders migration adds order_id.
+        .select("*")
         .in("outlet_id", scoped)
         .order("name", { ascending: true }),
       admin
         .from("orders")
         .select(
-          "id, outlet_id, unique_order_id, token_number, status, customer_name, instructions, total_amount, placed_at, order_type",
+          "id, outlet_id, table_id, unique_order_id, token_number, status, customer_name, instructions, total_amount, placed_at, order_type",
         )
         .in("outlet_id", scoped)
         .eq("order_type", "dine-in")
@@ -85,6 +86,7 @@ export default async function AdminTablesPage(props: Props) {
   const activeOrders: ActiveTableOrder[] = (openOrdersData ?? []).map((o) => ({
     id: o.id,
     outlet_id: o.outlet_id,
+    table_id: o.table_id ?? null,
     unique_order_id: o.unique_order_id,
     token_number: o.token_number,
     status: o.status,
@@ -101,6 +103,7 @@ export default async function AdminTablesPage(props: Props) {
     name: t.name,
     lines: Array.isArray(t.lines) ? (t.lines as RawPosTab["lines"]) : [],
     updated_at: t.updated_at,
+    order_id: (t as { order_id?: string | null }).order_id ?? null,
   }));
 
   const todayDineInCount = (todayDineInData ?? []).length;

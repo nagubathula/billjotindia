@@ -7,6 +7,9 @@ import type { Database } from "@/lib/types";
 // We re-create the response on every cookie write so the rewrite and the
 // refreshed session cookies always travel together.
 export async function updateSession(request: NextRequest, rewriteUrl?: URL) {
+  const target = rewriteUrl ?? request.nextUrl;
+  request.headers.set("x-current-path", `${target.pathname}${target.search}`);
+
   const makeResponse = () =>
     rewriteUrl
       ? NextResponse.rewrite(rewriteUrl, { request })

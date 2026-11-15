@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
+import { BILLING_ROLES, POS_ROLES } from "@/lib/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
 import {
@@ -9,6 +10,7 @@ import {
   isCancelReason,
   type CancelOrderInput,
 } from "@/lib/order-cancel";
+import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import type { OrderStatus, ProductConfig } from "@/lib/types";
 
 type Result = { ok: true; warning?: string } | { ok: false; error: string };
@@ -57,6 +59,7 @@ function revalidateOrder(slug: string, orderId: string) {
   revalidatePath(`/r/${slug}/admin/orders/${orderId}`);
   revalidatePath(`/r/${slug}/admin/orders`);
   revalidatePath(`/r/${slug}/admin/kitchen`);
+  revalidatePath(`/r/${slug}/kitchen`);
 }
 
 export async function updateOrderStatusAction(
@@ -66,7 +69,7 @@ export async function updateOrderStatusAction(
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };
-  await requireRole(["admin", "manager", "user"], { restaurantId: restaurant.id });
+  await requireRole(POS_ROLES, { restaurantId: restaurant.id });
 
   if (newStatus === "cancelled") {
     return { ok: false, error: "Cancel the order with a reason instead." };
@@ -86,6 +89,10 @@ export async function updateOrderStatusAction(
   if (error) return { ok: false, error: error.message };
 
   revalidateOrder(slug, orderId);
+  void dispatchOrderStatusWebhooks(
+    orderId,
+    newStatus === "completed" ? "order.completed" : "order.updated",
+  );
   return { ok: true };
 }
 
@@ -99,7 +106,7 @@ export async function cancelOrderAction(
 ): Promise<Result> {
   const restaurant = await getRestaurantBySlug(slug);
   if (!restaurant) return { ok: false, error: "Restaurant not found." };
-  const { role } = await requireRole(["admin", "manager", "user"], {
+  const { role } = await requireRole(BILLING_ROLES, {
     restaurantId: restaurant.id,
   });
 
@@ -151,6 +158,7 @@ export async function cancelOrderAction(
   if (error) return { ok: false, error: error.message };
 
   revalidateOrder(slug, orderId);
+  void dispatchOrderStatusWebhooks(orderId, "order.cancelled");
 
   // Taking items off the menu is a menu change, so it needs the same role the
   // menu screen asks for.

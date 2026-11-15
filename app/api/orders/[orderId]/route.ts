@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { apiCorsHeaders } from "@/lib/api-cors";
+import { apiCorsHeaders, preflightCorsHeaders } from "@/lib/api-cors";
 import { authenticateApiKey, keyCoversOutlet } from "@/lib/api-keys";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { loadTrackedOrderWithOutlet } from "@/lib/order-webhooks";
+import {
+  checkRateLimit,
+  clientIpFromRequest,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
 import { isUuid } from "@/lib/utils";
 
 // GET /api/orders/{orderId} — an order's live status, for frontends that hold
@@ -11,77 +16,81 @@ import { isUuid } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function cors(request: Request) {
-  return apiCorsHeaders(request.headers.get("origin"), "GET, OPTIONS");
-}
-
 export async function OPTIONS(request: Request) {
-  return new NextResponse(null, { status: 204, headers: cors(request) });
+  const headers = await preflightCorsHeaders(request, "GET, OPTIONS");
+  return new NextResponse(null, { status: 204, headers });
 }
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ orderId: string }> },
 ) {
-  const headers = cors(request);
+  const origin = request.headers.get("origin");
+  const ip = clientIpFromRequest(request);
+  let headers = apiCorsHeaders(origin, "GET, OPTIONS", null, request.url);
+
+  const ipLimit = await checkRateLimit({
+    bucket: `order-status:ip:${ip}`,
+    limit: 180,
+    windowSeconds: 60,
+  });
+  if (!ipLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many status requests. Please slow down." },
+      { status: 429, headers: { ...headers, ...rateLimitHeaders(ipLimit) } },
+    );
+  }
+
+  const check = await authenticateApiKey(request, "orders:write");
+  if (!check.ok) {
+    return NextResponse.json(
+      { error: check.error },
+      { status: check.status, headers: { ...headers, ...rateLimitHeaders(ipLimit) } },
+    );
+  }
+  headers = apiCorsHeaders(
+    origin,
+    "GET, OPTIONS",
+    check.key.allowedOrigins,
+    request.url,
+  );
+
+  const { orderId } = await params;
+  if (!isUuid(orderId)) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404, headers });
+  }
+
+  const [keyLimit, pollLimit] = await Promise.all([
+    checkRateLimit({
+      bucket: `order-status:key:${check.key.id}`,
+      limit: 240,
+      windowSeconds: 60,
+    }),
+    checkRateLimit({
+      bucket: `order-status:poll:${check.key.id}:${orderId}`,
+      limit: 20,
+      windowSeconds: 60,
+    }),
+  ]);
+  const activeLimit = !pollLimit.allowed ? pollLimit : keyLimit;
+  headers = { ...headers, ...rateLimitHeaders(activeLimit) };
+  if (!activeLimit.allowed) {
+    return NextResponse.json(
+      { error: "Polling too frequently. Poll no more than once every few seconds." },
+      { status: 429, headers },
+    );
+  }
+
   const fail = (status: number, error: string) =>
     NextResponse.json({ error }, { status, headers });
 
-  const check = await authenticateApiKey(request, "orders:write");
-  if (!check.ok) return fail(check.status, check.error);
-
-  const { orderId } = await params;
-  if (!isUuid(orderId)) return fail(404, "Order not found");
-
-  const supabase = createAdminClient();
-  const { data: order } = await supabase
-    .from("orders")
-    .select(
-      "id, unique_order_id, token_number, status, order_type, source, customer_name, subtotal, total_amount, placed_at, updated_at, outlet_id",
-    )
-    .eq("id", orderId)
-    .maybeSingle();
-  if (!order) return fail(404, "Order not found");
-
-  const { data: outlet } = await supabase
-    .from("outlets")
-    .select("id, restaurant_id")
-    .eq("id", order.outlet_id)
-    .maybeSingle();
-  if (!outlet || !keyCoversOutlet(check.key, outlet)) {
+  const loaded = await loadTrackedOrderWithOutlet(orderId);
+  if (!loaded || !keyCoversOutlet(check.key, loaded.outlet)) {
     return fail(404, "Order not found");
   }
 
-  const { data: items } = await supabase
-    .from("order_items")
-    .select("quantity, total_price, instructions, product_config")
-    .eq("order_id", order.id);
-
   return NextResponse.json(
-    {
-      order: {
-        ...order,
-        subtotal: Number(order.subtotal),
-        total_amount: Number(order.total_amount),
-        items: (items ?? []).map((it) => {
-          const cfg = (it.product_config ?? {}) as {
-            product_id?: string;
-            name?: string;
-            selected_options?: { option_name?: string }[];
-          };
-          return {
-            product_id: cfg.product_id ?? null,
-            name: cfg.name ?? "Item",
-            quantity: Number(it.quantity),
-            total_price: Number(it.total_price),
-            options: (cfg.selected_options ?? [])
-              .map((o) => o.option_name)
-              .filter(Boolean),
-            instructions: it.instructions,
-          };
-        }),
-      },
-    },
+    { order: loaded.order },
     { headers: { ...headers, "Cache-Control": "no-store" } },
   );
 }

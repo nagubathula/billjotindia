@@ -1,20 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
+  AlertTriangle,
   Banknote,
   Calculator,
   CheckCircle2,
   CreditCard,
+  ExternalLink,
   Plus,
   Printer,
-  Receipt,
   Smartphone,
   Trash2,
   Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -34,12 +36,23 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
+export type OpenTableSummary = {
+  id: string;
+  label: string;
+  tokenNumber: number | null;
+  amount: number;
+  placedAt: string | null;
+};
+
 export type OutletShiftSummary = {
   outletId: string;
   outletName: string;
   gstin: string | null;
   totalOrders: number;
   cancelledOrders: number;
+  openTablesCount: number;
+  openTablesAmount: number;
+  openTables: OpenTableSummary[];
   grossSales: number;
   cgst: number;
   sgst: number;
@@ -93,9 +106,11 @@ const inrExact = (n: number) =>
 export function RegisterWorkbench({
   summaries,
   dateLabel,
+  restaurantSlug,
 }: {
   summaries: OutletShiftSummary[];
   dateLabel: string;
+  restaurantSlug: string;
 }) {
   const [selectedOutletId, setSelectedOutletId] = useState<string>(
     summaries[0]?.outletId ?? "",
@@ -222,6 +237,63 @@ export function RegisterWorkbench({
           </span>
           <Badge className="bg-emerald-600 text-white">Verified</Badge>
         </div>
+      )}
+
+      {/* Open / Unsettled Tables Banner */}
+      {active.openTablesCount > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/5 print:hidden">
+          <CardContent className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <span>
+                  {active.openTablesCount}{" "}
+                  {active.openTablesCount === 1
+                    ? "open table is"
+                    : "open tables are"}{" "}
+                  still unsettled ({inrExact(active.openTablesAmount)})
+                </span>
+              </div>
+              <p className="text-xs text-amber-800/90">
+                Open running KOT tables are excluded from drawer cash and settled
+                sales until collected at the POS counter.
+              </p>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {active.openTables.map((ot) => {
+                  const tableCode = ot.label.split("·")[0].trim();
+                  return (
+                    <Link
+                      key={ot.id}
+                      href={`/r/${restaurantSlug}/pos?table=${encodeURIComponent(tableCode)}`}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-card px-2 py-0.5 text-[11px] font-medium text-foreground transition hover:border-amber-600"
+                    >
+                      <span>{ot.label}</span>
+                      {ot.tokenNumber != null && (
+                        <span className="text-muted-foreground">
+                          #{ot.tokenNumber}
+                        </span>
+                      )}
+                      <span className="font-semibold tabular-nums">
+                        {inr(ot.amount)}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Link
+              href={`/r/${restaurantSlug}/pos`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "shrink-0 border-amber-500/40 bg-card text-xs",
+              )}
+            >
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+              Settle in POS
+            </Link>
+          </CardContent>
+        </Card>
       )}
 
       {/* KPI Strip */}
@@ -537,9 +609,15 @@ export function RegisterWorkbench({
             <hr className="my-2 border-dashed border-black" />
 
             <div className="space-y-0.5">
-              <ZRow label="Completed Bills" value={String(active.totalOrders)} />
+              <ZRow label="Settled Bills" value={String(active.totalOrders)} />
+              {active.openTablesCount > 0 && (
+                <ZRow
+                  label="Open Tables (Unsettled)"
+                  value={`${active.openTablesCount} (${inrExact(active.openTablesAmount)})`}
+                />
+              )}
               <ZRow label="Cancelled Bills" value={String(active.cancelledOrders)} />
-              <ZRow label="Gross Sales" value={inrExact(active.grossSales)} bold />
+              <ZRow label="Settled Gross Sales" value={inrExact(active.grossSales)} bold />
               <ZRow label="Discounts Given" value={inrExact(active.discounts)} />
               <ZRow label="CGST (2.5%)" value={inrExact(active.cgst)} />
               <ZRow label="SGST (2.5%)" value={inrExact(active.sgst)} />

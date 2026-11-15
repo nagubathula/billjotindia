@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -66,14 +65,35 @@ export async function attachRestaurantToBrandAction(
 
   const admin = createAdminClient();
 
-  // Verify the user owns this brand.
+  // Verify the user owns this brand OR admins an existing restaurant in it.
   const { data: brand } = await admin
     .from("brands")
     .select("id, slug, owner_user_id")
     .eq("id", brandId)
     .maybeSingle();
-  if (!brand || brand.owner_user_id !== user.id) {
-    return { ok: false, error: "You don't own that brand." };
+  if (!brand) {
+    return { ok: false, error: "Brand not found." };
+  }
+
+  if (brand.owner_user_id !== user.id) {
+    const { data: brandRest } = await admin
+      .from("restaurants")
+      .select("id")
+      .eq("brand_id", brandId);
+    const brandRestIds = (brandRest ?? []).map((r) => r.id);
+    const { data: brandAdmin } =
+      brandRestIds.length > 0
+        ? await admin
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", user.id)
+            .eq("role", "admin")
+            .in("restaurant_id", brandRestIds)
+            .limit(1)
+        : { data: [] };
+    if (!brandAdmin || brandAdmin.length === 0) {
+      return { ok: false, error: "You don't have admin access to that brand." };
+    }
   }
 
   // Verify the user is an admin of the restaurant (only admins can move it
@@ -122,8 +142,23 @@ export async function detachRestaurantFromBrandAction(
     .select("id, slug, owner_user_id")
     .eq("id", brandId)
     .maybeSingle();
-  if (!brand || brand.owner_user_id !== user.id) {
-    return { ok: false, error: "You don't own that brand." };
+  if (!brand) {
+    return { ok: false, error: "Brand not found." };
+  }
+  if (brand.owner_user_id !== user.id) {
+    const { data: targetAdmin } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("restaurant_id", restaurantId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!targetAdmin) {
+      return {
+        ok: false,
+        error: "Only the brand owner or that restaurant's admin can detach it.",
+      };
+    }
   }
 
   const { error } = await admin
