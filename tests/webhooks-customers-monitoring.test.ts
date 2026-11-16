@@ -12,6 +12,11 @@ import {
   signOrderWebhookBody,
 } from "@/lib/order-webhooks";
 import { parseSentryDsn } from "@/lib/monitoring";
+import {
+  resolveChannelStoreOutlet,
+  signChannelBridgeBody,
+  type ChannelStoreLookupClient,
+} from "@/lib/channel-bridge";
 
 describe("storefront customer auth & session tokens", () => {
   it("hashes and verifies customer passwords with scrypt", async () => {
@@ -102,5 +107,58 @@ describe("production monitoring helpers", () => {
     });
     assert.equal(parseSentryDsn(""), null);
     assert.equal(parseSentryDsn("https://invalid-dsn-without-key.io/123"), null);
+  });
+});
+
+describe("delivery platform channel bridge", () => {
+  it("signs outbound bridge events and resolves external_store_id to outlet_id", async () => {
+    const sig = signChannelBridgeBody('{"event":"channel.store_updated"}', "chan_sec");
+    assert.ok(sig.startsWith("sha256="));
+    assert.equal(sig.length, 71);
+
+    const mockDb: ChannelStoreLookupClient = {
+      from() {
+        return {
+          select() {
+            return {
+              eq(_c1, channelVal) {
+                return {
+                  eq(_c2, storeVal) {
+                    return {
+                      async maybeSingle() {
+                        if (channelVal === "zomato" && storeVal === "ZOM-901") {
+                          return {
+                            data: {
+                              outlet_id: "549f8322-52c1-4dec-bfc7-2ecd14b83d1a",
+                              external_store_id: "ZOM-901",
+                              is_online: true,
+                              offline_reason: null,
+                              prep_time_minutes: 20,
+                            },
+                          };
+                        }
+                        return { data: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const hit = await resolveChannelStoreOutlet(mockDb, "zomato", " ZOM-901 ");
+    assert.deepEqual(hit, {
+      outletId: "549f8322-52c1-4dec-bfc7-2ecd14b83d1a",
+      externalStoreId: "ZOM-901",
+      isOnline: true,
+      offlineReason: null,
+      prepTimeMinutes: 20,
+    });
+
+    const miss = await resolveChannelStoreOutlet(mockDb, "swiggy", "UNKNOWN");
+    assert.equal(miss, null);
   });
 });

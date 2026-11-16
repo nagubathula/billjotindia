@@ -11,6 +11,8 @@ import {
   type CancelOrderInput,
 } from "@/lib/order-cancel";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
+import { dispatchChannelBridgeEvent } from "@/lib/channel-bridge";
+import { isAggregatorSource } from "@/lib/channels";
 import type { OrderStatus, ProductConfig } from "@/lib/types";
 
 type Result = { ok: true; warning?: string } | { ok: false; error: string };
@@ -32,14 +34,23 @@ async function loadOrderInRestaurant(
   orderId: string,
   restaurantId: string,
 ): Promise<
-  | { ok: true; order: { id: string; outlet_id: string; status: string | null } }
+  | {
+      ok: true;
+      order: {
+        id: string;
+        outlet_id: string;
+        status: string | null;
+        source: string;
+        external_order_id: string | null;
+      };
+    }
   | { ok: false; error: string }
 > {
   if (!isUuid(orderId)) return { ok: false, error: "Order not found." };
 
   const { data: ord } = await admin
     .from("orders")
-    .select("id, outlet_id, status")
+    .select("id, outlet_id, status, source, external_order_id")
     .eq("id", orderId)
     .maybeSingle();
   if (!ord) return { ok: false, error: "Order not found." };
@@ -89,10 +100,27 @@ export async function updateOrderStatusAction(
   if (error) return { ok: false, error: error.message };
 
   revalidateOrder(slug, orderId);
-  void dispatchOrderStatusWebhooks(
+  dispatchOrderStatusWebhooks(
     orderId,
     newStatus === "completed" ? "order.completed" : "order.updated",
   );
+  if (isAggregatorSource(found.order.source)) {
+    const { data: link } = await admin
+      .from("channel_outlets")
+      .select("external_store_id")
+      .eq("outlet_id", found.order.outlet_id)
+      .eq("channel", found.order.source)
+      .maybeSingle();
+    dispatchChannelBridgeEvent({
+      event: "channel.order_status_changed",
+      channel: found.order.source,
+      outlet_id: found.order.outlet_id,
+      external_store_id: link?.external_store_id ?? null,
+      order_id: orderId,
+      external_order_id: found.order.external_order_id,
+      status: newStatus,
+    });
+  }
   return { ok: true };
 }
 
@@ -158,7 +186,25 @@ export async function cancelOrderAction(
   if (error) return { ok: false, error: error.message };
 
   revalidateOrder(slug, orderId);
-  void dispatchOrderStatusWebhooks(orderId, "order.cancelled");
+  dispatchOrderStatusWebhooks(orderId, "order.cancelled");
+  if (isAggregatorSource(order.source)) {
+    const { data: link } = await admin
+      .from("channel_outlets")
+      .select("external_store_id")
+      .eq("outlet_id", order.outlet_id)
+      .eq("channel", order.source)
+      .maybeSingle();
+    dispatchChannelBridgeEvent({
+      event: "channel.order_cancelled",
+      channel: order.source,
+      outlet_id: order.outlet_id,
+      external_store_id: link?.external_store_id ?? null,
+      order_id: orderId,
+      external_order_id: order.external_order_id,
+      cancel_reason: input.reason,
+      cancel_note: note || null,
+    });
+  }
 
   // Taking items off the menu is a menu change, so it needs the same role the
   // menu screen asks for.

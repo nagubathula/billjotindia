@@ -10,6 +10,10 @@ import {
   type ApiKeyContext,
 } from "@/lib/api-keys";
 import { CHANNEL_LABEL, FIRST_PARTY_SOURCES } from "@/lib/channels";
+import {
+  resolveChannelStoreOutlet,
+  type ChannelStoreLookupClient,
+} from "@/lib/channel-bridge";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { resolveOptionalCustomerIdForOrder } from "@/lib/storefront-customers";
@@ -53,6 +57,7 @@ type OrderBody = {
   instructions?: string;
   source?: OrderSource;
   outlet_id?: string;
+  external_store_id?: string;
   external_order_id?: string;
   external_payload?: Json;
 };
@@ -224,9 +229,48 @@ export async function POST(request: Request) {
   const externalPayload = firstParty ? null : (body.external_payload ?? null);
 
   const supabase = createAdminClient();
-  const outletId = body.outlet_id ?? apiKey?.outletId ?? FALLBACK_OUTLET_ID;
+  let outletId = body.outlet_id ?? apiKey?.outletId ?? "";
+  if (!firstParty && !outletId && body.external_store_id?.trim()) {
+    const resolvedStore = await resolveChannelStoreOutlet(
+      supabase as unknown as ChannelStoreLookupClient,
+      source,
+      body.external_store_id,
+    );
+    if (!resolvedStore) {
+      return fail(
+        404,
+        `No outlet linked for ${CHANNEL_LABEL[source as keyof typeof CHANNEL_LABEL] ?? source} store "${body.external_store_id.trim()}"`,
+      );
+    }
+    if (!resolvedStore.isOnline) {
+      return fail(
+        409,
+        `Outlet is marked offline on ${CHANNEL_LABEL[source as keyof typeof CHANNEL_LABEL] ?? source}`,
+      );
+    }
+    outletId = resolvedStore.outletId;
+  }
+  if (!outletId) {
+    outletId = FALLBACK_OUTLET_ID;
+  }
   if (!isUuid(outletId)) {
     return fail(400, "Unknown or inactive outlet");
+  }
+
+  // Enforce channel online toggle even when adapter sends outlet_id directly
+  if (!firstParty) {
+    const { data: channelLink } = await supabase
+      .from("channel_outlets")
+      .select("is_online")
+      .eq("outlet_id", outletId)
+      .eq("channel", source)
+      .maybeSingle();
+    if (channelLink && !channelLink.is_online) {
+      return fail(
+        409,
+        `Outlet is marked offline on ${CHANNEL_LABEL[source as keyof typeof CHANNEL_LABEL] ?? source}`,
+      );
+    }
   }
 
   const { data: outletRow } = await supabase

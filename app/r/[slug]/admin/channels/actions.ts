@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CONNECTABLE_CHANNELS, OFFLINE_REASONS } from "@/lib/channels";
+import { dispatchChannelBridgeEvent } from "@/lib/channel-bridge";
 import { isUuid } from "@/lib/utils";
 import type { AggregatorChannel } from "@/lib/types";
 
@@ -81,6 +82,13 @@ export async function saveChannelOutletAction(
   }
 
   revalidatePath(`/r/${slug}/admin/channels`);
+  dispatchChannelBridgeEvent({
+    event: "channel.store_updated",
+    channel: auth.channel,
+    outlet_id: outletId,
+    external_store_id: storeId,
+    prep_time_minutes: prep,
+  });
   return { ok: true };
 }
 
@@ -108,10 +116,18 @@ export async function setChannelOnlineAction(
     })
     .eq("outlet_id", outletId)
     .eq("channel", auth.channel)
-    .select("id");
+    .select("id, external_store_id");
   if (error) return { ok: false, error: error.message };
   if (!data?.length) return { ok: false, error: "Link the store first." };
 
   revalidatePath(`/r/${slug}/admin/channels`);
+  dispatchChannelBridgeEvent({
+    event: "channel.store_availability_changed",
+    channel: auth.channel,
+    outlet_id: outletId,
+    external_store_id: data[0].external_store_id,
+    is_online: online,
+    offline_reason: online ? null : (reason ?? null),
+  });
   return { ok: true };
 }
