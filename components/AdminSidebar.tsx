@@ -65,7 +65,7 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
           All workspaces
         </Link>
         <div className="mt-2.5 flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground shadow-2xs">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary shadow-2xs">
             <Store className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -73,7 +73,7 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
               {restaurant.name}
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              Restaurant Admin
+              Restaurant Console
             </div>
           </div>
         </div>
@@ -214,7 +214,7 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
       <div className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-2.5 px-1">
           <Avatar className="h-7 w-7">
-            <AvatarFallback className="text-[11px] font-medium">
+            <AvatarFallback className="bg-primary/12 text-[11px] font-semibold text-primary">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -278,16 +278,16 @@ function NavItem({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
         active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+          ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground ring-1 ring-emerald-500/15"
+          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
       )}
     >
       <Icon
         className={cn(
           "h-4 w-4 shrink-0",
-          active ? "text-foreground" : "text-muted-foreground",
+          active ? "text-primary" : "text-muted-foreground",
         )}
       />
       <span className="flex-1 truncate">{children}</span>

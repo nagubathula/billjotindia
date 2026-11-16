@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { strongestRole } from "@/lib/roles";
+import { ROLE_LABEL, strongestRole } from "@/lib/roles";
 import type { AppRole, Brand, Restaurant } from "@/lib/types";
 
 type Props = {
@@ -73,13 +73,18 @@ export function WorkspaceSidebar({
           <Link
             href="/dashboard"
             className={cn(
-              "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
               pathname === "/dashboard"
-                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground ring-1 ring-emerald-500/15"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
             )}
           >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <LayoutDashboard
+              className={cn(
+                "h-4 w-4 shrink-0",
+                pathname === "/dashboard" ? "text-primary" : "text-muted-foreground",
+              )}
+            />
             <span className="flex-1 truncate">All Workspaces</span>
           </Link>
         </div>
@@ -116,13 +121,18 @@ export function WorkspaceSidebar({
                   key={b.id}
                   href={href}
                   className={cn(
-                    "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
                     active
-                      ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                      ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground ring-1 ring-emerald-500/15"
+                      : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
                   )}
                 >
-                  <Building2 className="h-4 w-4 shrink-0" />
+                  <Building2
+                    className={cn(
+                      "h-4 w-4 shrink-0",
+                      active ? "text-primary" : "text-muted-foreground",
+                    )}
+                  />
                   <span className="flex-1 truncate">{b.name}</span>
                 </Link>
               );
@@ -179,7 +189,7 @@ export function WorkspaceSidebar({
       <div className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-2.5 px-1">
           <Avatar className="h-7 w-7">
-            <AvatarFallback className="text-[11px] font-medium">
+            <AvatarFallback className="bg-primary/12 text-[11px] font-semibold text-primary">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -189,11 +199,7 @@ export function WorkspaceSidebar({
                 {userName}
               </span>
               <Badge variant="secondary" className="text-[10px]">
-                {highestRole === "admin"
-                  ? "Admin"
-                  : highestRole === "manager"
-                    ? "Manager"
-                    : "Cashier"}
+                {ROLE_LABEL[highestRole]}
               </Badge>
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">

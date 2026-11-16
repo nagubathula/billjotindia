@@ -8,12 +8,12 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Billjot India",
-  description: "POS, kiosk and online ordering for Indian F&B",
+  title: "Billjot Console",
+  description: "Restaurant POS, kitchen display, and multi-outlet operations",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f5f5f7",
+  themeColor: "#059669",
 };
 
 const stripExtensionAttrsScript = `

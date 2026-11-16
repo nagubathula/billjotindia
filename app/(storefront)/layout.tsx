@@ -38,7 +38,7 @@ export default async function AppShellLayout({
         userName={userName}
         userEmail={userEmail}
       />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-zinc-50/55 dark:bg-background">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-background">
         <div className="md:hidden">
           <AppNavbar />
         </div>

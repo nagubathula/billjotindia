@@ -52,7 +52,7 @@ export default async function AdminLayout(props: Props) {
         userEmail={userEmail}
         userName={userName}
       />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-zinc-50/55 dark:bg-background">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-background">
         <MobileAdminNav
           restaurant={restaurant}
           role={role}

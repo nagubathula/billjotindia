@@ -18,17 +18,19 @@ export default async function SignupPage() {
       (user.user_metadata?.full_name as string | undefined) ??
       user.email;
     return (
-      <>
-        <div className="mt-6 text-center">
-          <h1 className="text-3xl font-bold">New restaurant</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+      <div>
+        <div className="text-center lg:text-left">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            Add a new restaurant
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
             {name ? `Signed in as ${name}. ` : ""}Give it a name and
             you&apos;ll be its admin.
           </p>
         </div>
 
-        <Card className="mt-6 py-6">
-          <CardContent className="px-6">
+        <Card className="mt-6 rounded-2xl border-border/80 py-6 shadow-float">
+          <CardContent className="px-6 sm:px-7">
             <CreateRestaurantForm />
           </CardContent>
         </Card>
@@ -36,28 +38,30 @@ export default async function SignupPage() {
         <p className="mt-6 text-center text-xs">
           <Link
             href="/dashboard"
-            className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Back to dashboard
           </Link>
         </p>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="mt-6 text-center">
-        <h1 className="text-3xl font-bold">Create your restaurant</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+    <div>
+      <div className="text-center lg:text-left">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          Create your restaurant
+        </h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           Set up your POS in two minutes. You&apos;ll be the admin, and can add
-          staff later from your dashboard.
+          managers, cashiers, and captains anytime.
         </p>
       </div>
 
-      <Card className="mt-6 py-6">
-        <CardContent className="px-6">
+      <Card className="mt-6 rounded-2xl border-border/80 py-6 shadow-float">
+        <CardContent className="px-6 sm:px-7">
           <SignupForm />
         </CardContent>
       </Card>
@@ -65,11 +69,14 @@ export default async function SignupPage() {
       <div className="mt-6 text-center text-xs text-muted-foreground">
         <p>
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-primary hover:underline"
+          >
             Sign in
           </Link>
         </p>
       </div>
-    </>
+    </div>
   );
 }
