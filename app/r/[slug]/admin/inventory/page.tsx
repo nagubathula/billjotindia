@@ -1,8 +1,12 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Truck } from "lucide-react";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { OrderItem, Product, ProductConfig } from "@/lib/types";
 import {
   InventoryWorkbench,
@@ -84,6 +88,15 @@ export default async function AdminInventoryPage(props: Props) {
       <PageHeader
         title="Inventory & Recipe BOM"
         description="Track kitchen raw materials, low-stock par alerts, supplier purchase orders, and dish-level food cost margins."
+        actions={
+          <Link
+            href={`/r/${params.slug}/admin/vendors`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            <Truck className="h-3.5 w-3.5" />
+            Vendors &amp; Purchase Orders
+          </Link>
+        }
       />
 
       <InventoryWorkbench products={productSummaries} />

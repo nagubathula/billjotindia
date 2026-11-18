@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bike,
   Boxes,
+  Briefcase,
   Calculator,
   ChefHat,
   ChevronLeft,
@@ -19,6 +20,7 @@ import {
   Settings,
   ShoppingBag,
   Store,
+  Truck,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -156,6 +158,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
             Inventory & Recipes
           </NavItem>
           <NavItem
+            href={`${base}/vendors`}
+            icon={Truck}
+            active={isActive("vendors")}
+          >
+            Vendors & POs
+          </NavItem>
+          <NavItem
             href={`${base}/channels`}
             icon={Bike}
             active={isActive("channels")}
@@ -182,6 +191,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
         </NavGroup>
 
         <NavGroup label="Administration">
+          <NavItem
+            href={`${base}/hr`}
+            icon={Briefcase}
+            active={isActive("hr")}
+          >
+            Staff & HR
+          </NavItem>
           {role === "admin" && (
             <NavItem
               href={`${base}/users`}

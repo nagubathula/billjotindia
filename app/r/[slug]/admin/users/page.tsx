@@ -1,7 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Briefcase } from "lucide-react";
 import { requireRole, getCurrentUser, getRestaurantBySlug } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_TIME_ZONE } from "@/lib/time";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -74,6 +78,15 @@ export default async function UsersPage(props: Props) {
       <PageHeader
         title="Users"
         description="Staff with access to this restaurant. Cashiers can use the POS; managers also see admin; admins can manage users + settings."
+        actions={
+          <Link
+            href={`/r/${params.slug}/admin/hr`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            <Briefcase className="h-3.5 w-3.5" />
+            Staff HR &amp; Payroll
+          </Link>
+        }
       />
 
       <Card>

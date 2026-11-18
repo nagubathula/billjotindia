@@ -436,6 +436,279 @@ export type Database = {
           },
         ]
       }
+      hr_advances: {
+        Row: {
+          advance_date: string
+          amount: number
+          created_at: string
+          deducted_payroll_month: string | null
+          employee_id: string
+          id: string
+          note: string | null
+          payment_mode: string
+          restaurant_id: string
+        }
+        Insert: {
+          advance_date?: string
+          amount: number
+          created_at?: string
+          deducted_payroll_month?: string | null
+          employee_id: string
+          id?: string
+          note?: string | null
+          payment_mode?: string
+          restaurant_id: string
+        }
+        Update: {
+          advance_date?: string
+          amount?: number
+          created_at?: string
+          deducted_payroll_month?: string | null
+          employee_id?: string
+          id?: string
+          note?: string | null
+          payment_mode?: string
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_advances_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "hr_employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_advances_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_attendance: {
+        Row: {
+          check_in: string | null
+          check_out: string | null
+          created_at: string
+          employee_id: string
+          id: string
+          note: string | null
+          overtime_hours: number
+          restaurant_id: string
+          status: string
+          updated_at: string
+          work_date: string
+        }
+        Insert: {
+          check_in?: string | null
+          check_out?: string | null
+          created_at?: string
+          employee_id: string
+          id?: string
+          note?: string | null
+          overtime_hours?: number
+          restaurant_id: string
+          status: string
+          updated_at?: string
+          work_date: string
+        }
+        Update: {
+          check_in?: string | null
+          check_out?: string | null
+          created_at?: string
+          employee_id?: string
+          id?: string
+          note?: string | null
+          overtime_hours?: number
+          restaurant_id?: string
+          status?: string
+          updated_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_attendance_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "hr_employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_employees: {
+        Row: {
+          auth_user_id: string | null
+          base_pay: number
+          created_at: string
+          department: string
+          designation: string
+          email: string | null
+          employee_code: string
+          employment_type: string
+          full_name: string
+          govt_id_note: string | null
+          id: string
+          joined_on: string
+          outlet_id: string | null
+          pay_type: string
+          phone: string | null
+          restaurant_id: string
+          shift_name: string
+          status: string
+          updated_at: string
+          upi_or_bank: string | null
+        }
+        Insert: {
+          auth_user_id?: string | null
+          base_pay?: number
+          created_at?: string
+          department?: string
+          designation: string
+          email?: string | null
+          employee_code: string
+          employment_type?: string
+          full_name: string
+          govt_id_note?: string | null
+          id?: string
+          joined_on?: string
+          outlet_id?: string | null
+          pay_type?: string
+          phone?: string | null
+          restaurant_id: string
+          shift_name?: string
+          status?: string
+          updated_at?: string
+          upi_or_bank?: string | null
+        }
+        Update: {
+          auth_user_id?: string | null
+          base_pay?: number
+          created_at?: string
+          department?: string
+          designation?: string
+          email?: string | null
+          employee_code?: string
+          employment_type?: string
+          full_name?: string
+          govt_id_note?: string | null
+          id?: string
+          joined_on?: string
+          outlet_id?: string | null
+          pay_type?: string
+          phone?: string | null
+          restaurant_id?: string
+          shift_name?: string
+          status?: string
+          updated_at?: string
+          upi_or_bank?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_employees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_employees_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_payroll_entries: {
+        Row: {
+          advance_deduction: number
+          bonus_amount: number
+          created_at: string
+          days_in_month: number
+          employee_id: string
+          gross_earned: number
+          id: string
+          net_payable: number
+          note: string | null
+          other_deduction: number
+          overtime_hours: number
+          overtime_pay: number
+          paid_at: string | null
+          payable_days: number
+          payment_mode: string | null
+          payment_status: string
+          payroll_month: string
+          restaurant_id: string
+          updated_at: string
+        }
+        Insert: {
+          advance_deduction?: number
+          bonus_amount?: number
+          created_at?: string
+          days_in_month: number
+          employee_id: string
+          gross_earned?: number
+          id?: string
+          net_payable?: number
+          note?: string | null
+          other_deduction?: number
+          overtime_hours?: number
+          overtime_pay?: number
+          paid_at?: string | null
+          payable_days?: number
+          payment_mode?: string | null
+          payment_status?: string
+          payroll_month: string
+          restaurant_id: string
+          updated_at?: string
+        }
+        Update: {
+          advance_deduction?: number
+          bonus_amount?: number
+          created_at?: string
+          days_in_month?: number
+          employee_id?: string
+          gross_earned?: number
+          id?: string
+          net_payable?: number
+          note?: string | null
+          other_deduction?: number
+          overtime_hours?: number
+          overtime_pay?: number
+          paid_at?: string | null
+          payable_days?: number
+          payment_mode?: string | null
+          payment_status?: string
+          payroll_month?: string
+          restaurant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_payroll_entries_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "hr_employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_payroll_entries_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kitchen_stations: {
         Row: {
           created_at: string
@@ -1517,6 +1790,220 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "user_roles_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          note: string | null
+          payment_date: string
+          payment_mode: string
+          purchase_order_id: string | null
+          reference_no: string | null
+          restaurant_id: string
+          vendor_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          payment_date?: string
+          payment_mode?: string
+          purchase_order_id?: string | null
+          reference_no?: string | null
+          restaurant_id: string
+          vendor_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          payment_date?: string
+          payment_mode?: string
+          purchase_order_id?: string | null
+          reference_no?: string | null
+          restaurant_id?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_payments_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_purchase_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_payments_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_payments_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_purchase_orders: {
+        Row: {
+          amount_paid: number
+          created_at: string
+          expected_date: string | null
+          gst_amount: number
+          id: string
+          invoice_number: string | null
+          items: Json
+          notes: string | null
+          order_date: string
+          outlet_id: string | null
+          payment_status: string
+          po_number: string
+          received_at: string | null
+          restaurant_id: string
+          status: string
+          subtotal: number
+          total_amount: number
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          amount_paid?: number
+          created_at?: string
+          expected_date?: string | null
+          gst_amount?: number
+          id?: string
+          invoice_number?: string | null
+          items?: Json
+          notes?: string | null
+          order_date?: string
+          outlet_id?: string | null
+          payment_status?: string
+          po_number: string
+          received_at?: string | null
+          restaurant_id: string
+          status?: string
+          subtotal?: number
+          total_amount?: number
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          amount_paid?: number
+          created_at?: string
+          expected_date?: string | null
+          gst_amount?: number
+          id?: string
+          invoice_number?: string | null
+          items?: Json
+          notes?: string | null
+          order_date?: string
+          outlet_id?: string | null
+          payment_status?: string
+          po_number?: string
+          received_at?: string | null
+          restaurant_id?: string
+          status?: string
+          subtotal?: number
+          total_amount?: number
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_purchase_orders_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_purchase_orders_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_purchase_orders_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendors: {
+        Row: {
+          address: string | null
+          category: string
+          contact_person: string | null
+          created_at: string
+          email: string | null
+          gstin: string | null
+          id: string
+          name: string
+          notes: string | null
+          payment_terms: string
+          phone: string | null
+          restaurant_id: string
+          status: string
+          updated_at: string
+          upi_or_bank: string | null
+          vendor_code: string
+        }
+        Insert: {
+          address?: string | null
+          category?: string
+          contact_person?: string | null
+          created_at?: string
+          email?: string | null
+          gstin?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          payment_terms?: string
+          phone?: string | null
+          restaurant_id: string
+          status?: string
+          updated_at?: string
+          upi_or_bank?: string | null
+          vendor_code: string
+        }
+        Update: {
+          address?: string | null
+          category?: string
+          contact_person?: string | null
+          created_at?: string
+          email?: string | null
+          gstin?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          payment_terms?: string
+          phone?: string | null
+          restaurant_id?: string
+          status?: string
+          updated_at?: string
+          upi_or_bank?: string | null
+          vendor_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendors_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
             referencedRelation: "restaurants"

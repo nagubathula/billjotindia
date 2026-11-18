@@ -35,6 +35,13 @@ export type KotTicketItem        = Row<"kot_ticket_items">;
 export type ChannelItemMapping   = Row<"channel_item_mappings">;
 export type ChannelOutlet        = Row<"channel_outlets">;
 export type ExternalOrderEvent   = Row<"external_order_events">;
+export type HrEmployee           = Row<"hr_employees">;
+export type HrAttendance         = Row<"hr_attendance">;
+export type HrAdvance            = Row<"hr_advances">;
+export type HrPayrollEntry       = Row<"hr_payroll_entries">;
+export type Vendor               = Row<"vendors">;
+export type VendorPurchaseOrder  = Row<"vendor_purchase_orders">;
+export type VendorPayment        = Row<"vendor_payments">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
 export type AppRole = "admin" | "user" | "manager" | "captain";
