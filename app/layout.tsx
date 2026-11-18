@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 
 // Apple devices render San Francisco via the system font stack in globals.css;
@@ -46,7 +45,8 @@ const stripExtensionAttrsScript = `
     }
   }, true);
 
-  var PREFIXES = ["bis_skin_checked", "bis_register", "__processed_"];
+  var PREFIXES = ["bis_skin_checked", "bis_register", "__processed_", "data-gr-ext-installed", "data-new-gr-c-s-check-loaded"];
+  var ATTR_SELECTOR = "[bis_skin_checked],[bis_register],[data-gr-ext-installed],[data-new-gr-c-s-check-loaded]";
   function isExtAttr(name) {
     for (var i = 0; i < PREFIXES.length; i++) {
       if (name === PREFIXES[i] || name.indexOf(PREFIXES[i]) === 0) return true;
@@ -64,8 +64,12 @@ const stripExtensionAttrsScript = `
     if (!root) return;
     cleanNode(root);
     if (root.querySelectorAll) {
-      var all = root.querySelectorAll("[bis_skin_checked],[bis_register]");
+      var all = root.querySelectorAll(ATTR_SELECTOR);
       for (var i = 0; i < all.length; i++) cleanNode(all[i]);
+      var tmpls = root.querySelectorAll("template");
+      for (var t = 0; t < tmpls.length; t++) {
+        if (tmpls[t].content) cleanTree(tmpls[t].content);
+      }
     }
   }
   cleanTree(document.documentElement);
@@ -87,9 +91,6 @@ const stripExtensionAttrsScript = `
       childList: true,
       subtree: true
     });
-    window.addEventListener("load", function() {
-      setTimeout(function() { obs.disconnect(); }, 2000);
-    }, { once: true });
   }
 })();
 `;
@@ -97,10 +98,13 @@ const stripExtensionAttrsScript = `
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: stripExtensionAttrsScript }}
+        />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased" suppressHydrationWarning>
-        <Script id="strip-extension-attrs" strategy="beforeInteractive">
-          {stripExtensionAttrsScript}
-        </Script>
         {children}
       </body>
     </html>
