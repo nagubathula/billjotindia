@@ -2,9 +2,10 @@ import { notFound } from "next/navigation";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { createClient } from "@/lib/supabase/server";
-import { resolveTimeZone, startOfDay } from "@/lib/time";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { dayKey, resolveTimeZone, startOfDay } from "@/lib/time";
 import { PageHeader } from "@/components/PageHeader";
-import type { Order } from "@/lib/types";
+import type { Order, OutletExpense } from "@/lib/types";
 import {
   RegisterWorkbench,
   type OutletShiftSummary,
@@ -34,15 +35,26 @@ export default async function AdminRegisterPage(props: Props) {
   const timeZone = resolveTimeZone(outlets[0]?.timezone);
   const now = new Date();
   const todayStart = startOfDay(now, timeZone);
+  const todayDate = dayKey(now, timeZone);
 
   const supabase = await createClient();
-  const { data: todayOrdersData } = await supabase
-    .from("orders")
-    .select(
-      "id, outlet_id, source, status, customer_name, customer_email, token_number, placed_at, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
-    )
-    .in("outlet_id", scoped)
-    .gte("placed_at", todayStart.toISOString());
+  const admin = createAdminClient();
+  const [{ data: todayOrdersData }, { data: todayExpensesData }] =
+    await Promise.all([
+      supabase
+        .from("orders")
+        .select(
+          "id, outlet_id, source, status, customer_name, customer_email, token_number, placed_at, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
+        )
+        .in("outlet_id", scoped)
+        .gte("placed_at", todayStart.toISOString()),
+      admin
+        .from("outlet_expenses")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .eq("expense_date", todayDate)
+        .order("created_at", { ascending: false }),
+    ]);
 
   const orders = (todayOrdersData ?? []) as Pick<
     Order,
@@ -74,6 +86,7 @@ export default async function AdminRegisterPage(props: Props) {
     let cashSales = 0;
     let upiSales = 0;
     let cardSales = 0;
+    let tabSales = 0;
     let webSales = 0;
     let aggregatorGross = 0;
     let aggregatorNet = 0;
@@ -104,7 +117,9 @@ export default async function AdminRegisterPage(props: Props) {
         sgst += Number(ord.sgst_amount ?? 0);
         discounts += Number(ord.discount_amount ?? 0);
 
-        if (email.startsWith("pos+upi") || email.startsWith("pos+razorpay")) {
+        if (email.startsWith("pos+tab")) {
+          tabSales += amt;
+        } else if (email.startsWith("pos+upi") || email.startsWith("pos+razorpay")) {
           upiSales += amt;
         } else if (
           email.startsWith("pos+card") ||
@@ -148,6 +163,7 @@ export default async function AdminRegisterPage(props: Props) {
       cashSales,
       upiSales,
       cardSales,
+      tabSales,
       webSales,
       aggregatorGross,
       aggregatorNet,
@@ -171,6 +187,8 @@ export default async function AdminRegisterPage(props: Props) {
 
       <RegisterWorkbench
         summaries={summaries}
+        initialExpenses={(todayExpensesData ?? []) as OutletExpense[]}
+        todayDate={todayDate}
         dateLabel={dateLabel}
         restaurantSlug={params.slug}
       />

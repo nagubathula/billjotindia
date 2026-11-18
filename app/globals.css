@@ -175,6 +175,23 @@ html, body { height: 100%; }
     box-shadow: none !important;
     border: none !important;
   }
+  .a4-invoice-print,
+  .a4-invoice-print * {
+    visibility: visible;
+  }
+  .a4-invoice-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 190mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
   .print\:hidden {
     display: none !important;
   }

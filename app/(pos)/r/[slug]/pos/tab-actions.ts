@@ -1,8 +1,21 @@
 "use server";
 
+import { randomInt } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient as createSb } from "@supabase/supabase-js";
+import { checkTabCreditLimit, computeTabNextBalance } from "@/lib/accounts";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
+import type { Json } from "@/lib/database.types";
+import {
+  cleanNote,
+  isOrderType,
+  newOrderNumber,
+  ORDER_NOTE_MAX,
+  recomputeFirstParty,
+  round2,
+  type OrderItemInput,
+} from "@/lib/order-pricing";
+import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import {
   ADMIN_AREA_ROLES,
   BILLING_ROLES,
@@ -18,6 +31,8 @@ import {
   type SettleInput,
   type TabRow,
 } from "@/lib/running-orders";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isUuid } from "@/lib/utils";
 
 function rawAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -404,4 +419,290 @@ export async function settleTabAction(
   });
   if (res.ok) revalidateFloorAndKitchen(slug);
   return res;
+}
+
+export async function chargePosToCustomerTabAction(
+  slug: string,
+  input: {
+    customerTabId: string;
+    outletId: string;
+    posTabId?: string | null;
+    hasRunningOrder?: boolean;
+    orderType: string;
+    customerName?: string;
+    note?: string;
+    packingCharge?: number;
+    discountPct?: number;
+    discountFlat?: number;
+    roundingAmount?: number;
+    allowOverLimit?: boolean;
+    lines: PosLine[];
+    pricingItems: OrderItemInput[];
+  },
+): Promise<
+  | { ok: true; orderId: string; nextBalance: number }
+  | { ok: false; error: string }
+> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Not allowed" };
+  const { role } = await requireRole(BILLING_ROLES, {
+    restaurantId: restaurant.id,
+  });
+
+  if (!isUuid(input.customerTabId)) {
+    return { ok: false, error: "Select a customer Khata tab." };
+  }
+  if (!isUuid(input.outletId)) {
+    return { ok: false, error: "Invalid outlet." };
+  }
+
+  const db = rawAdmin();
+  if (!(await outletInRestaurant(db, input.outletId, restaurant.id))) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const admin = createAdminClient();
+  const { data: custTab } = await admin
+    .from("customer_tabs")
+    .select("*")
+    .eq("id", input.customerTabId)
+    .eq("restaurant_id", restaurant.id)
+    .maybeSingle();
+
+  if (!custTab) return { ok: false, error: "Customer tab not found." };
+  if (custTab.status !== "active") {
+    return { ok: false, error: "Customer tab is suspended or closed." };
+  }
+
+  const curBalance = Number(custTab.current_balance ?? 0);
+  const creditLimit = Number(custTab.credit_limit ?? 0);
+  const canOverrideLimit =
+    Boolean(input.allowOverLimit) && ADMIN_AREA_ROLES.includes(role);
+
+  const packing =
+    input.orderType === "dine-in"
+      ? 0
+      : Math.max(0, round2(Number(input.packingCharge ?? 0)));
+
+  // Reprice on the server first so credit limit is verified before any writes.
+  const priced = await recomputeFirstParty(
+    admin,
+    input.outletId,
+    Array.isArray(input.pricingItems) ? input.pricingItems : [],
+    packing,
+    0,
+    0,
+    null,
+  );
+  if (!priced.ok) return { ok: false, error: priced.error };
+
+  const grossItemsTotal = round2(
+    priced.totals.items.reduce((s, it) => s + Number(it.total_price || 0), 0),
+  );
+  const pct = Math.min(100, Math.max(0, Number(input.discountPct ?? 0) || 0));
+  const rawDisc =
+    pct > 0
+      ? (grossItemsTotal * pct) / 100
+      : Math.max(0, Number(input.discountFlat ?? 0) || 0);
+  const discount = Math.min(grossItemsTotal, round2(rawDisc));
+  const netBeforeRound = Math.max(0, grossItemsTotal + packing - discount);
+  const totalAmount = Math.round(netBeforeRound);
+  const rounding = round2(totalAmount - netBeforeRound);
+
+  if (!canOverrideLimit) {
+    const check = checkTabCreditLimit(curBalance, creditLimit, totalAmount);
+    if (!check.withinLimit) {
+      return {
+        ok: false,
+        error: `Exceeds ${custTab.customer_name}'s Khata limit by ₹${check.overBy.toFixed(0)}. Manager approval or settlement required.`,
+      };
+    }
+  }
+
+  const note = cleanNote(input.note, ORDER_NOTE_MAX);
+  let orderId: string;
+  let chargedTotal = totalAmount;
+
+  if (input.hasRunningOrder && input.posTabId && isUuid(input.posTabId)) {
+    const loaded = await loadTab(db, input.posTabId, restaurant.id);
+    if (!loaded.ok) return loaded;
+
+    const kot = await sendKotForTab(
+      loaded.tab,
+      Array.isArray(input.lines) ? input.lines : [],
+      custTab.customer_name,
+    );
+    if (!kot.ok) return kot;
+
+    const runningOrderId = kot.orderId ?? loaded.tab.order_id;
+    if (!runningOrderId) {
+      return { ok: false, error: "This table has nothing to bill." };
+    }
+
+    const { data: orderItems } = await admin
+      .from("order_items")
+      .select("total_price")
+      .eq("order_id", runningOrderId);
+    const actualGross = round2(
+      (orderItems ?? []).reduce((s, it) => s + Number(it.total_price || 0), 0),
+    );
+    const actualDisc = Math.min(
+      actualGross,
+      round2(
+        pct > 0
+          ? (actualGross * pct) / 100
+          : Math.max(0, Number(input.discountFlat ?? 0) || 0),
+      ),
+    );
+    const actualNet = Math.max(0, actualGross - actualDisc);
+    chargedTotal = Math.round(actualNet);
+    const actualRounding = round2(chargedTotal - actualNet);
+
+    const tableShort = loaded.tab.name.split("·")[0].trim();
+    const { error: updOrderErr } = await admin
+      .from("orders")
+      .update({
+        table_id: loaded.tab.id,
+        discount_amount: actualDisc,
+        rounding_amount: actualRounding,
+        total_amount: chargedTotal,
+        customer_name: `${tableShort} · ${custTab.customer_name}`,
+        customer_email: "pos+tab@billjot.local",
+        customer_phone: custTab.phone,
+        payment_status: "pending",
+        payment_provider: "customer_tab",
+        ...(note ? { instructions: note } : {}),
+      })
+      .eq("id", runningOrderId);
+
+    if (updOrderErr) return { ok: false, error: updOrderErr.message };
+
+    await db
+      .from("pos_tabs")
+      .update({ lines: [], order_id: null, updated_at: new Date().toISOString() })
+      .eq("id", loaded.tab.id);
+
+    orderId = runningOrderId;
+    void dispatchOrderStatusWebhooks(orderId, "order.updated");
+  } else {
+    const resolvedOrderType = isOrderType(input.orderType)
+      ? input.orderType
+      : "dine-in";
+    const resolvedTableId =
+      resolvedOrderType === "dine-in" &&
+      input.posTabId &&
+      isUuid(input.posTabId)
+        ? input.posTabId
+        : null;
+    const tokenNumber = randomInt(101, 999);
+    const customerLabel =
+      input.customerName?.trim() || custTab.customer_name;
+
+    const { data: order, error: orderErr } = await admin
+      .from("orders")
+      .insert({
+        outlet_id: input.outletId,
+        table_id: resolvedTableId,
+        source: "pos",
+        customer_name: customerLabel,
+        customer_email: "pos+tab@billjot.local",
+        customer_phone: custTab.phone,
+        order_type: resolvedOrderType,
+        subtotal: priced.totals.subtotal,
+        cgst_amount: priced.totals.cgst,
+        sgst_amount: priced.totals.sgst,
+        gst_paid_by_operator: false,
+        takeaway_charges: packing,
+        discount_amount: discount,
+        rounding_amount: rounding,
+        total_amount: chargedTotal,
+        token_number: tokenNumber,
+        status: "pending",
+        payment_status: "pending",
+        payment_provider: "customer_tab",
+        unique_order_id: newOrderNumber(),
+        ...(note ? { instructions: note } : {}),
+      })
+      .select("id")
+      .single();
+
+    if (orderErr || !order) {
+      return { ok: false, error: orderErr?.message ?? "Failed to create POS bill." };
+    }
+
+    const anyItemNote = priced.totals.items.some((it) => it.instructions);
+    const { data: insertedItems, error: itemsErr } = await admin
+      .from("order_items")
+      .insert(
+        priced.totals.items.map((it) => ({
+          order_id: order.id,
+          product_config: it.product_config as Json,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          total_price: it.total_price,
+          ...(anyItemNote ? { instructions: it.instructions } : {}),
+        })),
+      )
+      .select("id, quantity, instructions");
+
+    if (itemsErr) {
+      await admin.from("orders").delete().eq("id", order.id);
+      return { ok: false, error: itemsErr.message };
+    }
+
+    if (insertedItems && insertedItems.length > 0) {
+      const { data: ticket } = await admin
+        .from("kot_tickets")
+        .insert({
+          outlet_id: input.outletId,
+          order_id: order.id,
+          ticket_number: tokenNumber,
+          status: "printed",
+          notes: note,
+          printed_at: new Date().toISOString(),
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (ticket) {
+        await admin.from("kot_ticket_items").insert(
+          insertedItems.map((oi) => ({
+            kot_ticket_id: ticket.id,
+            order_item_id: oi.id,
+            quantity: oi.quantity,
+            notes: oi.instructions,
+          })),
+        );
+      }
+    }
+
+    orderId = order.id;
+    void dispatchOrderStatusWebhooks(orderId, "order.created");
+  }
+
+  const nextBalance = computeTabNextBalance(curBalance, "charge", chargedTotal);
+  const { error: txErr } = await admin.from("customer_tab_transactions").insert({
+    restaurant_id: restaurant.id,
+    tab_id: custTab.id,
+    order_id: orderId,
+    entry_type: "charge",
+    amount: chargedTotal,
+    balance_after: nextBalance,
+    note: `POS Bill (${input.orderType})`,
+  });
+  if (txErr) {
+    return { ok: false, error: txErr.message };
+  }
+
+  await admin
+    .from("customer_tabs")
+    .update({ current_balance: nextBalance })
+    .eq("id", custTab.id)
+    .eq("restaurant_id", restaurant.id);
+
+  revalidateFloorAndKitchen(slug);
+  revalidatePath(`/r/${slug}/pos`);
+  revalidatePath(`/r/${slug}/admin/accounts`);
+  revalidatePath(`/r/${slug}/admin/register`);
+  return { ok: true, orderId, nextBalance };
 }

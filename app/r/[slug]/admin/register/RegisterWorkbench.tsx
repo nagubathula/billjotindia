@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -9,12 +9,23 @@ import {
   CheckCircle2,
   CreditCard,
   ExternalLink,
+  Loader2,
   Plus,
   Printer,
   Smartphone,
   Trash2,
   Wallet,
 } from "lucide-react";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_CATEGORY_LABEL,
+  type ExpenseCategory,
+} from "@/lib/accounts";
+import type { OutletExpense } from "@/lib/types";
+import {
+  createOutletExpenseAction,
+  deleteOutletExpenseAction,
+} from "../accounts/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -60,42 +71,11 @@ export type OutletShiftSummary = {
   cashSales: number;
   upiSales: number;
   cardSales: number;
+  tabSales: number;
   webSales: number;
   aggregatorGross: number;
   aggregatorNet: number;
 };
-
-type PettyExpense = {
-  id: string;
-  reason: string;
-  category: "Kitchen Supplies" | "Staff Welfare" | "Utilities & Gas" | "Misc";
-  amount: number;
-  time: string;
-};
-
-const INITIAL_EXPENSES: PettyExpense[] = [
-  {
-    id: "exp-1",
-    reason: "Fresh curry leaves, mint & green chillies (morning market)",
-    category: "Kitchen Supplies",
-    amount: 320,
-    time: "09:15 AM",
-  },
-  {
-    id: "exp-2",
-    reason: "Earthen clay pots for Kunda Perugu (20 pcs)",
-    category: "Kitchen Supplies",
-    amount: 400,
-    time: "11:40 AM",
-  },
-  {
-    id: "exp-3",
-    reason: "Commercial LPG cylinder unloading & delivery tip",
-    category: "Utilities & Gas",
-    amount: 120,
-    time: "02:10 PM",
-  },
-];
 
 const DENOMINATIONS = [500, 200, 100, 50, 20, 10] as const;
 
@@ -105,10 +85,14 @@ const inrExact = (n: number) =>
 
 export function RegisterWorkbench({
   summaries,
+  initialExpenses,
+  todayDate,
   dateLabel,
   restaurantSlug,
 }: {
   summaries: OutletShiftSummary[];
+  initialExpenses: OutletExpense[];
+  todayDate: string;
   dateLabel: string;
   restaurantSlug: string;
 }) {
@@ -119,17 +103,33 @@ export function RegisterWorkbench({
     summaries.find((s) => s.outletId === selectedOutletId) ?? summaries[0];
 
   const [openingFloat, setOpeningFloat] = useState<number>(5000);
-  const [expenses, setExpenses] = useState<PettyExpense[]>(INITIAL_EXPENSES);
+  const [expenses, setExpenses] = useState<OutletExpense[]>(initialExpenses);
   const [newReason, setNewReason] = useState("");
-  const [newCategory, setNewCategory] =
-    useState<PettyExpense["category"]>("Kitchen Supplies");
+  const [newCategory, setNewCategory] = useState<ExpenseCategory>("supplies");
   const [newAmount, setNewAmount] = useState("");
+  const [expError, setExpError] = useState<string | null>(null);
   const [shiftClosed, setShiftClosed] = useState(false);
+  const [expPending, startExpTransition] = useTransition();
 
-  // Denomination counts initialized near expected cash so it's realistic out-of-the-box
+  const outletExpenses = useMemo(
+    () =>
+      expenses.filter(
+        (e) => e.outlet_id === null || e.outlet_id === selectedOutletId,
+      ),
+    [expenses, selectedOutletId],
+  );
+
+  // Only cash-mode petty payouts reduce the physical cash drawer
   const totalExpenses = useMemo(
-    () => expenses.reduce((s, e) => s + e.amount, 0),
-    [expenses],
+    () =>
+      outletExpenses
+        .filter((e) => e.payment_mode === "cash")
+        .reduce((s, e) => s + Number(e.amount ?? 0), 0),
+    [outletExpenses],
+  );
+  const allExpensesTotal = useMemo(
+    () => outletExpenses.reduce((s, e) => s + Number(e.amount ?? 0), 0),
+    [outletExpenses],
   );
   const expectedDrawerCash = Math.max(
     0,
@@ -137,7 +137,17 @@ export function RegisterWorkbench({
   );
 
   const [notes, setNotes] = useState<Record<number, number>>(() => {
-    let rem = Math.max(0, Math.round(5000 + (summaries[0]?.cashSales ?? 0) - 840));
+    const initialCashExpenses = initialExpenses
+      .filter(
+        (e) =>
+          e.payment_mode === "cash" &&
+          (e.outlet_id === null || e.outlet_id === (summaries[0]?.outletId ?? "")),
+      )
+      .reduce((s, e) => s + Number(e.amount ?? 0), 0);
+    let rem = Math.max(
+      0,
+      Math.round(5000 + (summaries[0]?.cashSales ?? 0) - initialCashExpenses),
+    );
     const init: Record<number, number> = { 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0 };
     for (const d of DENOMINATIONS) {
       init[d] = Math.floor(rem / d);
@@ -156,21 +166,36 @@ export function RegisterWorkbench({
     e.preventDefault();
     const amt = Math.max(0, Number(newAmount) || 0);
     if (!newReason.trim() || amt <= 0) return;
-    setExpenses((prev) => [
-      {
-        id: `exp-${Date.now()}`,
-        reason: newReason.trim(),
+    setExpError(null);
+    startExpTransition(async () => {
+      const res = await createOutletExpenseAction(restaurantSlug, {
+        outlet_id: selectedOutletId || null,
+        expense_date: todayDate,
         category: newCategory,
+        title: newReason.trim(),
         amount: amt,
-        time: new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-      ...prev,
-    ]);
-    setNewReason("");
-    setNewAmount("");
+        payment_mode: "cash",
+      });
+      if (!res.ok) {
+        setExpError(res.error);
+        return;
+      }
+      setExpenses((prev) => [res.expense, ...prev]);
+      setNewReason("");
+      setNewAmount("");
+    });
+  }
+
+  function handleRemoveExpense(id: string) {
+    setExpError(null);
+    startExpTransition(async () => {
+      const res = await deleteOutletExpenseAction(restaurantSlug, id);
+      if (!res.ok) {
+        setExpError(res.error);
+        return;
+      }
+      setExpenses((prev) => prev.filter((x) => x.id !== id));
+    });
   }
 
   function matchExpectedDenominations() {
@@ -346,14 +371,14 @@ export function RegisterWorkbench({
         <Card size="sm">
           <CardContent className="pt-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Petty Cash Payouts</span>
+              <span>Petty Payouts &amp; Khata</span>
               <Banknote className="h-3.5 w-3.5" />
             </div>
             <div className="mt-1.5 text-2xl font-semibold tabular-nums">
               {inr(totalExpenses)}
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              {expenses.length} drawer vouchers recorded today
+              {outletExpenses.length} vouchers ({inr(allExpensesTotal)} total) · Tab/Khata {inr(active.tabSales)}
             </div>
           </CardContent>
         </Card>
@@ -441,16 +466,17 @@ export function RegisterWorkbench({
                 />
                 <Select
                   value={newCategory}
-                  onValueChange={(v) => v && setNewCategory(v as PettyExpense["category"])}
+                  onValueChange={(v) => v && setNewCategory(v as ExpenseCategory)}
                 >
                   <SelectTrigger size="sm" className="h-8 w-full text-xs" aria-label="Expense category">
-                    <SelectValue />
+                    <SelectValue>{EXPENSE_CATEGORY_LABEL[newCategory]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Kitchen Supplies">Kitchen Supplies</SelectItem>
-                    <SelectItem value="Utilities & Gas">Utilities &amp; Gas</SelectItem>
-                    <SelectItem value="Staff Welfare">Staff Welfare</SelectItem>
-                    <SelectItem value="Misc">Misc</SelectItem>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Input
@@ -462,43 +488,53 @@ export function RegisterWorkbench({
                   className="h-8 text-right text-xs tabular-nums"
                   required
                 />
-                <Button type="submit" size="sm" className="h-8" aria-label="Add voucher">
-                  <Plus className="h-3.5 w-3.5" />
+                <Button type="submit" size="sm" className="h-8" disabled={expPending} aria-label="Add voucher">
+                  {expPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                   Add
                 </Button>
               </form>
 
+              {expError && (
+                <p className="rounded bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                  {expError}
+                </p>
+              )}
+
               <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-                {expenses.map((exp) => (
-                  <div
-                    key={exp.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{exp.reason}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {exp.category} · {exp.time}
+                {outletExpenses.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                    No petty cash payouts logged for today yet.
+                  </div>
+                ) : (
+                  outletExpenses.map((exp) => (
+                    <div
+                      key={exp.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{exp.title}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {EXPENSE_CATEGORY_LABEL[exp.category as ExpenseCategory] ?? exp.category} ·{" "}
+                          {exp.payment_mode.toUpperCase()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-semibold text-rose-600 tabular-nums">
+                          −₹{Number(exp.amount ?? 0)}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={expPending}
+                          onClick={() => handleRemoveExpense(exp.id)}
+                          className="text-muted-foreground hover:text-destructive"
+                          title="Remove voucher"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className=" font-semibold text-rose-600 tabular-nums">
-                        −₹{exp.amount}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpenses((prev) =>
-                            prev.filter((x) => x.id !== exp.id),
-                          )
-                        }
-                        className="text-muted-foreground hover:text-destructive"
-                        title="Remove voucher"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -596,7 +632,7 @@ export function RegisterWorkbench({
 
         {/* Column 3: 80mm Thermal Z-Report Slip Preview */}
         <div className="flex justify-center lg:col-span-2 xl:col-span-1">
-          <article className="w-[80mm] rounded-xl border border-border bg-white p-4 font-mono text-[11px] leading-snug text-black shadow-xs print:border-0 print:p-0 print:shadow-none">
+          <article className="receipt-print w-[80mm] rounded-xl border border-border bg-white p-4 font-mono text-[11px] leading-snug text-black shadow-xs print:border-0 print:p-0 print:shadow-none">
             <header className="text-center">
               <div className="text-xs font-bold uppercase">
                 DAY-END Z-REPORT
@@ -629,6 +665,7 @@ export function RegisterWorkbench({
               <ZRow label="Counter Cash" value={inrExact(active.cashSales)} />
               <ZRow label="Counter UPI" value={inrExact(active.upiSales)} />
               <ZRow label="Counter Card" value={inrExact(active.cardSales)} />
+              <ZRow label="Customer Tab (Khata)" value={inrExact(active.tabSales)} />
               <ZRow label="Direct Storefront" value={inrExact(active.webSales)} />
               <ZRow label="Zomato / Swiggy" value={inrExact(active.aggregatorGross)} />
             </div>

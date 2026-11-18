@@ -48,11 +48,13 @@ export default async function ReceiptPage(props: Params) {
       : null;
   const tenderMode = extPayload?.gateway
     ? `${extPayload.gateway.toUpperCase()}${extPayload.payment_id ? ` (${extPayload.payment_id.slice(-10)})` : ""}`
-    : order.customer_email?.startsWith("pos+")
-      ? order.customer_email.split("@")[0].replace("pos+", "")
-      : order.external_status === "paid"
-        ? "ONLINE PAID"
-        : null;
+    : order.customer_email?.startsWith("pos+tab")
+      ? "CUSTOMER TAB (KHATA)"
+      : order.customer_email?.startsWith("pos+")
+        ? order.customer_email.split("@")[0].replace("pos+", "")
+        : order.external_status === "paid"
+          ? "ONLINE PAID"
+          : null;
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-neutral-200 p-6 print:block print:bg-white print:p-0">

@@ -9,7 +9,11 @@ import {
   presentedApiKey,
   type ApiKeyContext,
 } from "@/lib/api-keys";
-import { CHANNEL_LABEL, FIRST_PARTY_SOURCES } from "@/lib/channels";
+import {
+  CHANNEL_LABEL,
+  FIRST_PARTY_SOURCES,
+} from "@/lib/channels";
+import { recordCouponRedemption } from "@/lib/coupons";
 import {
   resolveChannelStoreOutlet,
   type ChannelStoreLookupClient,
@@ -447,6 +451,10 @@ export async function POST(request: Request) {
         })),
       );
     }
+  }
+
+  if (firstParty && source !== "pos" && body.coupon_code && totals.discount_amount > 0) {
+    void recordCouponRedemption(supabase, outletId, body.coupon_code);
   }
 
   void dispatchOrderStatusWebhooks(order.id, "order.created");

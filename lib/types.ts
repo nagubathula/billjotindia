@@ -42,6 +42,12 @@ export type HrPayrollEntry       = Row<"hr_payroll_entries">;
 export type Vendor               = Row<"vendors">;
 export type VendorPurchaseOrder  = Row<"vendor_purchase_orders">;
 export type VendorPayment        = Row<"vendor_payments">;
+export type Coupon               = Row<"coupons">;
+export type CustomerTab          = Row<"customer_tabs">;
+export type CustomerTabTransaction = Row<"customer_tab_transactions">;
+export type CorporateClient      = Row<"corporate_clients">;
+export type CorporateInvoice     = Row<"corporate_invoices">;
+export type OutletExpense        = Row<"outlet_expenses">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
 export type AppRole = "admin" | "user" | "manager" | "captain";

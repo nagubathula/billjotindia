@@ -17,6 +17,7 @@ import {
   ListOrdered,
   LogOut,
   MonitorSmartphone,
+  Receipt,
   Settings,
   ShoppingBag,
   Store,
@@ -180,6 +181,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
             active={isActive("reports")}
           >
             Reports & GST
+          </NavItem>
+          <NavItem
+            href={`${base}/accounts`}
+            icon={Receipt}
+            active={isActive("accounts")}
+          >
+            Tabs & Corporate
           </NavItem>
           <NavItem
             href={`${base}/customers`}

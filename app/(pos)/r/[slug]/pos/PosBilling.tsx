@@ -25,7 +25,9 @@ import {
   ShieldCheck,
   ShoppingBag,
   Smartphone,
+  Tag,
   Trash2,
+  Users,
   Utensils,
   X,
 } from "lucide-react";
@@ -54,8 +56,19 @@ import { FullscreenToggle } from "@/components/FullscreenToggle";
 import { ModifierDialog } from "@/components/ModifierDialog";
 import { QrCodeSvg } from "@/components/QrCodeSvg";
 import type { SelectedOption } from "@/components/CartProvider";
+import {
+  evaluateCouponDiscount,
+  formatCouponOfferLabel,
+} from "@/lib/coupons";
 import type { PublicPaymentConfig } from "@/lib/payments";
-import type { Category, OrderType, Outlet, Product } from "@/lib/types";
+import type {
+  Category,
+  Coupon,
+  CustomerTab,
+  OrderType,
+  Outlet,
+  Product,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { setSelectedOutletAction } from "./actions";
 import {
@@ -67,6 +80,7 @@ import {
   sendKotAction,
   settleTabAction,
   voidSentItemAction,
+  chargePosToCustomerTabAction,
 } from "./tab-actions";
 
 const VOID_REASONS = [
@@ -131,6 +145,8 @@ type Props = {
   categories: Category[];
   products: Product[];
   paymentConfig: PublicPaymentConfig;
+  customerTabs?: CustomerTab[];
+  posCoupons?: Coupon[];
   restaurantSlug: string;
   restaurantName: string;
   staffEmail: string;
@@ -187,6 +203,8 @@ export function PosBilling({
   categories,
   products,
   paymentConfig,
+  customerTabs = [],
+  posCoupons = [],
   restaurantSlug,
   restaurantName,
   staffEmail,
@@ -255,6 +273,16 @@ export function PosBilling({
     url: string;
   } | null>(null);
   const [copiedStripeLink, setCopiedStripeLink] = useState(false);
+
+  // Customer Tab (Khata) dialog state
+  const [khataModalOpen, setKhataModalOpen] = useState(false);
+  const [khataSearch, setKhataSearch] = useState("");
+  const [selectedKhataId, setSelectedKhataId] = useState<string>(
+    customerTabs[0]?.id ?? "",
+  );
+  const [khataAllowOverLimit, setKhataAllowOverLimit] = useState(false);
+  const [khataBusy, setKhataBusy] = useState(false);
+  const [khataError, setKhataError] = useState<string | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const lines = activeTab?.lines ?? [];
@@ -848,6 +876,56 @@ export function PosBilling({
       return customerName.trim() ? `${code} · ${customerName.trim()}` : code;
     }
     return customerName.trim() || "Walk-in";
+  }
+
+  async function handleConfirmChargeToKhata(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canTakePayment || lines.length === 0 || !selectedKhataId || khataBusy) {
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setKhataBusy(true);
+    setKhataError(null);
+    try {
+      const res = await chargePosToCustomerTabAction(restaurantSlug, {
+        customerTabId: selectedKhataId,
+        outletId,
+        posTabId: activeTab?.persisted ? activeTab.id : null,
+        hasRunningOrder: Boolean(activeTab?.persisted && activeTab.orderId),
+        orderType,
+        customerName: customerName.trim() || undefined,
+        note: orderNote.trim() || undefined,
+        packingCharge,
+        discountPct,
+        discountFlat,
+        roundingAmount: totals.rounding,
+        allowOverLimit: khataAllowOverLimit,
+        lines: activeTab?.lines ?? [],
+        pricingItems: lines.map((l) => ({
+          quantity: l.qty,
+          unit_price: l.unitPrice,
+          total_price: Number((l.unitPrice * l.qty).toFixed(2)),
+          instructions: l.instructions?.trim() || undefined,
+          product_config: {
+            product_id: l.product.id,
+            name: l.product.name,
+            base_price: Number(l.product.price),
+            selected_options: l.selectedOptions,
+            gst_rate: Number(l.product.gst_rate ?? 5),
+            hsn_code: l.product.hsn_code,
+          },
+        })),
+      });
+      if (!res.ok) {
+        setKhataError(res.error);
+        return;
+      }
+      setKhataModalOpen(false);
+      clearSettledActiveTab();
+      router.push(`/r/${restaurantSlug}/pos/receipt/${res.orderId}`);
+    } finally {
+      setKhataBusy(false);
+    }
   }
 
   /**
@@ -1720,6 +1798,45 @@ export function PosBilling({
                       className="h-7 w-24 bg-card text-right text-xs tabular-nums"
                     />
                   </div>
+                  {posCoupons.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                        <Tag className="h-2.5 w-2.5" />
+                        Coupons:
+                      </span>
+                      {posCoupons.slice(0, 6).map((cp) => (
+                        <button
+                          key={cp.id}
+                          type="button"
+                          title={formatCouponOfferLabel(cp)}
+                          onClick={() => {
+                            const ev = evaluateCouponDiscount(cp, totals.subtotal, {
+                              channel: orderType === "dine-in" ? "dine_in" : "pos",
+                            });
+                            if (!ev.ok) {
+                              setError(ev.reason);
+                              return;
+                            }
+                            setError(null);
+                            updateActiveTab((t) => ({
+                              ...t,
+                              discountPct:
+                                cp.discount_type === "percentage" && !cp.max_discount
+                                  ? Number(cp.discount_value)
+                                  : 0,
+                              discountFlat:
+                                cp.discount_type === "percentage" && !cp.max_discount
+                                  ? 0
+                                  : ev.discount,
+                            }));
+                          }}
+                          className="rounded border border-dashed border-border bg-card px-1.5 py-0.5 font-mono text-[10px] font-semibold text-foreground hover:border-primary hover:text-primary"
+                        >
+                          {cp.code}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 )}
               </div>
@@ -1970,6 +2087,32 @@ export function PosBilling({
               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
                 F11
               </span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={lines.length === 0 || posting !== null}
+              onClick={() => {
+                setKhataError(null);
+                setKhataAllowOverLimit(false);
+                if (!selectedKhataId && customerTabs[0]) {
+                  setSelectedKhataId(customerTabs[0].id);
+                }
+                setKhataModalOpen(true);
+              }}
+              className="mt-1.5 w-full justify-between text-xs font-medium"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 shrink-0" />
+                <span>Charge to Customer Tab (Khata)</span>
+              </span>
+              {customerTabs.length > 0 && (
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  {customerTabs.length}
+                </span>
+              )}
             </Button>
             </>
             ) : (
@@ -2757,6 +2900,148 @@ export function PosBilling({
                     </>
                   ) : (
                     `Void ${voidQty} ${voidQty === 1 ? "item" : "items"}`
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Charge to Customer Tab (Khata) Dialog */}
+      <Dialog
+        open={khataModalOpen}
+        onOpenChange={(open) => {
+          if (!open && !khataBusy) setKhataModalOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Charge Bill to Customer Tab (Khata)</DialogTitle>
+            <DialogDescription>
+              Post ₹{totals.total.toFixed(0)} onto a regular patron&apos;s running credit ledger for weekly or monthly settlement.
+            </DialogDescription>
+          </DialogHeader>
+
+          {customerTabs.length === 0 ? (
+            <div className="space-y-3 py-2 text-xs text-muted-foreground">
+              <p>No active customer credit tabs have been opened yet.</p>
+              {canOpenAdmin && (
+                <Link
+                  href={`/r/${restaurantSlug}/admin/accounts`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  Open a Customer Tab in Admin
+                </Link>
+              )}
+            </div>
+          ) : (
+            <form onSubmit={handleConfirmChargeToKhata} className="space-y-3.5">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={khataSearch}
+                  onChange={(e) => setKhataSearch(e.target.value)}
+                  placeholder="Filter customer tabs…"
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+
+              <div className="max-h-60 space-y-1.5 overflow-y-auto pr-0.5">
+                {customerTabs
+                  .filter((t) => {
+                    const q = khataSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      t.customer_name.toLowerCase().includes(q) ||
+                      (t.phone ?? "").toLowerCase().includes(q) ||
+                      (t.company_or_notes ?? "").toLowerCase().includes(q)
+                    );
+                  })
+                  .map((t) => {
+                    const bal = Number(t.current_balance ?? 0);
+                    const lim = Number(t.credit_limit ?? 0);
+                    const selected = selectedKhataId === t.id;
+                    const wouldExceed = lim > 0 && bal + totals.total > lim;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedKhataId(t.id)}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                          selected
+                            ? "border-primary bg-primary/8"
+                            : "border-border bg-card hover:bg-muted/40",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-foreground">
+                            {t.customer_name}
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {[t.phone, t.company_or_notes]
+                              .filter(Boolean)
+                              .join(" · ") || "Active Tab"}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right tabular-nums">
+                          <div className="font-semibold">
+                            ₹{bal.toFixed(0)}{" "}
+                            <span className="font-normal text-muted-foreground">
+                              / ₹{lim.toFixed(0)}
+                            </span>
+                          </div>
+                          {wouldExceed && (
+                            <div className="text-[10px] font-medium text-amber-700">
+                              Over limit with bill
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {canVoidSentItems && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={khataAllowOverLimit}
+                    onChange={(e) => setKhataAllowOverLimit(e.target.checked)}
+                  />
+                  Manager override if charge exceeds credit limit
+                </label>
+              )}
+
+              {khataError && (
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {khataError}
+                </p>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={khataBusy}
+                  onClick={() => setKhataModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!selectedKhataId || khataBusy}
+                >
+                  {khataBusy ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Posting…
+                    </>
+                  ) : (
+                    `Post ₹${totals.total.toFixed(0)} to Khata`
                   )}
                 </Button>
               </DialogFooter>

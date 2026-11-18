@@ -5,7 +5,7 @@
 // prices. Moved here unchanged from app/api/orders/route.ts.
 
 import { randomInt } from "node:crypto";
-import { computeStorefrontCouponDiscount } from "@/lib/payments";
+import { resolveOrderCouponDiscount } from "@/lib/coupons";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { OrderType } from "@/lib/types";
 import { isUuid } from "@/lib/utils";
@@ -320,7 +320,13 @@ export async function recomputeFirstParty(
   const effectiveDiscount =
     discountAmount > 0
       ? discountAmount
-      : computeStorefrontCouponDiscount(couponCode, runningTotal);
+      : await resolveOrderCouponDiscount(
+          supabase,
+          outletId,
+          couponCode,
+          runningTotal,
+          "storefront",
+        );
   const discount = Math.min(
     runningTotal,
     Math.max(0, round2(Number(effectiveDiscount) || 0)),

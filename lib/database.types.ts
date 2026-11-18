@@ -297,6 +297,357 @@ export type Database = {
           },
         ]
       }
+      corporate_clients: {
+        Row: {
+          billing_address: string | null
+          company_name: string
+          contact_person: string | null
+          created_at: string
+          credit_limit: number
+          email: string | null
+          gstin: string | null
+          id: string
+          notes: string | null
+          payment_terms: string
+          phone: string | null
+          restaurant_id: string
+          state_code: string | null
+          state_name: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          billing_address?: string | null
+          company_name: string
+          contact_person?: string | null
+          created_at?: string
+          credit_limit?: number
+          email?: string | null
+          gstin?: string | null
+          id?: string
+          notes?: string | null
+          payment_terms?: string
+          phone?: string | null
+          restaurant_id: string
+          state_code?: string | null
+          state_name?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          billing_address?: string | null
+          company_name?: string
+          contact_person?: string | null
+          created_at?: string
+          credit_limit?: number
+          email?: string | null
+          gstin?: string | null
+          id?: string
+          notes?: string | null
+          payment_terms?: string
+          phone?: string | null
+          restaurant_id?: string
+          state_code?: string | null
+          state_name?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corporate_clients_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      corporate_invoices: {
+        Row: {
+          amount_paid: number
+          cgst_amount: number
+          corporate_client_id: string
+          created_at: string
+          due_date: string | null
+          id: string
+          igst_amount: number
+          invoice_date: string
+          invoice_number: string
+          line_items: Json
+          linked_order_ids: string[]
+          notes: string | null
+          outlet_id: string | null
+          payment_status: string
+          place_of_supply: string | null
+          po_reference: string | null
+          restaurant_id: string
+          sgst_amount: number
+          status: string
+          supply_type: string
+          taxable_subtotal: number
+          total_amount: number
+          updated_at: string
+        }
+        Insert: {
+          amount_paid?: number
+          cgst_amount?: number
+          corporate_client_id: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          igst_amount?: number
+          invoice_date?: string
+          invoice_number: string
+          line_items?: Json
+          linked_order_ids?: string[]
+          notes?: string | null
+          outlet_id?: string | null
+          payment_status?: string
+          place_of_supply?: string | null
+          po_reference?: string | null
+          restaurant_id: string
+          sgst_amount?: number
+          status?: string
+          supply_type?: string
+          taxable_subtotal?: number
+          total_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          amount_paid?: number
+          cgst_amount?: number
+          corporate_client_id?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          igst_amount?: number
+          invoice_date?: string
+          invoice_number?: string
+          line_items?: Json
+          linked_order_ids?: string[]
+          notes?: string | null
+          outlet_id?: string | null
+          payment_status?: string
+          place_of_supply?: string | null
+          po_reference?: string | null
+          restaurant_id?: string
+          sgst_amount?: number
+          status?: string
+          supply_type?: string
+          taxable_subtotal?: number
+          total_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corporate_invoices_corporate_client_id_fkey"
+            columns: ["corporate_client_id"]
+            isOneToOne: false
+            referencedRelation: "corporate_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_invoices_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corporate_invoices_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coupons: {
+        Row: {
+          channel: string
+          code: string
+          created_at: string
+          discount_type: string
+          discount_value: number
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          max_discount: number | null
+          min_order_amount: number
+          restaurant_id: string
+          title: string
+          updated_at: string
+          usage_limit: number | null
+          used_count: number
+        }
+        Insert: {
+          channel?: string
+          code: string
+          created_at?: string
+          discount_type: string
+          discount_value: number
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_discount?: number | null
+          min_order_amount?: number
+          restaurant_id: string
+          title: string
+          updated_at?: string
+          usage_limit?: number | null
+          used_count?: number
+        }
+        Update: {
+          channel?: string
+          code?: string
+          created_at?: string
+          discount_type?: string
+          discount_value?: number
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_discount?: number | null
+          min_order_amount?: number
+          restaurant_id?: string
+          title?: string
+          updated_at?: string
+          usage_limit?: number | null
+          used_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupons_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_tab_transactions: {
+        Row: {
+          amount: number
+          balance_after: number
+          entry_type: string
+          id: string
+          note: string | null
+          order_id: string | null
+          payment_mode: string | null
+          recorded_at: string
+          reference_no: string | null
+          restaurant_id: string
+          tab_id: string
+        }
+        Insert: {
+          amount: number
+          balance_after?: number
+          entry_type: string
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          payment_mode?: string | null
+          recorded_at?: string
+          reference_no?: string | null
+          restaurant_id: string
+          tab_id: string
+        }
+        Update: {
+          amount?: number
+          balance_after?: number
+          entry_type?: string
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          payment_mode?: string | null
+          recorded_at?: string
+          reference_no?: string | null
+          restaurant_id?: string
+          tab_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_tab_transactions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_tab_transactions_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_tab_transactions_tab_id_fkey"
+            columns: ["tab_id"]
+            isOneToOne: false
+            referencedRelation: "customer_tabs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_tabs: {
+        Row: {
+          company_or_notes: string | null
+          created_at: string
+          credit_limit: number
+          current_balance: number
+          customer_name: string
+          email: string | null
+          id: string
+          outlet_id: string | null
+          phone: string | null
+          restaurant_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_or_notes?: string | null
+          created_at?: string
+          credit_limit?: number
+          current_balance?: number
+          customer_name: string
+          email?: string | null
+          id?: string
+          outlet_id?: string | null
+          phone?: string | null
+          restaurant_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_or_notes?: string | null
+          created_at?: string
+          credit_limit?: number
+          current_balance?: number
+          customer_name?: string
+          email?: string | null
+          id?: string
+          outlet_id?: string | null
+          phone?: string | null
+          restaurant_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_tabs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_tabs_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customization_groups: {
         Row: {
           created_at: string | null
@@ -1086,6 +1437,63 @@ export type Database = {
             columns: ["table_id"]
             isOneToOne: false
             referencedRelation: "pos_tabs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outlet_expenses: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          expense_date: string
+          id: string
+          note: string | null
+          outlet_id: string | null
+          paid_to: string | null
+          payment_mode: string
+          restaurant_id: string
+          title: string
+        }
+        Insert: {
+          amount: number
+          category?: string
+          created_at?: string
+          expense_date?: string
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          paid_to?: string | null
+          payment_mode?: string
+          restaurant_id: string
+          title: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          expense_date?: string
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          paid_to?: string | null
+          payment_mode?: string
+          restaurant_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outlet_expenses_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_expenses_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
             referencedColumns: ["id"]
           },
         ]

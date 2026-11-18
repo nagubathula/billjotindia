@@ -1,4 +1,10 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import {
+  STOREFRONT_COUPONS,
+  computeStorefrontCouponDiscount,
+  recordCouponRedemption,
+  resolveOrderCouponDiscount,
+} from "@/lib/coupons";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -8,45 +14,7 @@ import type { Json } from "@/lib/database.types";
 const VALID_ORDER_TYPES = ["dine-in", "takeaway", "delivery"] as const;
 const RUNNING_POS_ORDER_EMAIL = "pos+open@billjot.local";
 
-// ---------------------------------------------------------------------------
-// Shared Storefront Coupons (validated server-side so clients cannot spoof)
-// ---------------------------------------------------------------------------
-export const STOREFRONT_COUPONS: Array<{
-  code: string;
-  label: string;
-  minOrder: number;
-  calc: (subtotal: number) => number;
-}> = [
-  {
-    code: "WELCOME50",
-    label: "Flat ₹50 OFF above ₹299",
-    minOrder: 299,
-    calc: () => 50,
-  },
-  {
-    code: "ANDHRA10",
-    label: "10% OFF up to ₹100 above ₹399",
-    minOrder: 399,
-    calc: (sub) => Math.min(100, Math.round(sub * 0.1)),
-  },
-  {
-    code: "BHOJANAM100",
-    label: "Flat ₹100 OFF above ₹699",
-    minOrder: 699,
-    calc: () => 100,
-  },
-];
-
-export function computeStorefrontCouponDiscount(
-  couponCode: string | null | undefined,
-  grossItemsTotal: number,
-): number {
-  if (!couponCode) return 0;
-  const clean = couponCode.trim().toUpperCase();
-  const found = STOREFRONT_COUPONS.find((c) => c.code === clean);
-  if (!found || grossItemsTotal < found.minOrder) return 0;
-  return found.calc(grossItemsTotal);
-}
+export { STOREFRONT_COUPONS, computeStorefrontCouponDiscount };
 
 // ---------------------------------------------------------------------------
 // Per-Outlet + Env Fallback Payment Gateway Configuration
@@ -350,6 +318,7 @@ export type VerifiedOrderDraft = {
   customer_account_id?: string | null;
   existing_order_id?: string | null;
   pos_tab_id?: string | null;
+  coupon_code?: string | null;
   source: "web" | "pos" | "kiosk";
   customer_name: string;
   customer_email: string;
@@ -746,7 +715,13 @@ export async function buildVerifiedOrderDraft(input: {
   const rawDiscount =
     input.source === "pos"
       ? Number(input.posDiscountAmount ?? 0)
-      : computeStorefrontCouponDiscount(input.couponCode, runningGross);
+      : await resolveOrderCouponDiscount(
+          admin,
+          input.outletId,
+          input.couponCode,
+          runningGross,
+          "storefront",
+        );
 
   const discount = Math.min(runningGross, Math.max(0, round2(rawDiscount)));
   const rounding =
@@ -774,6 +749,8 @@ export async function buildVerifiedOrderDraft(input: {
       table_id: resolvedTableId,
       customer_account_id: isUuid(input.customerAccountId) ? input.customerAccountId : null,
       pos_tab_id: isUuid(input.posTabId) ? input.posTabId : null,
+      coupon_code:
+        discount > 0 && input.couponCode ? input.couponCode.trim().toUpperCase() : null,
       source: input.source,
       customer_name: resolvedCustomerName,
       customer_email: input.customerEmail.trim() || "guest@billjot.local",
@@ -999,6 +976,9 @@ export async function finalizePaidOrderFromSession(params: {
     }
   }
 
+  if (draft.coupon_code && draft.discount_amount > 0) {
+    void recordCouponRedemption(admin, draft.outlet_id, draft.coupon_code);
+  }
   void dispatchOrderStatusWebhooks(order.id, "order.created");
   return { ok: true, order };
 }

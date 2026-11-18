@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiCorsHeaders, preflightCorsHeaders } from "@/lib/api-cors";
 import { authenticateApiKey } from "@/lib/api-keys";
+import { formatCouponOfferLabel } from "@/lib/coupons";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { getPublicPaymentConfig } from "@/lib/payments";
 import {
@@ -111,10 +112,11 @@ export async function GET(request: Request) {
     categories: [],
     products: [],
     modifier_groups: [],
+    coupons: [],
   };
   if (!outlet) return NextResponse.json(empty, { headers });
 
-  const [categoriesRes, productsRes, payCfg] = await Promise.all([
+  const [categoriesRes, productsRes, payCfg, couponsRes] = await Promise.all([
     supabase
       .from("categories")
       .select("id, name, emoji, sort_order")
@@ -131,6 +133,15 @@ export async function GET(request: Request) {
       .order("category", { ascending: true })
       .order("name", { ascending: true }),
     getPublicPaymentConfig(outlet.id),
+    supabase
+      .from("coupons")
+      .select(
+        "code, title, discount_type, discount_value, max_discount, min_order_amount, channel, usage_limit, used_count, expires_at",
+      )
+      .eq("restaurant_id", key.restaurantId)
+      .eq("is_active", true)
+      .in("channel", ["all", "storefront", "dine_in"])
+      .order("min_order_amount", { ascending: true }),
   ]);
   if (categoriesRes.error || productsRes.error) {
     return fail(500, "Couldn't read the menu. Try again.");
@@ -182,6 +193,23 @@ export async function GET(request: Request) {
     groupsByProduct.set(l.product_id, list);
   }
 
+  const nowMs = Date.now();
+  const publicCoupons = (couponsRes.data ?? [])
+    .filter((c) => {
+      if (c.expires_at && new Date(c.expires_at).getTime() <= nowMs) return false;
+      if (c.usage_limit && c.used_count >= c.usage_limit) return false;
+      return true;
+    })
+    .map((c) => ({
+      code: c.code,
+      title: c.title,
+      discount_type: c.discount_type,
+      discount_value: Number(c.discount_value),
+      max_discount: c.max_discount != null ? Number(c.max_discount) : null,
+      min_order_amount: Number(c.min_order_amount ?? 0),
+      label: formatCouponOfferLabel(c),
+    }));
+
   return NextResponse.json(
     {
       restaurant: restaurantRes.data,
@@ -215,6 +243,7 @@ export async function GET(request: Request) {
           .filter((o) => o.group_id === g.id)
           .map((o) => ({ id: o.id, name: o.name, price: Number(o.price) })),
       })),
+      coupons: publicCoupons,
     },
     { headers: { ...headers, "Cache-Control": "private, max-age=30" } },
   );

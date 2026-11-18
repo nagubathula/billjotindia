@@ -23,6 +23,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useCart } from "@/components/CartProvider";
+import {
+  evaluateCouponDiscount,
+  formatCouponOfferLabel,
+  type CouponRuleShape,
+} from "@/lib/coupons";
 import type { PublicPaymentConfig } from "@/lib/payments";
 import { cn } from "@/lib/utils";
 
@@ -56,32 +61,6 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-const COUPONS: {
-  code: string;
-  label: string;
-  minOrder: number;
-  calc: (sub: number) => number;
-}[] = [
-  {
-    code: "WELCOME50",
-    label: "Flat ₹50 OFF above ₹299",
-    minOrder: 299,
-    calc: () => 50,
-  },
-  {
-    code: "ANDHRA10",
-    label: "10% OFF up to ₹100 above ₹399",
-    minOrder: 399,
-    calc: (sub) => Math.min(100, Math.round(sub * 0.1)),
-  },
-  {
-    code: "BHOJANAM100",
-    label: "Flat ₹100 OFF above ₹699",
-    minOrder: 699,
-    calc: () => 100,
-  },
-];
-
 type PaymentMethodChoice = "razorpay" | "stripe" | "cod";
 
 export function CheckoutForm({
@@ -89,12 +68,14 @@ export function CheckoutForm({
   restaurantName,
   outletId,
   paymentConfig,
+  availableCoupons,
   wasCancelled,
 }: {
   restaurantSlug: string;
   restaurantName: string;
   outletId: string;
   paymentConfig: PublicPaymentConfig;
+  availableCoupons: CouponRuleShape[];
   wasCancelled?: boolean;
 }) {
   const router = useRouter();
@@ -127,11 +108,13 @@ export function CheckoutForm({
     }
   }, [tableName]);
 
-  const activeCouponObj = COUPONS.find((c) => c.code === appliedCoupon);
-  const discountAmount =
-    activeCouponObj && subtotal >= activeCouponObj.minOrder
-      ? activeCouponObj.calc(subtotal)
-      : 0;
+  const activeCouponObj = availableCoupons.find((c) => c.code === appliedCoupon);
+  const evalActive = activeCouponObj
+    ? evaluateCouponDiscount(activeCouponObj, subtotal, {
+        channel: orderType === "dine-in" ? "dine_in" : "storefront",
+      })
+    : null;
+  const discountAmount = evalActive && evalActive.ok ? evalActive.discount : 0;
 
   const takeawayCharges = orderType === "takeaway" ? 15 : 0;
   const total = Math.max(0, subtotal - discountAmount + takeawayCharges);
@@ -139,19 +122,20 @@ export function CheckoutForm({
   function handleApplyCoupon(codeInput: string) {
     setCouponError(null);
     const code = codeInput.trim().toUpperCase();
-    const found = COUPONS.find((c) => c.code === code);
+    const found = availableCoupons.find((c) => c.code.toUpperCase() === code);
     if (!found) {
       setCouponError("Invalid coupon code.");
       return;
     }
-    if (subtotal < found.minOrder) {
-      setCouponError(
-        `Add ₹${found.minOrder - subtotal} more to use ${found.code}.`,
-      );
+    const evaluated = evaluateCouponDiscount(found, subtotal, {
+      channel: orderType === "dine-in" ? "dine_in" : "storefront",
+    });
+    if (!evaluated.ok) {
+      setCouponError(evaluated.reason);
       return;
     }
-    setAppliedCoupon(found.code);
-    setCouponCode(found.code);
+    setAppliedCoupon(evaluated.code);
+    setCouponCode(evaluated.code);
   }
 
   function buildItemsPayload() {
@@ -763,12 +747,13 @@ export function CheckoutForm({
             )}
 
             <div className="flex flex-wrap gap-1.5">
-              {COUPONS.map((c) => {
+              {availableCoupons.map((c) => {
                 const isApplied = appliedCoupon === c.code;
                 return (
                   <button
                     key={c.code}
                     type="button"
+                    title={formatCouponOfferLabel(c)}
                     onClick={() => handleApplyCoupon(c.code)}
                     className={cn(
                       "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition",

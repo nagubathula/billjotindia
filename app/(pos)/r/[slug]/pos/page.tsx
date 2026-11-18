@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import { getPublicPaymentConfig } from "@/lib/payments";
@@ -12,7 +13,7 @@ import {
   canTakePayment,
   canVoidSentItems,
 } from "@/lib/roles";
-import type { Category, Product } from "@/lib/types";
+import type { Category, Coupon, CustomerTab, Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,6 @@ export default async function PosPage(props: Props) {
   ]);
   if (!restaurant) notFound();
 
-  // Outlet reads are RLS-scoped, so it's safe to start them alongside the
-  // role check rather than after it.
   const [{ user, role }, outlet, outlets] = await Promise.all([
     requireRole(POS_ROLES, {
       restaurantSlug: params.slug,
@@ -52,7 +51,15 @@ export default async function PosPage(props: Props) {
   }
 
   const supabase = await createClient();
-  const [{ data: products }, { data: categories }, paymentConfig] = await Promise.all([
+  const admin = createAdminClient();
+  const nowMs = Date.now();
+  const [
+    { data: products },
+    { data: categories },
+    paymentConfig,
+    customerTabsRes,
+    couponsRes,
+  ] = await Promise.all([
     supabase
       .from("products")
       .select("*")
@@ -67,7 +74,26 @@ export default async function PosPage(props: Props) {
       .eq("outlet_id", outlet.id)
       .order("sort_order"),
     getPublicPaymentConfig(outlet.id),
+    admin
+      .from("customer_tabs")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .eq("status", "active")
+      .order("customer_name", { ascending: true }),
+    admin
+      .from("coupons")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .eq("is_active", true)
+      .in("channel", ["all", "pos", "dine_in"])
+      .order("min_order_amount", { ascending: true }),
   ]);
+
+  const posCoupons = ((couponsRes.data ?? []) as Coupon[]).filter((c) => {
+    if (c.expires_at && new Date(c.expires_at).getTime() <= nowMs) return false;
+    if (c.usage_limit && c.used_count >= c.usage_limit) return false;
+    return true;
+  });
 
   return (
     <PosBilling
@@ -76,6 +102,8 @@ export default async function PosPage(props: Props) {
       categories={(categories ?? []) as Category[]}
       products={(products ?? []) as Product[]}
       paymentConfig={paymentConfig}
+      customerTabs={(customerTabsRes.data ?? []) as CustomerTab[]}
+      posCoupons={posCoupons}
       restaurantSlug={params.slug}
       restaurantName={restaurant.name}
       staffEmail={user.email ?? "unknown"}
