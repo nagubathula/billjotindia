@@ -73,6 +73,16 @@ const SCOPES: { id: ApiKeyScope; label: string; hint: string }[] = [
     label: "Place orders",
     hint: "Send web or kiosk orders and check their status. Prices are always recalculated from your menu.",
   },
+  {
+    id: "bookings:read",
+    label: "Read bookings",
+    hint: "Query live table booking slots, waitlist ETA, and look up booking statuses.",
+  },
+  {
+    id: "bookings:write",
+    label: "Manage bookings",
+    hint: "Create table reservations, join the walk-in waitlist, and cancel bookings.",
+  },
 ];
 
 const ALL_OUTLETS = "all";

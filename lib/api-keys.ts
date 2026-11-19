@@ -1,5 +1,5 @@
 // Restaurant API keys: how a restaurant's own websites and apps call
-// /api/menu and /api/orders. Server-only — it uses the service-role client.
+// /api/menu, /api/orders, and /api/bookings. Server-only — uses service role.
 //
 // A key looks like "bjk_" + 32 URL-safe random characters. Only its SHA-256
 // hash is stored, so a database leak doesn't hand out working keys, and a key
@@ -9,12 +9,26 @@ import { createHash, randomBytes } from "node:crypto";
 import { isOriginAllowedForKey } from "@/lib/api-cors";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export const API_KEY_SCOPES = ["menu:read", "orders:write"] as const;
+export const API_KEY_SCOPES = [
+  "menu:read",
+  "orders:write",
+  "bookings:read",
+  "bookings:write",
+] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 export const SCOPE_LABEL: Record<ApiKeyScope, string> = {
   "menu:read": "Read menu",
   "orders:write": "Place orders",
+  "bookings:read": "Read bookings",
+  "bookings:write": "Manage bookings",
+};
+
+const SCOPE_DENIAL_ACTION: Record<ApiKeyScope, string> = {
+  "menu:read": "read the menu",
+  "orders:write": "place orders",
+  "bookings:read": "read table bookings",
+  "bookings:write": "create or manage table bookings",
 };
 
 const KEY_PREFIX = "bjk_";
@@ -61,14 +75,12 @@ export type ApiKeyCheck =
   | { ok: false; status: 401 | 403; error: string };
 
 /**
- * Looks up the key a request carries, checks `scope`, and verifies the caller's
- * browser `Origin` (if any) is permitted for this key.
- * Returns 401 for a missing, unknown or revoked key, and 403 when the key lacks
- * permission or is called from an unauthorized browser origin.
+ * Looks up the key a request carries, ensures at least one scope in `anyOfScopes`
+ * is granted, and verifies the browser `Origin` (if any) is permitted for this key.
  */
-export async function authenticateApiKey(
+export async function authenticateApiKeyAnyScope(
   request: Request,
-  scope: ApiKeyScope,
+  anyOfScopes: ApiKeyScope[],
   supabaseClient?: ReturnType<typeof createAdminClient>,
 ): Promise<ApiKeyCheck> {
   const presented = presentedApiKey(request);
@@ -94,11 +106,12 @@ export async function authenticateApiKey(
   }
 
   const scopes = (row.scopes ?? []).filter(isApiKeyScope);
-  if (!scopes.includes(scope)) {
+  if (!anyOfScopes.some((s) => scopes.includes(s))) {
+    const primary = anyOfScopes[0] ?? "menu:read";
     return {
       ok: false,
       status: 403,
-      error: `This API key can't ${scope === "menu:read" ? "read the menu" : "place orders"}.`,
+      error: `This API key can't ${SCOPE_DENIAL_ACTION[primary]}.`,
     };
   }
 
@@ -137,6 +150,18 @@ export async function authenticateApiKey(
       allowedOrigins,
     },
   };
+}
+
+/**
+ * Looks up the key a request carries, checks `scope`, and verifies the caller's
+ * browser `Origin` (if any) is permitted for this key.
+ */
+export async function authenticateApiKey(
+  request: Request,
+  scope: ApiKeyScope,
+  supabaseClient?: ReturnType<typeof createAdminClient>,
+): Promise<ApiKeyCheck> {
+  return authenticateApiKeyAnyScope(request, [scope], supabaseClient);
 }
 
 /** Whether a key may act on this outlet (which must belong to `restaurantId`). */

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
+  CalendarClock,
   Check,
   ChevronDown,
   Clock,
@@ -14,6 +15,7 @@ import {
   Grid3X3,
   LayoutGrid,
   LayoutTemplate,
+  MessageCircle,
   MonitorSmartphone,
   Plus,
   QrCode,
@@ -61,7 +63,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import {
+  buildBookingWhatsAppUrl,
+  formatShortClockTime,
+  getUpcomingReservationForTable,
+} from "@/lib/bookings";
 import { parseTableName, type OutletInfo, type RawPosTab } from "@/lib/tables";
+import type { TableBooking } from "@/lib/types";
+import { seatBookingInPosAction } from "@/app/r/[slug]/admin/bookings/actions";
 import {
   applyCapacityPresetAction,
   bulkCreateTableRangeAction,
@@ -257,21 +266,34 @@ type FloorDensity = "spatial" | "matrix" | "list";
 
 export function TableFloorBoard({
   slug,
+  restaurantName = "Billjot",
+  timeZone = "Asia/Kolkata",
   outlets,
   tabs,
   activeOrders,
+  upcomingBookings = [],
   todayDineInCount,
   todayDineInRevenue,
 }: {
   slug: string;
+  restaurantName?: string;
+  timeZone?: string;
   outlets: OutletInfo[];
   tabs: RawPosTab[];
   activeOrders: ActiveTableOrder[];
+  upcomingBookings?: TableBooking[];
   todayDineInCount: number;
   todayDineInRevenue: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [mounted, setMounted] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(0);
+
+  useEffect(() => {
+    setMounted(true);
+    setNowMs(Date.now());
+  }, []);
   const [selectedOutletId, setSelectedOutletId] = useState<string>(
     outlets[0]?.id ?? "",
   );
@@ -611,6 +633,22 @@ export function TableFloorBoard({
                 </SelectContent>
               </Select>
             )}
+
+            <Link
+              href={`/r/${slug}/admin/bookings`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "bg-card",
+              )}
+            >
+              <CalendarClock className="h-3.5 w-3.5 text-blue-600" />
+              Bookings
+              {upcomingBookings.length > 0 && (
+                <span className="rounded bg-blue-500/12 px-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 tabular-nums">
+                  {upcomingBookings.length}
+                </span>
+              )}
+            </Link>
 
             <Link
               href={`/r/${slug}/pos`}
@@ -1032,24 +1070,45 @@ export function TableFloorBoard({
 
                       {density === "spatial" ? (
                         <div className="grid grid-cols-2 gap-x-3.5 gap-y-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-                          {list.map((t) => (
-                            <SpatialTableCard
-                              key={t.id}
-                              table={t}
-                              slug={slug}
-                              onOpen={() => openTable(t.id)}
-                            />
-                          ))}
+                          {list.map((t) => {
+                            const nextRes = mounted
+                              ? getUpcomingReservationForTable(
+                                  t.id,
+                                  upcomingBookings,
+                                  nowMs,
+                                )?.booking ?? null
+                              : null;
+                            return (
+                              <SpatialTableCard
+                                key={t.id}
+                                table={t}
+                                slug={slug}
+                                upcomingReservation={nextRes}
+                                timeZone={timeZone}
+                                onOpen={() => openTable(t.id)}
+                              />
+                            );
+                          })}
                         </div>
                       ) : density === "matrix" ? (
                         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12">
-                          {list.map((t) => (
-                            <MatrixTableCell
-                              key={t.id}
-                              table={t}
-                              onOpen={() => openTable(t.id)}
-                            />
-                          ))}
+                          {list.map((t) => {
+                            const nextRes = mounted
+                              ? getUpcomingReservationForTable(
+                                  t.id,
+                                  upcomingBookings,
+                                  nowMs,
+                                )?.booking ?? null
+                              : null;
+                            return (
+                              <MatrixTableCell
+                                key={t.id}
+                                table={t}
+                                upcomingReservation={nextRes}
+                                onOpen={() => openTable(t.id)}
+                              />
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-2xs">
@@ -1058,6 +1117,13 @@ export function TableFloorBoard({
                             const meta = STATUS_META[st];
                             const totalVal = t.cartTotal + t.orderTotal;
                             const latestOrder = t.activeOrders[0] ?? null;
+                            const nextRes = mounted
+                              ? getUpcomingReservationForTable(
+                                  t.id,
+                                  upcomingBookings,
+                                  nowMs,
+                                )?.booking ?? null
+                              : null;
                             const itemPreview =
                               t.cartLines.length > 0
                                 ? t.cartLines
@@ -1098,6 +1164,12 @@ export function TableFloorBoard({
                                   >
                                     {meta.label}
                                   </span>
+                                  {nextRes && (
+                                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                                      <CalendarClock className="h-3 w-3" />
+                                      {formatShortClockTime(nextRes.reserved_for, timeZone)} · {nextRes.customer_name} ({nextRes.party_size}p)
+                                    </span>
+                                  )}
                                   {itemPreview ? (
                                     <span className="hidden min-w-0 truncate text-muted-foreground md:inline">
                                       {latestOrder?.token_number != null && (
@@ -1194,6 +1266,17 @@ export function TableFloorBoard({
             <TableDetails
               table={inspected}
               slug={slug}
+              restaurantName={restaurantName}
+              timeZone={timeZone}
+              upcomingReservation={
+                mounted
+                  ? getUpcomingReservationForTable(
+                      inspected.id,
+                      upcomingBookings,
+                      nowMs,
+                    )?.booking ?? null
+                  : null
+              }
               pending={pending}
               copied={copiedId === inspected.id}
               confirming={confirming}
@@ -1201,6 +1284,22 @@ export function TableFloorBoard({
               onCopy={() => copyQrLink(inspected)}
               onClearBill={() => handleClearBill(inspected)}
               onRemove={() => handleRemoveTable(inspected)}
+              onSeatReservation={(bookingId) => {
+                startTransition(async () => {
+                  const res = await seatBookingInPosAction(
+                    slug,
+                    bookingId,
+                    inspected.id,
+                  );
+                  if (!res.ok) {
+                    setError(res.error);
+                    return;
+                  }
+                  router.push(
+                    `/r/${slug}/pos?table=${encodeURIComponent(inspected.rawName)}`,
+                  );
+                });
+              }}
             />
           )}
         </SheetContent>
@@ -1498,10 +1597,14 @@ export function TableFloorBoard({
 function SpatialTableCard({
   table: t,
   slug,
+  upcomingReservation,
+  timeZone,
   onOpen,
 }: {
   table: ParsedTable;
   slug: string;
+  upcomingReservation?: TableBooking | null;
+  timeZone: string;
   onOpen: () => void;
 }) {
   const status = tableStatus(t);
@@ -1529,7 +1632,9 @@ function SpatialTableCard({
             key={idx}
             className={cn(
               "h-1 flex-1 max-w-7 rounded-t-full transition-colors",
-              meta.chair,
+              status === "free" && upcomingReservation
+                ? "bg-blue-400 dark:bg-blue-500/80"
+                : meta.chair,
             )}
           />
         ))}
@@ -1542,7 +1647,9 @@ function SpatialTableCard({
         aria-label={`${t.code}, ${t.seats} seats, ${meta.label}`}
         className={cn(
           "relative flex h-[78px] w-full flex-col justify-between rounded-xl border px-3 py-2.5 text-left shadow-2xs transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-          meta.surface,
+          status === "free" && upcomingReservation
+            ? "border-blue-300/90 bg-card ring-1 ring-blue-500/15 hover:border-blue-400 dark:border-blue-500/40"
+            : meta.surface,
         )}
       >
         <div className="flex w-full items-center justify-between gap-1.5">
@@ -1551,10 +1658,17 @@ function SpatialTableCard({
           </span>
 
           {status === "free" ? (
-            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
-              <Users className="h-2.5 w-2.5 opacity-70" />
-              {t.seats}
-            </span>
+            upcomingReservation ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/12 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                <CalendarClock className="h-2.5 w-2.5" />
+                {formatShortClockTime(upcomingReservation.reserved_for, timeZone)}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                <Users className="h-2.5 w-2.5 opacity-70" />
+                {t.seats}
+              </span>
+            )
           ) : (
             <span
               className={cn(
@@ -1571,11 +1685,17 @@ function SpatialTableCard({
 
         {status === "free" ? (
           <div className="flex w-full items-center justify-between text-[11px] text-muted-foreground">
-            <span>Available</span>
+            {upcomingReservation ? (
+              <span className="truncate font-medium text-blue-700 dark:text-blue-300">
+                {upcomingReservation.customer_name} ({upcomingReservation.party_size}p)
+              </span>
+            ) : (
+              <span>Available</span>
+            )}
             <Link
               href={`/r/${slug}/pos?table=${encodeURIComponent(t.rawName)}`}
               onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-0.5 font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:underline"
+              className="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:underline"
             >
               POS <ArrowUpRight className="h-3 w-3" />
             </Link>
@@ -1601,7 +1721,9 @@ function SpatialTableCard({
             key={idx}
             className={cn(
               "h-1 flex-1 max-w-7 rounded-b-full transition-colors",
-              meta.chair,
+              status === "free" && upcomingReservation
+                ? "bg-blue-400 dark:bg-blue-500/80"
+                : meta.chair,
             )}
           />
         ))}
@@ -1615,9 +1737,11 @@ function SpatialTableCard({
  */
 function MatrixTableCell({
   table: t,
+  upcomingReservation,
   onOpen,
 }: {
   table: ParsedTable;
+  upcomingReservation?: TableBooking | null;
   onOpen: () => void;
 }) {
   const status = tableStatus(t);
@@ -1629,15 +1753,26 @@ function MatrixTableCell({
       onClick={onOpen}
       className={cn(
         "flex h-12 flex-col justify-between rounded-lg border px-2 py-1.5 text-left shadow-2xs transition-colors",
-        meta.surface,
+        status === "free" && upcomingReservation
+          ? "border-blue-300 bg-card ring-1 ring-blue-500/15"
+          : meta.surface,
       )}
     >
       <div className="flex items-center justify-between gap-1">
         <span className="truncate text-[11px] font-semibold">{t.code}</span>
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            status === "free" && upcomingReservation ? "bg-blue-500" : meta.dot,
+          )}
+        />
       </div>
       <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-        {status === "free" ? `${t.seats}p` : inr(t.cartTotal + t.orderTotal)}
+        {status === "free"
+          ? upcomingReservation
+            ? "Reserved"
+            : `${t.seats}p`
+          : inr(t.cartTotal + t.orderTotal)}
       </div>
     </button>
   );
@@ -1646,6 +1781,9 @@ function MatrixTableCell({
 function TableDetails({
   table: t,
   slug,
+  restaurantName,
+  timeZone,
+  upcomingReservation,
   pending,
   copied,
   confirming,
@@ -1653,9 +1791,13 @@ function TableDetails({
   onCopy,
   onClearBill,
   onRemove,
+  onSeatReservation,
 }: {
   table: ParsedTable;
   slug: string;
+  restaurantName: string;
+  timeZone: string;
+  upcomingReservation?: TableBooking | null;
   pending: boolean;
   copied: boolean;
   confirming: "clear" | "remove" | null;
@@ -1663,6 +1805,7 @@ function TableDetails({
   onCopy: () => void;
   onClearBill: () => void;
   onRemove: () => void;
+  onSeatReservation: (bookingId: string) => void;
 }) {
   const status = tableStatus(t);
   const meta = STATUS_META[status];
@@ -1694,6 +1837,68 @@ function TableDetails({
       </SheetHeader>
 
       <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        {upcomingReservation && (
+          <section className="rounded-xl border border-blue-200 bg-blue-500/8 p-3.5 dark:border-blue-900/60">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-blue-300">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Upcoming Reservation · {formatShortClockTime(upcomingReservation.reserved_for, timeZone)}
+              </span>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {upcomingReservation.booking_code}
+              </span>
+            </div>
+            <div className="mt-1.5 text-sm font-semibold text-foreground">
+              {upcomingReservation.customer_name} ({upcomingReservation.party_size} guests)
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {upcomingReservation.customer_phone}
+              {upcomingReservation.occasion ? ` · ${upcomingReservation.occasion}` : ""}
+              {upcomingReservation.deposit_status === "paid"
+                ? ` · Deposit ₹${Number(upcomingReservation.deposit_amount ?? 0).toFixed(0)} paid`
+                : ""}
+            </div>
+            {upcomingReservation.special_requests && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Note: {upcomingReservation.special_requests}
+              </p>
+            )}
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <Button
+                size="xs"
+                disabled={pending}
+                onClick={() => onSeatReservation(upcomingReservation.id)}
+              >
+                Seat Guest in POS
+              </Button>
+              {(() => {
+                const waUrl = buildBookingWhatsAppUrl({
+                  phone: upcomingReservation.customer_phone,
+                  customerName: upcomingReservation.customer_name,
+                  restaurantName,
+                  bookingCode: upcomingReservation.booking_code,
+                  kind: "reminder",
+                  reservedFor: upcomingReservation.reserved_for,
+                  partySize: upcomingReservation.party_size,
+                  tableCode: t.code,
+                  timeZone,
+                });
+                return waUrl ? (
+                  <a
+                    href={waUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(buttonVariants({ variant: "outline", size: "xs" }))}
+                  >
+                    <MessageCircle className="mr-1 h-3 w-3 text-emerald-600" />
+                    WhatsApp
+                  </a>
+                ) : null;
+              })()}
+            </div>
+          </section>
+        )}
+
         {status === "free" ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3.5 text-xs text-muted-foreground">
             Table is currently available. Launch Counter POS below to start a dine-in tab, or let guests scan the table QR code.

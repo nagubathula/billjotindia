@@ -48,8 +48,29 @@ export type CustomerTabTransaction = Row<"customer_tab_transactions">;
 export type CorporateClient      = Row<"corporate_clients">;
 export type CorporateInvoice     = Row<"corporate_invoices">;
 export type OutletExpense        = Row<"outlet_expenses">;
+export type TableBooking         = Row<"table_bookings">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
+export type BookingType = "reservation" | "waitlist";
+
+export type BookingStatus =
+  | "pending_payment"
+  | "pending"
+  | "confirmed"
+  | "waitlisted"
+  | "notified"
+  | "seated"
+  | "completed"
+  | "cancelled"
+  | "no_show";
+
+export type DepositStatus =
+  | "none"
+  | "pending"
+  | "paid"
+  | "refunded"
+  | "waived";
+
 export type AppRole = "admin" | "user" | "manager" | "captain";
 
 export type OrderStatus =

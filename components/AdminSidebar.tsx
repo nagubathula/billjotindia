@@ -8,6 +8,7 @@ import {
   Boxes,
   Briefcase,
   Calculator,
+  CalendarClock,
   ChefHat,
   ChevronLeft,
   ExternalLink,
@@ -134,6 +135,13 @@ export function AdminSidebar({ restaurant, role, userEmail, userName }: Props) {
             active={isActive("tables")}
           >
             Tables & Floor
+          </NavItem>
+          <NavItem
+            href={`${base}/bookings`}
+            icon={CalendarClock}
+            active={isActive("bookings")}
+          >
+            Bookings & Waitlist
           </NavItem>
           <NavItem
             href={`${base}/register`}

@@ -24,6 +24,7 @@ import type {
   CustomerTab,
   Product,
   ProductCustomization,
+  TableBooking,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,9 @@ export default async function PosPage(props: Props) {
   const supabase = await createClient();
   const admin = createAdminClient();
   const nowMs = Date.now();
+  const bookingWindowStart = new Date(nowMs - 6 * 60 * 60_000).toISOString();
+  const bookingWindowEnd = new Date(nowMs + 24 * 60 * 60_000).toISOString();
+
   const [
     { data: products },
     { data: categories },
@@ -74,6 +78,7 @@ export default async function PosPage(props: Props) {
     paymentConfig,
     customerTabsRes,
     couponsRes,
+    bookingsRes,
   ] = await Promise.all([
     supabase
       .from("products")
@@ -108,6 +113,14 @@ export default async function PosPage(props: Props) {
       .eq("is_active", true)
       .in("channel", ["all", "pos", "dine_in"])
       .order("min_order_amount", { ascending: true }),
+    admin
+      .from("table_bookings")
+      .select("*")
+      .eq("outlet_id", outlet.id)
+      .in("status", ["pending_payment", "pending", "confirmed", "waitlisted", "notified", "seated"])
+      .gte("reserved_for", bookingWindowStart)
+      .lte("reserved_for", bookingWindowEnd)
+      .order("reserved_for", { ascending: true }),
   ]);
 
   const productList = (products ?? []) as Product[];
@@ -155,6 +168,7 @@ export default async function PosPage(props: Props) {
       paymentConfig={paymentConfig}
       customerTabs={(customerTabsRes.data ?? []) as CustomerTab[]}
       posCoupons={posCoupons}
+      initialBookings={(bookingsRes.data ?? []) as TableBooking[]}
       requestedTable={query.table ?? null}
       restaurantSlug={params.slug}
       restaurantName={restaurant.name}

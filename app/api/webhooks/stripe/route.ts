@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  finalizePaidBookingDeposit,
+  isBookingDepositSession,
+} from "@/lib/booking-payments";
+import {
   finalizePaidOrderFromSession,
   getOutletGatewayConfig,
   verifyStripeWebhookSignature,
@@ -42,10 +46,16 @@ export async function POST(request: Request) {
     .eq("order_reference", sessionId)
     .maybeSingle();
 
-  const draft = sessionRow?.order_data as unknown as
-    | VerifiedOrderDraft
-    | undefined;
-  const outletId = draft?.outlet_id ?? sessionObj?.metadata?.outlet_id ?? "";
+  const isBookingDeposit = isBookingDepositSession(sessionRow?.order_data);
+  const draft = !isBookingDeposit
+    ? (sessionRow?.order_data as unknown as VerifiedOrderDraft | undefined)
+    : undefined;
+  const outletId =
+    (isBookingDeposit
+      ? (sessionRow?.order_data as { outlet_id: string }).outlet_id
+      : draft?.outlet_id) ??
+    sessionObj?.metadata?.outlet_id ??
+    "";
 
   if (!outletId) {
     return NextResponse.json(
@@ -71,11 +81,19 @@ export async function POST(request: Request) {
       event.type === "checkout.session.async_payment_succeeded") &&
     sessionObj?.payment_status === "paid"
   ) {
-    await finalizePaidOrderFromSession({
-      sessionReference: sessionId,
-      gateway: "stripe",
-      paymentId: sessionObj.payment_intent || sessionId,
-    });
+    if (isBookingDeposit) {
+      await finalizePaidBookingDeposit({
+        sessionReference: sessionId,
+        gateway: "stripe",
+        paymentId: sessionObj.payment_intent || sessionId,
+      });
+    } else {
+      await finalizePaidOrderFromSession({
+        sessionReference: sessionId,
+        gateway: "stripe",
+        paymentId: sessionObj.payment_intent || sessionId,
+      });
+    }
   }
 
   return NextResponse.json({ received: true });

@@ -3,7 +3,7 @@ import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTimeZone, startOfDay } from "@/lib/time";
-import type { OrderItem, ProductConfig } from "@/lib/types";
+import type { OrderItem, ProductConfig, TableBooking } from "@/lib/types";
 import {
   TableFloorBoard,
   type ActiveTableOrder,
@@ -33,33 +33,47 @@ export default async function AdminTablesPage(props: Props) {
 
   const timeZone = resolveTimeZone(outlets[0]?.timezone);
   const todayStart = startOfDay(new Date(), timeZone);
+  const bookingWindowStart = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  const bookingWindowEnd = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
 
   const admin = createAdminClient();
-  const [{ data: posTabsData }, { data: openOrdersData }, { data: todayDineInData }] =
-    await Promise.all([
-      admin
-        .from("pos_tabs")
-        // "*" so this works before the running-orders migration adds order_id.
-        .select("*")
-        .in("outlet_id", scoped)
-        .order("name", { ascending: true }),
-      admin
-        .from("orders")
-        .select(
-          "id, outlet_id, table_id, unique_order_id, token_number, status, customer_name, instructions, total_amount, placed_at, order_type",
-        )
-        .in("outlet_id", scoped)
-        .eq("order_type", "dine-in")
-        .in("status", ["pending", "confirmed", "preparing", "ready"])
-        .order("placed_at", { ascending: false }),
-      admin
-        .from("orders")
-        .select("id, total_amount")
-        .in("outlet_id", scoped)
-        .eq("order_type", "dine-in")
-        .neq("status", "cancelled")
-        .gte("placed_at", todayStart.toISOString()),
-    ]);
+  const [
+    { data: posTabsData },
+    { data: openOrdersData },
+    { data: todayDineInData },
+    { data: upcomingBookingsData },
+  ] = await Promise.all([
+    admin
+      .from("pos_tabs")
+      .select("*")
+      .in("outlet_id", scoped)
+      .order("name", { ascending: true }),
+    admin
+      .from("orders")
+      .select(
+        "id, outlet_id, table_id, unique_order_id, token_number, status, customer_name, instructions, total_amount, placed_at, order_type",
+      )
+      .in("outlet_id", scoped)
+      .eq("order_type", "dine-in")
+      .in("status", ["pending", "confirmed", "preparing", "ready"])
+      .order("placed_at", { ascending: false }),
+    admin
+      .from("orders")
+      .select("id, total_amount")
+      .in("outlet_id", scoped)
+      .eq("order_type", "dine-in")
+      .neq("status", "cancelled")
+      .gte("placed_at", todayStart.toISOString()),
+    admin
+      .from("table_bookings")
+      .select("*")
+      .in("outlet_id", scoped)
+      .eq("booking_type", "reservation")
+      .in("status", ["confirmed", "pending", "notified", "pending_payment"])
+      .gte("reserved_for", bookingWindowStart)
+      .lte("reserved_for", bookingWindowEnd)
+      .order("reserved_for", { ascending: true }),
+  ]);
 
   const openOrderIds = (openOrdersData ?? []).map((o) => o.id);
   const itemSummaryByOrder = new Map<string, string[]>();
@@ -115,9 +129,12 @@ export default async function AdminTablesPage(props: Props) {
   return (
     <TableFloorBoard
       slug={params.slug}
+      restaurantName={restaurant.name}
+      timeZone={timeZone}
       outlets={outlets.map((o) => ({ id: o.id, name: o.name, city: o.city }))}
       tabs={tabs}
       activeOrders={activeOrders}
+      upcomingBookings={(upcomingBookingsData ?? []) as TableBooking[]}
       todayDineInCount={todayDineInCount}
       todayDineInRevenue={todayDineInRevenue}
     />

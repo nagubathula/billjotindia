@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Banknote,
   Bike,
+  CalendarClock,
   Check,
   ChefHat,
   Copy,
@@ -57,11 +58,17 @@ import { FullscreenToggle } from "@/components/FullscreenToggle";
 import { ModifierDialog } from "@/components/ModifierDialog";
 import { PwaInstallButton } from "@/components/PwaInstallButton";
 import { QrCodeSvg } from "@/components/QrCodeSvg";
+import { PosHostDeskDialog } from "./PosHostDeskDialog";
 import type { SelectedOption } from "@/components/CartProvider";
 import {
   evaluateCouponDiscount,
   formatCouponOfferLabel,
 } from "@/lib/coupons";
+import {
+  formatShortClockTime,
+  getUpcomingReservationForTable,
+} from "@/lib/bookings";
+import { resolveTimeZone } from "@/lib/time";
 import {
   buildModifierConfigKey,
   formatSelectedOptionLabel,
@@ -75,6 +82,7 @@ import type {
   OrderType,
   Outlet,
   Product,
+  TableBooking,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { setSelectedOutletAction } from "./actions";
@@ -155,6 +163,7 @@ type Props = {
   paymentConfig: PublicPaymentConfig;
   customerTabs?: CustomerTab[];
   posCoupons?: Coupon[];
+  initialBookings?: TableBooking[];
   requestedTable?: string | null;
   restaurantSlug: string;
   restaurantName: string;
@@ -213,6 +222,7 @@ export function PosBilling({
   paymentConfig,
   customerTabs = [],
   posCoupons = [],
+  initialBookings = [],
   requestedTable = null,
   restaurantSlug,
   restaurantName,
@@ -291,6 +301,17 @@ export function PosBilling({
   const [khataAllowOverLimit, setKhataAllowOverLimit] = useState(false);
   const [khataBusy, setKhataBusy] = useState(false);
   const [khataError, setKhataError] = useState<string | null>(null);
+
+  // Host desk (bookings & waitlist) state
+  const [hostDeskOpen, setHostDeskOpen] = useState(false);
+  const [bookings, setBookings] = useState<TableBooking[]>(initialBookings);
+  const [posMounted, setPosMounted] = useState(false);
+  useEffect(() => {
+    setBookings(initialBookings);
+  }, [initialBookings]);
+  useEffect(() => {
+    setPosMounted(true);
+  }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const lines = activeTab?.lines ?? [];
@@ -1367,6 +1388,27 @@ export function PosBilling({
             <LayoutGrid className="h-3.5 w-3.5 sm:mr-1" />
             <span className="hidden sm:inline">
               Tables ({occupiedTablesCount}/{floorTablesCount})
+            </span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setHostDeskOpen(true)}
+            className="h-8 px-2.5 text-xs"
+            title="Reservations & Walk-in Waitlist"
+          >
+            <CalendarClock className="h-3.5 w-3.5 text-blue-600 sm:mr-1" />
+            <span className="hidden sm:inline">
+              Bookings
+              {bookings.filter(
+                (b) =>
+                  b.status === "confirmed" ||
+                  b.status === "waitlisted" ||
+                  b.status === "notified",
+              ).length > 0
+                ? ` (${bookings.filter((b) => b.status === "confirmed" || b.status === "waitlisted" || b.status === "notified").length})`
+                : ""}
             </span>
           </Button>
           <Link
@@ -2792,6 +2834,10 @@ export function PosBilling({
                 <div className="grid max-h-[54vh] grid-cols-2 gap-2 overflow-y-auto py-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   {filteredModalTabs.slice(0, 150).map(({ tab: t, code, zone, seats, qty, val }) => {
                     const isSelected = t.id === activeTabId;
+                    const upcomingRes = posMounted
+                      ? getUpcomingReservationForTable(t.id, bookings)?.booking ??
+                        null
+                      : null;
 
                     return (
                       <button
@@ -2807,7 +2853,9 @@ export function PosBilling({
                             ? "border-primary bg-primary/5 ring-1 ring-primary"
                             : qty > 0
                               ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500"
-                              : "border-border bg-card hover:border-foreground/30",
+                              : upcomingRes
+                                ? "border-blue-400/50 bg-blue-500/5 hover:border-blue-500"
+                                : "border-border bg-card hover:border-foreground/30",
                         )}
                       >
                         <div>
@@ -2836,6 +2884,10 @@ export function PosBilling({
                                 ₹{val.toFixed(0)}
                               </span>
                             </>
+                          ) : upcomingRes ? (
+                            <span className="truncate text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                              Res {formatShortClockTime(upcomingRes.reserved_for, resolveTimeZone(outlet.timezone))} · {upcomingRes.customer_name}
+                            </span>
                           ) : (
                             <span className="text-[10px] text-emerald-700">
                               ● Free
@@ -3179,6 +3231,49 @@ export function PosBilling({
           )}
         </DialogContent>
       </Dialog>
+
+      <PosHostDeskDialog
+        open={hostDeskOpen}
+        onOpenChange={setHostDeskOpen}
+        restaurantSlug={restaurantSlug}
+        restaurantName={restaurantName}
+        outletId={outletId}
+        outletTimeZone={resolveTimeZone(outlet.timezone)}
+        bookings={bookings}
+        tables={tabs
+          .filter((t) => t.persisted && t.id !== DEFAULT_TAB_ID)
+          .map((t) => ({ id: t.id, name: t.name }))}
+        canTakePayment={canTakePayment}
+        onBookingsUpdated={setBookings}
+        onSeated={({ booking, tableId, applyDeposit }) => {
+          const targetId = tableId ?? activeTabId;
+          setActiveTabId(targetId);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === targetId
+                ? {
+                    ...t,
+                    orderType: "dine-in",
+                    customerName: `${booking.customer_name} (${booking.party_size}p)`,
+                    ...(booking.special_requests
+                      ? { orderNote: booking.special_requests }
+                      : {}),
+                    ...(applyDeposit > 0
+                      ? { discountFlat: applyDeposit, discountPct: 0 }
+                      : {}),
+                  }
+                : t,
+            ),
+          );
+          if (applyDeposit > 0) {
+            setShowOrderDetails(true);
+            setKotSavedMsg(
+              `Seated ${booking.customer_name} · Applied ₹${applyDeposit.toFixed(0)} booking deposit credit.`,
+            );
+            setTimeout(() => setKotSavedMsg(null), 5000);
+          }
+        }}
+      />
     </div>
   );
 }

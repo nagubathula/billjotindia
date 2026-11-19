@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  finalizePaidBookingDeposit,
+  isBookingDepositSession,
+} from "@/lib/booking-payments";
+import {
   finalizePaidOrderFromSession,
   getOutletGatewayConfig,
   verifyHmacHex,
@@ -54,11 +58,14 @@ export async function POST(request: Request) {
     .eq("order_reference", rzpOrderId)
     .maybeSingle();
 
-  const draft = sessionRow?.order_data as unknown as
-    | VerifiedOrderDraft
-    | undefined;
+  const isBookingDeposit = isBookingDepositSession(sessionRow?.order_data);
+  const draft = !isBookingDeposit
+    ? (sessionRow?.order_data as unknown as VerifiedOrderDraft | undefined)
+    : undefined;
   const outletId =
-    draft?.outlet_id ??
+    (isBookingDeposit
+      ? (sessionRow?.order_data as { outlet_id: string }).outlet_id
+      : draft?.outlet_id) ??
     event.payload?.payment?.entity?.notes?.outlet_id ??
     event.payload?.order?.entity?.notes?.outlet_id ??
     "";
@@ -80,12 +87,20 @@ export async function POST(request: Request) {
   }
 
   if (event.event === "payment.captured" || event.event === "order.paid") {
-    await finalizePaidOrderFromSession({
-      sessionReference: rzpOrderId,
-      gateway: "razorpay",
-      paymentId,
-      razorpayOrderId: rzpOrderId,
-    });
+    if (isBookingDeposit) {
+      await finalizePaidBookingDeposit({
+        sessionReference: rzpOrderId,
+        gateway: "razorpay",
+        paymentId,
+      });
+    } else {
+      await finalizePaidOrderFromSession({
+        sessionReference: rzpOrderId,
+        gateway: "razorpay",
+        paymentId,
+        razorpayOrderId: rzpOrderId,
+      });
+    }
   }
 
   return NextResponse.json({ received: true });

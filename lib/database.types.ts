@@ -1547,6 +1547,13 @@ export type Database = {
       outlets: {
         Row: {
           address: string | null
+          booking_advance_days: number
+          booking_deposit_min_party: number
+          booking_deposit_per_guest: number
+          booking_max_party_size: number
+          booking_slot_minutes: number
+          booking_turn_minutes: number
+          bookings_enabled: boolean
           city: string | null
           created_at: string
           currency: string
@@ -1568,6 +1575,13 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          booking_advance_days?: number
+          booking_deposit_min_party?: number
+          booking_deposit_per_guest?: number
+          booking_max_party_size?: number
+          booking_slot_minutes?: number
+          booking_turn_minutes?: number
+          bookings_enabled?: boolean
           city?: string | null
           created_at?: string
           currency?: string
@@ -1589,6 +1603,13 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          booking_advance_days?: number
+          booking_deposit_min_party?: number
+          booking_deposit_per_guest?: number
+          booking_max_party_size?: number
+          booking_slot_minutes?: number
+          booking_turn_minutes?: number
+          bookings_enabled?: boolean
           city?: string | null
           created_at?: string
           currency?: string
@@ -2221,6 +2242,124 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      table_bookings: {
+        Row: {
+          booking_code: string
+          booking_type: string
+          cancel_reason: string | null
+          cancelled_at: string | null
+          completed_at: string | null
+          created_at: string
+          customer_email: string | null
+          customer_name: string
+          customer_phone: string
+          deposit_amount: number
+          deposit_status: string
+          duration_minutes: number
+          id: string
+          occasion: string | null
+          outlet_id: string
+          party_size: number
+          payment_provider: string | null
+          payment_reference: string | null
+          preferred_zone: string | null
+          queue_number: number | null
+          quoted_wait_minutes: number | null
+          reserved_for: string
+          restaurant_id: string
+          seated_at: string | null
+          source: string
+          special_requests: string | null
+          status: string
+          table_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          booking_code: string
+          booking_type?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          customer_email?: string | null
+          customer_name: string
+          customer_phone: string
+          deposit_amount?: number
+          deposit_status?: string
+          duration_minutes?: number
+          id?: string
+          occasion?: string | null
+          outlet_id: string
+          party_size: number
+          payment_provider?: string | null
+          payment_reference?: string | null
+          preferred_zone?: string | null
+          queue_number?: number | null
+          quoted_wait_minutes?: number | null
+          reserved_for: string
+          restaurant_id: string
+          seated_at?: string | null
+          source?: string
+          special_requests?: string | null
+          status?: string
+          table_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          booking_code?: string
+          booking_type?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          customer_email?: string | null
+          customer_name?: string
+          customer_phone?: string
+          deposit_amount?: number
+          deposit_status?: string
+          duration_minutes?: number
+          id?: string
+          occasion?: string | null
+          outlet_id?: string
+          party_size?: number
+          payment_provider?: string | null
+          payment_reference?: string | null
+          preferred_zone?: string | null
+          queue_number?: number | null
+          quoted_wait_minutes?: number | null
+          reserved_for?: string
+          restaurant_id?: string
+          seated_at?: string | null
+          source?: string
+          special_requests?: string | null
+          status?: string
+          table_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "table_bookings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "table_bookings_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "table_bookings_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "pos_tabs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

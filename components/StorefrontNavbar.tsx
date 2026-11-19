@@ -51,6 +51,12 @@ export function StorefrontNavbar({ restaurantSlug, restaurantName }: Props) {
           >
             Menu
           </Link>
+          <Link
+            href={`/r/${restaurantSlug}/book`}
+            className="text-muted-foreground hover:text-foreground font-medium"
+          >
+            Book Table
+          </Link>
           <CartLink href={`/r/${restaurantSlug}/cart`} />
           <Suspense fallback={<div className="h-8 w-20 animate-pulse rounded-full bg-muted" />}>
             <UserMenu next={`/r/${restaurantSlug}`} />
