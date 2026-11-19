@@ -107,6 +107,7 @@ export function ChannelCard({
           <div className="grid gap-1.5">
             <Label htmlFor={`${fieldId}-store`}>{name} store ID</Label>
             <Input
+              key={`store-${outletId}-${link?.external_store_id ?? ""}`}
               id={`${fieldId}-store`}
               name="external_store_id"
               defaultValue={link?.external_store_id ?? ""}
@@ -118,6 +119,7 @@ export function ChannelCard({
           <div className="grid gap-1.5">
             <Label htmlFor={`${fieldId}-prep`}>Prep time (min)</Label>
             <Input
+              key={`prep-${outletId}-${link?.prep_time_minutes ?? 15}`}
               id={`${fieldId}-prep`}
               name="prep_time_minutes"
               type="number"

@@ -77,6 +77,7 @@ export function DomainForm({
           <div className="grid gap-1.5">
             <Label htmlFor="custom_domain">Your own domain (optional)</Label>
             <Input
+              key={currentDomain ?? ""}
               id="custom_domain"
               name="custom_domain"
               type="text"

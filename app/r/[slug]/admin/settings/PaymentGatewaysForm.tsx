@@ -188,6 +188,7 @@ export function PaymentGatewaysForm({
                   Razorpay Key ID
                 </Label>
                 <Input
+                  key={`${outletId}:${initial.razorpayKeyId}`}
                   id={`rzp-id-${outletId}`}
                   name="razorpay_key_id"
                   defaultValue={initial.razorpayKeyId}
@@ -284,6 +285,7 @@ export function PaymentGatewaysForm({
                   Stripe Publishable Key
                 </Label>
                 <Input
+                  key={`${outletId}:${initial.stripePublishableKey}`}
                   id={`st-pub-${outletId}`}
                   name="stripe_publishable_key"
                   defaultValue={initial.stripePublishableKey}
@@ -348,6 +350,7 @@ export function PaymentGatewaysForm({
               Counter POS Dynamic UPI ID (VPA)
             </Label>
             <Input
+              key={`${outletId}:${initial.upiVpa}`}
               id={`upi-vpa-${outletId}`}
               name="upi_vpa"
               defaultValue={initial.upiVpa}

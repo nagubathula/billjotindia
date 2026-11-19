@@ -431,6 +431,9 @@ function GroupDialog({
   pending: boolean;
   start: React.TransitionStartFunction;
 }) {
+  const [displayName, setDisplayName] = useState<string>(
+    existing?.group.display_name ?? "",
+  );
   const [selectionType, setSelectionType] = useState<string>(
     existing?.group.selection_type ?? "single",
   );
@@ -455,13 +458,14 @@ function GroupDialog({
 
   // Re-seed local state when the dialog opens for a different group.
   const [seedKey, setSeedKey] = useState<string | null>(null);
-  const currentKey = existing?.group.id ?? "";
+  const currentKey = existing ? existing.group.id : "__new__";
   if (open && seedKey !== currentKey) {
     setSeedKey(currentKey);
     const selType = existing?.group.selection_type ?? "single";
     const req = Boolean(
       existing?.group.is_required || (existing?.group.min_selections ?? 0) > 0,
     );
+    setDisplayName(existing?.group.display_name ?? "");
     setSelectionType(selType);
     setIsRequired(req);
     setMinSelections(String(existing?.group.min_selections ?? (req ? 1 : 0)));
@@ -558,7 +562,8 @@ function GroupDialog({
               id="grp-name"
               name="display_name"
               required
-              defaultValue={existing?.group.display_name}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. Choose Crust / Extra Toppings / Curries"
               autoFocus={!existing}
             />

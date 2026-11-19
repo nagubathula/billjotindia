@@ -178,6 +178,7 @@ function Field({
     <div className={`grid gap-1.5 ${className ?? ""}`}>
       <Label htmlFor={`outlet-${name}`}>{label}</Label>
       <Input
+        key={`${name}:${defaultValue ?? ""}`}
         id={`outlet-${name}`}
         name={name}
         type={type}

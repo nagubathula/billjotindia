@@ -387,6 +387,11 @@ function ProductDialog({
   pending: boolean;
   start: React.TransitionStartFunction;
 }) {
+  const [name, setName] = useState<string>(product?.name ?? "");
+  const [code, setCode] = useState<string>(product?.code ?? "");
+  const [price, setPrice] = useState<string>(
+    product?.price != null ? String(product.price) : "",
+  );
   const [category, setCategory] = useState<string>(
     product?.category ?? categories[0]?.name ?? "",
   );
@@ -394,22 +399,30 @@ function ProductDialog({
   const [vegStatus, setVegStatus] = useState<string>(
     product?.veg_status ?? "Veg",
   );
+  const [description, setDescription] = useState<string>(
+    product?.description ?? "",
+  );
+  const [hsnCode, setHsnCode] = useState<string>(product?.hsn_code ?? "");
+  const [imageUrl, setImageUrl] = useState<string>(product?.image_url ?? "");
   const [attachedGroups, setAttachedGroups] = useState<AttachedGroupConfig[]>(
     selectedProductGroups,
   );
   const [err, setErr] = useState<string | null>(null);
 
-  if (open && product && category !== product.category && product.category) {
-    setCategory(product.category);
-  }
-
   const [seedKey, setSeedKey] = useState<string | null>(null);
-  const currentKey = product?.id ?? "";
+  const currentKey = product ? product.id : "__new__";
   if (open && seedKey !== currentKey) {
     setSeedKey(currentKey);
-    setAttachedGroups(selectedProductGroups);
+    setName(product?.name ?? "");
+    setCode(product?.code ?? "");
+    setPrice(product?.price != null ? String(product.price) : "");
+    setCategory(product?.category || categories[0]?.name || "");
     setGstRate(String(product?.gst_rate ?? 5));
     setVegStatus(product?.veg_status ?? "Veg");
+    setDescription(product?.description ?? "");
+    setHsnCode(product?.hsn_code ?? "");
+    setImageUrl(product?.image_url ?? "");
+    setAttachedGroups(selectedProductGroups);
   }
 
   const groupById = new Map(groups.map((g) => [g.id, g]));
@@ -474,7 +487,8 @@ function ProductDialog({
                 id="prd-name"
                 name="name"
                 required
-                defaultValue={product?.name}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Masala Dosa"
                 autoFocus={!product}
               />
@@ -484,7 +498,8 @@ function ProductDialog({
               <Input
                 id="prd-code"
                 name="code"
-                defaultValue={product?.code ?? ""}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
                 placeholder="MD01"
                 className="font-mono uppercase"
               />
@@ -501,7 +516,8 @@ function ProductDialog({
                 step="0.01"
                 min="0"
                 required
-                defaultValue={product?.price ?? ""}
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
                 placeholder="120"
               />
             </div>
@@ -567,7 +583,8 @@ function ProductDialog({
               <Input
                 id="prd-desc"
                 name="description"
-                defaultValue={product?.description ?? ""}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 placeholder="Crispy crepe with spiced potato masala"
               />
             </div>
@@ -576,7 +593,8 @@ function ProductDialog({
               <Input
                 id="prd-hsn"
                 name="hsn_code"
-                defaultValue={product?.hsn_code ?? ""}
+                value={hsnCode}
+                onChange={(e) => setHsnCode(e.target.value)}
                 placeholder="996331"
                 className="tabular-nums"
               />
@@ -588,7 +606,8 @@ function ProductDialog({
             <Input
               id="prd-image"
               name="image_url"
-              defaultValue={product?.image_url ?? ""}
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
               placeholder="https://images.unsplash.com/..."
             />
           </div>
