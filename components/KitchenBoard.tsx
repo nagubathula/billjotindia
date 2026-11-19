@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import { cn } from "@/lib/utils";
 import type {
   KitchenStation,
@@ -384,7 +385,7 @@ export function KitchenBoard({
                   </div>
                   {mods.length > 0 && (
                     <p className="pl-6 text-xs text-muted-foreground">
-                      {mods.map((m) => m.option_name).join(", ")}
+                      {mods.map((m) => formatSelectedOptionLabel(m)).join(", ")}
                     </p>
                   )}
                   {it.instructions && (

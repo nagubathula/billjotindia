@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { buildModifierConfigKey } from "@/lib/customizations";
 import type { Product } from "@/lib/types";
 
 export type SelectedOption = {
@@ -9,15 +10,19 @@ export type SelectedOption = {
   option_id: string;
   option_name: string;
   price: number;
+  quantity?: number;
+  unit_price?: number;
+  veg_status?: string;
 };
 
 export type CartLine = {
-  /** Stable key per (product, options[]) combo so the same product with
-   *  different modifier picks shows as separate cart lines. */
+  /** Stable key per (product, options[], instructions) combo so different
+   *  customizations or cooking notes show as separate cart lines. */
   configKey: string;
   product: Product;
   quantity: number;
   selectedOptions: SelectedOption[];
+  instructions?: string;
   /** Computed at add-time: base price + sum(option prices). */
   unitPrice: number;
 };
@@ -27,8 +32,18 @@ type CartContextValue = {
   lines: CartLine[];
   tableName: string | null;
   setTableName: (table: string | null) => void;
-  /** Add a product with optional modifier selections. */
-  add: (product: Product, selectedOptions?: SelectedOption[]) => void;
+  /** Add a product with optional modifier selections and cooking note. */
+  add: (
+    product: Product,
+    selectedOptions?: SelectedOption[],
+    instructions?: string,
+  ) => void;
+  /** Replace options & instructions on an existing cart line. */
+  updateLine: (
+    oldConfigKey: string,
+    selectedOptions: SelectedOption[],
+    instructions?: string,
+  ) => void;
   remove: (configKey: string) => void;
   setQuantity: (configKey: string, qty: number) => void;
   clear: () => void;
@@ -46,10 +61,14 @@ function tableStorageKey(slug: string) {
   return `billjot.table.${slug}.v1`;
 }
 
-function buildConfigKey(productId: string, options: SelectedOption[]): string {
-  if (options.length === 0) return `p${productId}`;
-  const ids = options.map((o) => o.option_id).sort();
-  return `p${productId}:${ids.join("-")}`;
+function buildCartLineKey(
+  productId: string,
+  options: SelectedOption[],
+  instructions?: string,
+): string {
+  const baseKey = buildModifierConfigKey(productId, options);
+  const cleanNote = instructions?.trim().toLowerCase() ?? "";
+  return cleanNote ? `${baseKey}~${cleanNote}` : baseKey;
 }
 
 export function CartProvider({
@@ -105,9 +124,14 @@ export function CartProvider({
       setTableName,
       subtotal,
       count,
-      add: (product, selectedOptions = []) =>
+      add: (product, selectedOptions = [], instructions) =>
         setLines((prev) => {
-          const configKey = buildConfigKey(product.id, selectedOptions);
+          const cleanNote = instructions?.trim() || undefined;
+          const configKey = buildCartLineKey(
+            product.id,
+            selectedOptions,
+            cleanNote,
+          );
           const existing = prev.find((l) => l.configKey === configKey);
           if (existing) {
             return prev.map((l) =>
@@ -126,9 +150,66 @@ export function CartProvider({
               product,
               quantity: 1,
               selectedOptions,
+              instructions: cleanNote,
               unitPrice,
             },
           ];
+        }),
+      updateLine: (oldConfigKey, selectedOptions, instructions) =>
+        setLines((prev) => {
+          const target = prev.find((l) => l.configKey === oldConfigKey);
+          if (!target) return prev;
+          const cleanNote = instructions?.trim() || undefined;
+          const newKey = buildCartLineKey(
+            target.product.id,
+            selectedOptions,
+            cleanNote,
+          );
+          const unitPrice =
+            Number(target.product.price) +
+            selectedOptions.reduce((s, o) => s + Number(o.price), 0);
+
+          if (newKey === oldConfigKey) {
+            return prev.map((l) =>
+              l.configKey === oldConfigKey
+                ? {
+                    ...l,
+                    selectedOptions,
+                    instructions: cleanNote,
+                    unitPrice,
+                  }
+                : l,
+            );
+          }
+
+          const duplicateTarget = prev.find((l) => l.configKey === newKey);
+          if (duplicateTarget) {
+            return prev
+              .filter((l) => l.configKey !== oldConfigKey)
+              .map((l) =>
+                l.configKey === newKey
+                  ? {
+                      ...l,
+                      quantity: l.quantity + target.quantity,
+                      selectedOptions,
+                      instructions: cleanNote,
+                      unitPrice,
+                    }
+                  : l,
+              );
+          }
+
+          return prev.map((l) =>
+            l.configKey === oldConfigKey
+              ? {
+                  ...l,
+                  configKey: newKey,
+                  selectedOptions,
+                  instructions: cleanNote,
+                  unitPrice,
+                }
+              : l,
+          );
         }),
       remove: (configKey) =>
         setLines((prev) => prev.filter((l) => l.configKey !== configKey)),

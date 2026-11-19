@@ -2,9 +2,19 @@ import { notFound } from "next/navigation";
 import { UtensilsCrossed } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicOutlets, getPublicRestaurant } from "@/lib/auth";
+import {
+  buildModifiersByProductMap,
+  type ModifierGroupData,
+  type ModifierOptionData,
+} from "@/lib/customizations";
 import { SwiggyMenuView } from "@/components/SwiggyMenuView";
 import { EmptyState } from "@/components/EmptyState";
-import type { Category, Product, PromotionalBanner } from "@/lib/types";
+import type {
+  Category,
+  Product,
+  ProductCustomization,
+  PromotionalBanner,
+} from "@/lib/types";
 
 export const revalidate = 30;
 
@@ -28,32 +38,69 @@ export default async function MenuPage(props: Props) {
   }
 
   const supabase = await createClient();
-  const [{ data: products }, { data: categories }, { data: banners }] =
-    await Promise.all([
-      supabase
-        .from("products")
-        .select("*")
-        .eq("status", "active")
-        .eq("outlet_id", defaultOutlet.id)
-        .order("category")
-        .order("name"),
-      supabase
-        .from("categories")
-        .select("*")
-        .eq("status", "active")
-        .eq("outlet_id", defaultOutlet.id)
-        .order("sort_order"),
-      supabase
-        .from("promotional_banners")
-        .select("*")
-        .eq("status", "active")
-        .eq("outlet_id", defaultOutlet.id)
-        .order("sort_order"),
-    ]);
+  const [
+    { data: products },
+    { data: categories },
+    { data: banners },
+    { data: groups },
+  ] = await Promise.all([
+    supabase
+      .from("products")
+      .select("*")
+      .eq("status", "active")
+      .eq("outlet_id", defaultOutlet.id)
+      .order("category")
+      .order("name"),
+    supabase
+      .from("categories")
+      .select("*")
+      .eq("status", "active")
+      .eq("outlet_id", defaultOutlet.id)
+      .order("sort_order"),
+    supabase
+      .from("promotional_banners")
+      .select("*")
+      .eq("status", "active")
+      .eq("outlet_id", defaultOutlet.id)
+      .order("sort_order"),
+    supabase
+      .from("customization_groups")
+      .select("*")
+      .eq("status", "active")
+      .eq("outlet_id", defaultOutlet.id)
+      .order("sort_order"),
+  ]);
 
   const cats = (categories ?? []) as Category[];
   const prods = (products ?? []) as Product[];
   const promos = (banners ?? []) as PromotionalBanner[];
+  const groupRows = (groups ?? []) as ModifierGroupData[];
+  const groupIds = groupRows.map((g) => g.id);
+  const prodIds = prods.map((p) => p.id);
+
+  const [{ data: links }, { data: options }] = await Promise.all([
+    prodIds.length > 0
+      ? supabase
+          .from("product_customizations")
+          .select("*")
+          .in("product_id", prodIds)
+          .order("sort_order")
+      : Promise.resolve({ data: [] }),
+    groupIds.length > 0
+      ? supabase
+          .from("customization_options")
+          .select("*")
+          .in("group_id", groupIds)
+          .eq("status", "active")
+          .order("sort_order")
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const modifiersByProduct = buildModifiersByProductMap({
+    links: (links ?? []) as ProductCustomization[],
+    groups: groupRows,
+    options: (options ?? []) as ModifierOptionData[],
+  });
 
   const grouped = cats.length
     ? cats
@@ -76,6 +123,7 @@ export default async function MenuPage(props: Props) {
       outletPhone={defaultOutlet.phone}
       grouped={grouped}
       promos={promos}
+      modifiersByProduct={modifiersByProduct}
     />
   );
 }

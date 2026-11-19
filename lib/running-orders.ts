@@ -1,5 +1,6 @@
 import "server-only";
 import { randomInt } from "node:crypto";
+import { buildModifierConfigKey } from "@/lib/customizations";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -79,17 +80,7 @@ export function buildLineConfigKey(
   productId: string,
   selectedOptions: unknown,
 ): string {
-  const ids = Array.isArray(selectedOptions)
-    ? selectedOptions
-        .map((o) =>
-          o && typeof o === "object"
-            ? String((o as { option_id?: unknown }).option_id ?? "")
-            : "",
-        )
-        .filter(Boolean)
-        .sort()
-    : [];
-  return ids.length > 0 ? `p${productId}:${ids.join("-")}` : `p${productId}`;
+  return buildModifierConfigKey(productId, selectedOptions);
 }
 
 export function configKeyForPosLine(line: PosLine): string {

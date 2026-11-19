@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  MapPin,
   Percent,
   Search,
   ShoppingBag,
@@ -18,6 +17,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { useCart } from "@/components/CartProvider";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import type { ProductModifiersPayload } from "@/lib/customizations";
 import { cn } from "@/lib/utils";
 import type { Category, Product, PromotionalBanner } from "@/lib/types";
 
@@ -56,6 +56,7 @@ export function SwiggyMenuView({
   outletPhone,
   grouped,
   promos,
+  modifiersByProduct = {},
 }: {
   restaurantName: string;
   restaurantSlug: string;
@@ -64,6 +65,7 @@ export function SwiggyMenuView({
   outletPhone?: string | null;
   grouped: GroupedCategory[];
   promos: PromotionalBanner[];
+  modifiersByProduct?: Record<string, ProductModifiersPayload>;
 }) {
   const { count, subtotal, tableName, setTableName } = useCart();
   const [search, setSearch] = useState("");
@@ -342,6 +344,7 @@ export function SwiggyMenuView({
                         key={p.id}
                         product={p}
                         isBestseller={bestsellerIds.has(p.id)}
+                        preloadedModifiers={modifiersByProduct[p.id] ?? null}
                       />
                     ))}
                   </div>

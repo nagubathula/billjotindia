@@ -43,5 +43,6 @@ export async function setSelectedOutletAction(
   });
 
   revalidatePath(`/r/${restaurantSlug}/pos`);
+  revalidatePath(`/r/${restaurantSlug}/admin/menu`);
   return { ok: true };
 }

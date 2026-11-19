@@ -24,6 +24,7 @@ import {
   Settings2,
   ShieldCheck,
   ShoppingBag,
+  SlidersHorizontal,
   Smartphone,
   Tag,
   Trash2,
@@ -61,6 +62,11 @@ import {
   evaluateCouponDiscount,
   formatCouponOfferLabel,
 } from "@/lib/coupons";
+import {
+  buildModifierConfigKey,
+  formatSelectedOptionLabel,
+  type ProductModifiersPayload,
+} from "@/lib/customizations";
 import type { PublicPaymentConfig } from "@/lib/payments";
 import type {
   Category,
@@ -145,6 +151,7 @@ type Props = {
   outlets: Outlet[];
   categories: Category[];
   products: Product[];
+  modifiersByProduct?: Record<string, ProductModifiersPayload>;
   paymentConfig: PublicPaymentConfig;
   customerTabs?: CustomerTab[];
   posCoupons?: Coupon[];
@@ -188,9 +195,7 @@ function loadRazorpaySdk(): Promise<RazorpayConstructor | null> {
 }
 
 function buildConfigKey(productId: string, options: SelectedOption[]): string {
-  if (options.length === 0) return `p${productId}`;
-  const ids = options.map((o) => o.option_id).sort();
-  return `p${productId}:${ids.join("-")}`;
+  return buildModifierConfigKey(productId, options);
 }
 
 const ORDER_TYPES: { value: OrderType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -204,6 +209,7 @@ export function PosBilling({
   outlets,
   categories,
   products,
+  modifiersByProduct = {},
   paymentConfig,
   customerTabs = [],
   posCoupons = [],
@@ -246,6 +252,7 @@ export function PosBilling({
   const [sendingKot, setSendingKot] = useState(false);
   const [movingTable, setMovingTable] = useState(false);
   const [modProduct, setModProduct] = useState<Product | null>(null);
+  const [editingModLine, setEditingModLine] = useState<Line | null>(null);
   const [editingLineNoteKey, setEditingLineNoteKey] = useState<string | null>(null);
   const [showOrderDetails, setShowOrderDetails] = useState(false);
 
@@ -450,13 +457,24 @@ export function PosBilling({
   }, [lines]);
 
   const addLine = useCallback(
-    (product: Product, selectedOptions: SelectedOption[] = []) => {
+    (
+      product: Product,
+      selectedOptions: SelectedOption[] = [],
+      instructions?: string,
+    ) => {
+      const cleanNote = instructions?.trim() || undefined;
       updateActiveLines((prev) => {
         const configKey = buildConfigKey(product.id, selectedOptions);
         const existing = prev.find((l) => l.configKey === configKey);
         if (existing) {
           return prev.map((l) =>
-            l.configKey === configKey ? { ...l, qty: l.qty + 1 } : l,
+            l.configKey === configKey
+              ? {
+                  ...l,
+                  qty: l.qty + 1,
+                  instructions: cleanNote ?? l.instructions,
+                }
+              : l,
           );
         }
         const unitPrice =
@@ -464,7 +482,66 @@ export function PosBilling({
           selectedOptions.reduce((s, o) => s + Number(o.price), 0);
         return [
           ...prev,
-          { configKey, product, qty: 1, selectedOptions, unitPrice },
+          {
+            configKey,
+            product,
+            qty: 1,
+            selectedOptions,
+            unitPrice,
+            ...(cleanNote ? { instructions: cleanNote } : {}),
+          },
+        ];
+      });
+    },
+    [updateActiveLines],
+  );
+
+  const applyEditedModifiers = useCallback(
+    (line: Line, opts: SelectedOption[], instructions?: string) => {
+      const cleanNote = instructions?.trim() || undefined;
+      const newKey = buildConfigKey(line.product.id, opts);
+      const unitPrice =
+        Number(line.product.price) +
+        opts.reduce((s, o) => s + Number(o.price), 0);
+
+      updateActiveLines((prev) => {
+        const current = prev.find((l) => l.configKey === line.configKey);
+        if (!current) return prev;
+        const sent = current.sentQty ?? 0;
+        const editableQty =
+          sent > 0 ? Math.max(0, current.qty - sent) : current.qty;
+        if (editableQty <= 0) return prev;
+
+        const baseList =
+          sent === 0
+            ? prev.filter((l) => l.configKey !== current.configKey)
+            : prev.map((l) =>
+                l.configKey === current.configKey ? { ...l, qty: sent } : l,
+              );
+
+        const existingTarget = baseList.find((l) => l.configKey === newKey);
+        if (existingTarget) {
+          return baseList.map((l) =>
+            l.configKey === newKey
+              ? {
+                  ...l,
+                  qty: l.qty + editableQty,
+                  instructions: cleanNote ?? l.instructions,
+                }
+              : l,
+          );
+        }
+
+        return [
+          ...baseList,
+          {
+            configKey: newKey,
+            product: current.product,
+            qty: editableQty,
+            selectedOptions: opts,
+            unitPrice,
+            ...(cleanNote ? { instructions: cleanNote } : {}),
+          },
         ];
       });
     },
@@ -477,13 +554,17 @@ export function PosBilling({
         setTableModalOpen(true);
         return;
       }
-      if (product.has_addons) {
+      const hasMods =
+        Boolean(product.has_addons) ||
+        (modifiersByProduct[product.id]?.groups.length ?? 0) > 0;
+      if (hasMods) {
+        setEditingModLine(null);
         setModProduct(product);
       } else {
         addLine(product);
       }
     },
-    [activeTab, addLine],
+    [activeTab, addLine, modifiersByProduct],
   );
 
   const setQty = (configKey: string, qty: number) => {
@@ -1864,14 +1945,42 @@ export function PosBilling({
                 sentQty = 0,
               } = line;
               const isEditingNote = editingLineNoteKey === configKey;
+              const lineHasModifiers =
+                Boolean(product.has_addons) ||
+                (modifiersByProduct[product.id]?.groups.length ?? 0) > 0;
+              const canCustomizeLine = lineHasModifiers && qty > sentQty;
               return (
                 <div key={configKey} className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-xs font-medium text-foreground">
                           {product.name}
                         </span>
+                        {lineHasModifiers && (
+                          <button
+                            type="button"
+                            disabled={!canCustomizeLine}
+                            onClick={() => {
+                              setModProduct(null);
+                              setEditingModLine(line);
+                            }}
+                            title={
+                              canCustomizeLine
+                                ? "Edit add-ons & prep note"
+                                : "Already sent to kitchen — add another item to customize"
+                            }
+                            className={cn(
+                              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                              canCustomizeLine
+                                ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                : "cursor-not-allowed bg-muted text-muted-foreground/60",
+                            )}
+                          >
+                            <SlidersHorizontal className="h-2.5 w-2.5" />
+                            Edit
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() =>
@@ -1892,7 +2001,9 @@ export function PosBilling({
                       </div>
                       {selectedOptions.length > 0 && (
                         <div className="truncate text-[11px] text-muted-foreground">
-                          {selectedOptions.map((o) => o.option_name).join(" · ")}
+                          {selectedOptions
+                            .map((o) => formatSelectedOptionLabel(o))
+                            .join(" · ")}
                         </div>
                       )}
                       {instructions && !isEditingNote && (
@@ -2205,14 +2316,31 @@ export function PosBilling({
       </div>
 
       <ModifierDialog
-        product={modProduct}
-        open={modProduct !== null}
+        product={editingModLine?.product ?? modProduct}
+        open={(editingModLine?.product ?? modProduct) !== null}
         onOpenChange={(o) => {
-          if (!o) setModProduct(null);
+          if (!o) {
+            setModProduct(null);
+            setEditingModLine(null);
+          }
         }}
-        onConfirm={(opts) => {
-          if (modProduct) addLine(modProduct, opts);
-          setModProduct(null);
+        preloadedModifiers={
+          (editingModLine?.product ?? modProduct)
+            ? (modifiersByProduct[(editingModLine?.product ?? modProduct)!.id] ??
+              null)
+            : undefined
+        }
+        initialSelections={editingModLine?.selectedOptions}
+        initialInstructions={editingModLine?.instructions ?? ""}
+        confirmLabel={editingModLine ? "Save changes" : "Add to bill"}
+        onConfirm={(opts, note) => {
+          if (editingModLine) {
+            applyEditedModifiers(editingModLine, opts, note);
+            setEditingModLine(null);
+          } else if (modProduct) {
+            addLine(modProduct, opts, note);
+            setModProduct(null);
+          }
         }}
       />
 

@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       api_rate_limits: {
@@ -652,8 +677,11 @@ export type Database = {
         Row: {
           created_at: string | null
           display_name: string
+          free_selections: number
           id: string
           is_required: boolean | null
+          max_selections: number | null
+          min_selections: number
           name: string
           outlet_id: string
           selection_type: string
@@ -664,8 +692,11 @@ export type Database = {
         Insert: {
           created_at?: string | null
           display_name: string
+          free_selections?: number
           id?: string
           is_required?: boolean | null
+          max_selections?: number | null
+          min_selections?: number
           name: string
           outlet_id: string
           selection_type?: string
@@ -676,8 +707,11 @@ export type Database = {
         Update: {
           created_at?: string | null
           display_name?: string
+          free_selections?: number
           id?: string
           is_required?: boolean | null
+          max_selections?: number | null
+          min_selections?: number
           name?: string
           outlet_id?: string
           selection_type?: string
@@ -700,31 +734,43 @@ export type Database = {
           created_at: string | null
           group_id: string
           id: string
+          is_default: boolean
+          max_qty: number
           name: string
           price: number
           sort_order: number | null
           status: string | null
           updated_at: string | null
+          variant_prices: Json
+          veg_status: string
         }
         Insert: {
           created_at?: string | null
           group_id: string
           id?: string
+          is_default?: boolean
+          max_qty?: number
           name: string
           price?: number
           sort_order?: number | null
           status?: string | null
           updated_at?: string | null
+          variant_prices?: Json
+          veg_status?: string
         }
         Update: {
           created_at?: string | null
           group_id?: string
           id?: string
+          is_default?: boolean
+          max_qty?: number
           name?: string
           price?: number
           sort_order?: number | null
           status?: string | null
           updated_at?: string | null
+          variant_prices?: Json
+          veg_status?: string
         }
         Relationships: [
           {
@@ -1737,6 +1783,7 @@ export type Database = {
           created_at: string | null
           group_id: string
           id: string
+          is_required_override: boolean | null
           product_id: string
           sort_order: number | null
         }
@@ -1744,6 +1791,7 @@ export type Database = {
           created_at?: string | null
           group_id: string
           id?: string
+          is_required_override?: boolean | null
           product_id: string
           sort_order?: number | null
         }
@@ -1751,6 +1799,7 @@ export type Database = {
           created_at?: string | null
           group_id?: string
           id?: string
+          is_required_override?: boolean | null
           product_id?: string
           sort_order?: number | null
         }
@@ -2640,6 +2689,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "user", "manager", "captain"],

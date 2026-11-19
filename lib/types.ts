@@ -97,5 +97,8 @@ export type ProductConfig = {
     option_id: string;
     option_name: string;
     price: number;
+    quantity?: number;
+    unit_price?: number;
+    veg_status?: string;
   }>;
 };

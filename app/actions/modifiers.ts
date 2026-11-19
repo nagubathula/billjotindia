@@ -2,18 +2,13 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type {
-  CustomizationGroup,
-  CustomizationOption,
-  ProductCustomization,
-} from "@/lib/types";
+  ModifierGroupData,
+  ModifierOptionData,
+  ProductModifiersPayload,
+} from "@/lib/customizations";
+import type { ProductCustomization } from "@/lib/types";
 
-export type ProductModifiers = {
-  groups: Array<{
-    group: CustomizationGroup;
-    options: CustomizationOption[];
-    sort_order: number;
-  }>;
-};
+export type ProductModifiers = ProductModifiersPayload;
 
 /**
  * Returns the modifier groups + options for a product, in sort order.
@@ -50,10 +45,10 @@ export async function getProductModifiers(
   ]);
 
   const groupsById = new Map(
-    (groups ?? []).map((g) => [g.id, g as CustomizationGroup]),
+    (groups ?? []).map((g) => [g.id, g as ModifierGroupData]),
   );
-  const optsByGroup = new Map<string, CustomizationOption[]>();
-  for (const o of (options ?? []) as CustomizationOption[]) {
+  const optsByGroup = new Map<string, ModifierOptionData[]>();
+  for (const o of (options ?? []) as ModifierOptionData[]) {
     const arr = optsByGroup.get(o.group_id) ?? [];
     arr.push(o);
     optsByGroup.set(o.group_id, arr);
@@ -67,6 +62,7 @@ export async function getProductModifiers(
         group: g,
         options: optsByGroup.get(p.group_id) ?? [],
         sort_order: p.sort_order ?? 0,
+        is_required_override: p.is_required_override ?? null,
       };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);

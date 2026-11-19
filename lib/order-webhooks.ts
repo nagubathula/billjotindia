@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { after } from "next/server";
 import { createClient as createAnonSupabase } from "@supabase/supabase-js";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
 
@@ -131,7 +132,7 @@ export async function loadTrackedOrderWithOutlet(orderId: string): Promise<{
         const cfg = (it.product_config ?? {}) as {
           product_id?: string;
           name?: string;
-          selected_options?: { option_name?: string }[];
+          selected_options?: { option_name?: string; quantity?: number }[];
         };
         return {
           product_id: cfg.product_id ?? null,
@@ -139,8 +140,8 @@ export async function loadTrackedOrderWithOutlet(orderId: string): Promise<{
           quantity: Number(it.quantity),
           total_price: Number(it.total_price),
           options: (cfg.selected_options ?? [])
-            .map((o) => o.option_name)
-            .filter((v): v is string => Boolean(v)),
+            .map((o) => formatSelectedOptionLabel(o))
+            .filter(Boolean),
           instructions: it.instructions,
         };
       }),

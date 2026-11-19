@@ -5,23 +5,30 @@ import Image from "next/image";
 import { Minus, Plus, Star, UtensilsCrossed } from "lucide-react";
 import { useCart, type SelectedOption } from "@/components/CartProvider";
 import { ModifierDialog } from "@/components/ModifierDialog";
+import type { ProductModifiersPayload } from "@/lib/customizations";
 import { cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function ProductCard({
   product,
   isBestseller = false,
+  preloadedModifiers,
 }: {
   product: Product;
   isBestseller?: boolean;
+  preloadedModifiers?: ProductModifiersPayload | null;
 }) {
   const { add, lines, setQuantity } = useCart();
   const [modOpen, setModOpen] = useState(false);
-  const isVeg = (product.veg_status ?? "Veg").toLowerCase() === "veg";
+  const diet = (product.veg_status ?? "Veg").toLowerCase();
+  const isVeg = diet === "veg";
+  const isEgg = diet === "egg";
 
   const productLines = lines.filter((l) => l.product.id === product.id);
   const inCart = productLines.reduce((s, l) => s + l.quantity, 0);
-  const hasModifiers = !!product.has_addons;
+  const hasModifiers =
+    Boolean(product.has_addons) ||
+    Boolean(preloadedModifiers && preloadedModifiers.groups.length > 0);
 
   function handleAdd() {
     if (hasModifiers) setModOpen(true);
@@ -47,29 +54,40 @@ export function ProductCard({
     }
   }
 
-  function handleConfirmModifiers(options: SelectedOption[]) {
-    add(product, options);
+  function handleConfirmModifiers(
+    options: SelectedOption[],
+    instructions?: string,
+  ) {
+    add(product, options, instructions);
     setModOpen(false);
   }
 
   return (
     <>
       <div className="group flex items-start justify-between gap-4 py-5 first:pt-2 last:pb-2">
-        {/* Left: Veg/Non-Veg + Bestseller + Title + Price + Description */}
+        {/* Left: Veg/Egg/Non-Veg + Bestseller + Title + Price + Description */}
         <div className="min-w-0 flex-1 space-y-1.5 pr-2">
           <div className="flex items-center gap-2">
             <span
-              aria-label={isVeg ? "Vegetarian" : "Non-vegetarian"}
-              title={isVeg ? "Vegetarian" : "Non-vegetarian"}
+              aria-label={isVeg ? "Vegetarian" : isEgg ? "Contains Egg" : "Non-vegetarian"}
+              title={isVeg ? "Vegetarian" : isEgg ? "Contains Egg" : "Non-vegetarian"}
               className={cn(
                 "flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border bg-background",
-                isVeg ? "border-emerald-600" : "border-rose-600",
+                isVeg
+                  ? "border-emerald-600"
+                  : isEgg
+                    ? "border-amber-500"
+                    : "border-rose-600",
               )}
             >
               <span
                 className={cn(
                   "block h-2 w-2 rounded-full",
-                  isVeg ? "bg-emerald-600" : "bg-rose-600",
+                  isVeg
+                    ? "bg-emerald-600"
+                    : isEgg
+                      ? "bg-amber-500"
+                      : "bg-rose-600",
                 )}
               />
             </span>
@@ -164,6 +182,7 @@ export function ProductCard({
           open={modOpen}
           onOpenChange={setModOpen}
           onConfirm={handleConfirmModifiers}
+          preloadedModifiers={preloadedModifiers}
         />
       )}
     </>

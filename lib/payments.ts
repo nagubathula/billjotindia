@@ -5,6 +5,12 @@ import {
   recordCouponRedemption,
   resolveOrderCouponDiscount,
 } from "@/lib/coupons";
+import {
+  buildModifiersByProductMap,
+  evaluateProductCustomizations,
+  type ModifierGroupData,
+  type ModifierOptionData,
+} from "@/lib/customizations";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -546,6 +552,7 @@ export async function buildVerifiedOrderDraft(input: {
     name?: string;
     selected_options?: Array<{
       option_id?: string;
+      quantity?: number;
     }>;
   };
 
@@ -572,7 +579,7 @@ export async function buildVerifiedOrderDraft(input: {
       .in("id", productIds),
     admin
       .from("product_customizations")
-      .select("product_id, group_id")
+      .select("product_id, group_id, sort_order, is_required_override")
       .in("product_id", productIds),
   ]);
 
@@ -583,56 +590,37 @@ export async function buildVerifiedOrderDraft(input: {
   const prodById = new Map(productsRes.data.map((p) => [p.id, p]));
   const linkedGroupIds = [...new Set(linksRes.data.map((l) => l.group_id))];
 
-  const groupById = new Map<
-    string,
-    { id: string; label: string; single: boolean; required: boolean; hasOptions: boolean }
-  >();
-  const optById = new Map<
-    string,
-    { id: string; name: string; price: number; group_id: string }
-  >();
-
+  let groupRows: ModifierGroupData[] = [];
+  let optRows: ModifierOptionData[] = [];
   if (linkedGroupIds.length > 0) {
     const [groupsRes, optsRes] = await Promise.all([
       admin
         .from("customization_groups")
-        .select("id, name, display_name, selection_type, is_required")
+        .select(
+          "id, name, display_name, selection_type, is_required, min_selections, max_selections, free_selections, sort_order",
+        )
         .in("id", linkedGroupIds)
         .eq("status", "active"),
       admin
         .from("customization_options")
-        .select("id, name, price, group_id")
+        .select(
+          "id, name, price, group_id, veg_status, is_default, max_qty, variant_prices, sort_order",
+        )
         .in("group_id", linkedGroupIds)
         .eq("status", "active"),
     ]);
-    for (const g of groupsRes.data ?? []) {
-      groupById.set(g.id, {
-        id: g.id,
-        label: g.display_name || g.name,
-        single: g.selection_type === "single",
-        required: !!g.is_required,
-        hasOptions: false,
-      });
+    if (groupsRes.error || optsRes.error) {
+      return { ok: false, error: "Unable to verify menu modifiers" };
     }
-    for (const o of optsRes.data ?? []) {
-      const grp = groupById.get(o.group_id);
-      if (!grp) continue;
-      grp.hasOptions = true;
-      optById.set(o.id, o);
-    }
+    groupRows = (groupsRes.data ?? []) as ModifierGroupData[];
+    optRows = (optsRes.data ?? []) as ModifierOptionData[];
   }
 
-  const groupsByProduct = new Map<
-    string,
-    Array<{ id: string; label: string; single: boolean; required: boolean; hasOptions: boolean }>
-  >();
-  for (const link of linksRes.data) {
-    const grp = groupById.get(link.group_id);
-    if (!grp) continue;
-    const list = groupsByProduct.get(link.product_id) ?? [];
-    list.push(grp);
-    groupsByProduct.set(link.product_id, list);
-  }
+  const modifiersByProduct = buildModifiersByProductMap({
+    links: linksRes.data,
+    groups: groupRows,
+    options: optRows,
+  });
 
   let runningGross = 0;
   let runningGst = 0;
@@ -648,45 +636,18 @@ export async function buildVerifiedOrderDraft(input: {
       };
     }
     const qty = Math.max(1, Math.floor(Number(input.items[i].quantity) || 1));
-    const offered = groupsByProduct.get(prod.id) ?? [];
-    const pickedPerGroup = new Map<string, number>();
-    const seenOpts = new Set<string>();
-    let optSum = 0;
-    const cleanOpts = [];
-
-    for (const sel of Array.isArray(cfg.selected_options)
-      ? cfg.selected_options
-      : []) {
-      const opt = isUuid(sel?.option_id) ? optById.get(sel.option_id) : undefined;
-      const grp = opt ? offered.find((g) => g.id === opt.group_id) : undefined;
-      if (!opt || !grp) {
-        return { ok: false, error: `Invalid add-on on "${prod.name}"` };
-      }
-      if (seenOpts.has(opt.id)) continue;
-      seenOpts.add(opt.id);
-      pickedPerGroup.set(grp.id, (pickedPerGroup.get(grp.id) ?? 0) + 1);
-      optSum += Number(opt.price) || 0;
-      cleanOpts.push({
-        group_id: grp.id,
-        group_name: grp.label,
-        option_id: opt.id,
-        option_name: opt.name,
-        price: Number(opt.price) || 0,
-      });
-    }
-
-    for (const grp of offered) {
-      const cnt = pickedPerGroup.get(grp.id) ?? 0;
-      if (grp.single && cnt > 1) {
-        return { ok: false, error: `Pick only one "${grp.label}" on "${prod.name}"` };
-      }
-      if (grp.required && grp.hasOptions && cnt === 0) {
-        return { ok: false, error: `Please choose "${grp.label}" on "${prod.name}"` };
-      }
+    const offered = modifiersByProduct[prod.id]?.groups ?? [];
+    const evalRes = evaluateProductCustomizations(
+      prod.name,
+      offered,
+      Array.isArray(cfg.selected_options) ? cfg.selected_options : [],
+    );
+    if (!evalRes.ok) {
+      return { ok: false, error: evalRes.error };
     }
 
     const base = Number(prod.price) || 0;
-    const unit = base + optSum;
+    const unit = base + evalRes.optionsTotal;
     const lineTotal = unit * qty;
     runningGross += lineTotal;
     runningGst += splitGst(lineTotal, Number(prod.gst_rate ?? 5));
@@ -702,7 +663,7 @@ export async function buildVerifiedOrderDraft(input: {
         base_price: base,
         gst_rate: Number(prod.gst_rate ?? 5),
         hsn_code: prod.hsn_code ?? null,
-        selected_options: cleanOpts,
+        selected_options: evalRes.selectedOptions,
       } as Json,
     });
   }

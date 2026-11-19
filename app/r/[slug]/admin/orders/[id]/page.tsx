@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { OrderStatusPipeline } from "@/components/OrderStatusPipeline";
 import { OrderStatusActions } from "./OrderStatusActions";
 import { cancelReasonLabel } from "@/lib/order-cancel";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import type { Order, OrderItem, OrderStatus, ProductConfig } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -272,7 +273,7 @@ export default async function OrderDetailPage(props: Props) {
                       </span>
                       {options.length > 0 && (
                         <div className="text-[11px] text-muted-foreground">
-                          {options.map((s) => s.option_name).join(" · ")}
+                          {options.map((s) => formatSelectedOptionLabel(s)).join(" · ")}
                         </div>
                       )}
                       {line.instructions && (

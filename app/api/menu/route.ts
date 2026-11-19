@@ -153,7 +153,7 @@ export async function GET(request: Request) {
   const linksRes = productIds.length
     ? await supabase
         .from("product_customizations")
-        .select("product_id, group_id, sort_order")
+        .select("product_id, group_id, sort_order, is_required_override")
         .in("product_id", productIds)
         .order("sort_order", { ascending: true })
     : { data: [], error: null };
@@ -165,13 +165,17 @@ export async function GET(request: Request) {
     ? await Promise.all([
         supabase
           .from("customization_groups")
-          .select("id, display_name, selection_type, is_required, sort_order")
+          .select(
+            "id, display_name, selection_type, is_required, min_selections, max_selections, free_selections, sort_order",
+          )
           .in("id", groupIds)
           .eq("status", "active")
           .order("sort_order", { ascending: true }),
         supabase
           .from("customization_options")
-          .select("id, group_id, name, price, sort_order")
+          .select(
+            "id, group_id, name, price, veg_status, is_default, max_qty, variant_prices, sort_order",
+          )
           .in("group_id", groupIds)
           .eq("status", "active")
           .order("sort_order", { ascending: true }),
@@ -186,11 +190,17 @@ export async function GET(request: Request) {
 
   const activeGroups = new Set((groupsRes.data ?? []).map((g) => g.id));
   const groupsByProduct = new Map<string, string[]>();
+  const overridesByProduct = new Map<string, Record<string, boolean>>();
   for (const l of links) {
     if (!activeGroups.has(l.group_id)) continue;
     const list = groupsByProduct.get(l.product_id) ?? [];
     list.push(l.group_id);
     groupsByProduct.set(l.product_id, list);
+    if (typeof l.is_required_override === "boolean") {
+      const ov = overridesByProduct.get(l.product_id) ?? {};
+      ov[l.group_id] = l.is_required_override;
+      overridesByProduct.set(l.product_id, ov);
+    }
   }
 
   const nowMs = Date.now();
@@ -229,19 +239,34 @@ export async function GET(request: Request) {
         upi_vpa: payCfg.upiVpa,
       },
       categories: categoriesRes.data ?? [],
-      products: products.map((p) => ({
-        ...p,
-        price: Number(p.price ?? 0),
-        modifier_group_ids: groupsByProduct.get(p.id) ?? [],
-      })),
+      products: products.map((p) => {
+        const overrides = overridesByProduct.get(p.id);
+        return {
+          ...p,
+          price: Number(p.price ?? 0),
+          modifier_group_ids: groupsByProduct.get(p.id) ?? [],
+          ...(overrides ? { modifier_group_overrides: overrides } : {}),
+        };
+      }),
       modifier_groups: (groupsRes.data ?? []).map((g) => ({
         id: g.id,
         name: g.display_name,
         selection: g.selection_type === "multi" ? "multiple" : "single",
         required: Boolean(g.is_required),
+        min_selections: g.min_selections ?? 0,
+        max_selections: g.max_selections ?? null,
+        free_selections: g.free_selections ?? 0,
         options: (optionsRes.data ?? [])
           .filter((o) => o.group_id === g.id)
-          .map((o) => ({ id: o.id, name: o.name, price: Number(o.price) })),
+          .map((o) => ({
+            id: o.id,
+            name: o.name,
+            price: Number(o.price),
+            veg_status: o.veg_status ?? "Veg",
+            is_default: Boolean(o.is_default),
+            max_qty: o.max_qty ?? 1,
+            variant_prices: o.variant_prices ?? {},
+          })),
       })),
       coupons: publicCoupons,
     },

@@ -6,6 +6,12 @@
 
 import { randomInt } from "node:crypto";
 import { resolveOrderCouponDiscount } from "@/lib/coupons";
+import {
+  buildModifiersByProductMap,
+  evaluateProductCustomizations,
+  type ModifierGroupData,
+  type ModifierOptionData,
+} from "@/lib/customizations";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { OrderType } from "@/lib/types";
 import { isUuid } from "@/lib/utils";
@@ -104,6 +110,7 @@ export type SelectedOptionInput = {
   option_id?: string;
   option_name?: string;
   price?: number;
+  quantity?: number;
 };
 
 export type ConfigShape = {
@@ -180,7 +187,7 @@ export async function recomputeFirstParty(
       .in("id", productIds),
     supabase
       .from("product_customizations")
-      .select("product_id, group_id")
+      .select("product_id, group_id, sort_order, is_required_override")
       .in("product_id", productIds),
   ]);
   if (productsRes.error || linksRes.error) return unreadable;
@@ -189,57 +196,35 @@ export async function recomputeFirstParty(
   // What each linked group allows. Switched-off groups and options are left
   // out, exactly as the pickers leave them out, so they can be neither chosen
   // nor demanded.
-  type Group = {
-    id: string;
-    label: string;
-    single: boolean;
-    required: boolean;
-    hasOptions: boolean;
-  };
-  const groupById = new Map<string, Group>();
-  const optById = new Map<
-    string,
-    { id: string; name: string; price: number; group_id: string }
-  >();
   const linkedGroupIds = [...new Set(linksRes.data.map((l) => l.group_id))];
+  let groupRows: ModifierGroupData[] = [];
+  let optRows: ModifierOptionData[] = [];
   if (linkedGroupIds.length > 0) {
     const [groupsRes, optsRes] = await Promise.all([
       supabase
         .from("customization_groups")
-        .select("id, name, display_name, selection_type, is_required")
+        .select(
+          "id, name, display_name, selection_type, is_required, min_selections, max_selections, free_selections, sort_order",
+        )
         .in("id", linkedGroupIds)
         .eq("status", "active"),
       supabase
         .from("customization_options")
-        .select("id, name, price, group_id")
+        .select(
+          "id, name, price, group_id, veg_status, is_default, max_qty, variant_prices, sort_order",
+        )
         .in("group_id", linkedGroupIds)
         .eq("status", "active"),
     ]);
     if (groupsRes.error || optsRes.error) return unreadable;
-    for (const g of groupsRes.data) {
-      groupById.set(g.id, {
-        id: g.id,
-        label: g.display_name || g.name,
-        single: g.selection_type === "single",
-        required: !!g.is_required,
-        hasOptions: false,
-      });
-    }
-    for (const o of optsRes.data) {
-      const group = groupById.get(o.group_id);
-      if (!group) continue;
-      group.hasOptions = true;
-      optById.set(o.id, o);
-    }
+    groupRows = (groupsRes.data ?? []) as ModifierGroupData[];
+    optRows = (optsRes.data ?? []) as ModifierOptionData[];
   }
-  const groupsByProduct = new Map<string, Group[]>();
-  for (const link of linksRes.data) {
-    const group = groupById.get(link.group_id);
-    if (!group) continue;
-    const list = groupsByProduct.get(link.product_id) ?? [];
-    list.push(group);
-    groupsByProduct.set(link.product_id, list);
-  }
+  const modifiersByProduct = buildModifiersByProductMap({
+    links: linksRes.data,
+    groups: groupRows,
+    options: optRows,
+  });
 
   let runningTotal = 0;
   let runningGst = 0;
@@ -253,49 +238,19 @@ export async function recomputeFirstParty(
     }
     const qty = Math.max(1, Math.floor(Number(items[i].quantity) || 0));
 
-    // Every chosen add-on must be one this product offers, at most once, and
-    // each group's own rules must hold: one choice in a pick-one group, at
-    // least one in a required group.
-    const offered = groupsByProduct.get(product.id) ?? [];
-    const pickedPerGroup = new Map<string, number>();
-    const seenOptions = new Set<string>();
-    let optionSum = 0;
-    const cleanOptions = [];
+    const offered = modifiersByProduct[product.id]?.groups ?? [];
     const selections = Array.isArray(cfg.selected_options)
       ? cfg.selected_options
       : [];
-    for (const sel of selections) {
-      const opt = isUuid(sel?.option_id) ? optById.get(sel.option_id) : undefined;
-      const group = opt ? offered.find((g) => g.id === opt.group_id) : undefined;
-      if (!opt || !group) {
-        return invalid(`Invalid option on "${product.name}"`);
-      }
-      if (seenOptions.has(opt.id)) {
-        return invalid(`"${opt.name}" is on "${product.name}" twice`);
-      }
-      seenOptions.add(opt.id);
-      pickedPerGroup.set(group.id, (pickedPerGroup.get(group.id) ?? 0) + 1);
-      optionSum += Number(opt.price) || 0;
-      cleanOptions.push({
-        group_id: group.id,
-        group_name: group.label,
-        option_id: opt.id,
-        option_name: opt.name,
-        price: Number(opt.price) || 0,
-      });
-    }
-    for (const group of offered) {
-      const picked = pickedPerGroup.get(group.id) ?? 0;
-      if (group.single && picked > 1) {
-        return invalid(`Choose only one "${group.label}" for "${product.name}"`);
-      }
-      if (group.required && group.hasOptions && picked === 0) {
-        return invalid(`Choose "${group.label}" for "${product.name}"`);
-      }
-    }
+    const evalRes = evaluateProductCustomizations(
+      product.name,
+      offered,
+      selections,
+    );
+    if (!evalRes.ok) return invalid(evalRes.error);
 
     const base = Number(product.price) || 0;
-    const unit = base + optionSum;
+    const unit = base + evalRes.optionsTotal;
     const lineTotal = unit * qty;
     runningTotal += lineTotal;
     runningGst += splitGst(lineTotal, Number(product.gst_rate ?? 5));
@@ -311,7 +266,7 @@ export async function recomputeFirstParty(
         base_price: base,
         gst_rate: Number(product.gst_rate ?? 5),
         hsn_code: product.hsn_code ?? null,
-        selected_options: cleanOptions,
+        selected_options: evalRes.selectedOptions,
       } as Json,
     });
   }

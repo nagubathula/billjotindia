@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AutoPrint } from "./AutoPrint";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
 import { isUuid } from "@/lib/utils";
 import { resolveTimeZone } from "@/lib/time";
@@ -120,7 +121,7 @@ export default async function ReceiptPage(props: Params) {
                     <div>{name}</div>
                     {opts.length > 0 && (
                       <div className="text-[9px] text-neutral-700">
-                        + {opts.map((o) => o.option_name).join(", ")}
+                        + {opts.map((o) => formatSelectedOptionLabel(o)).join(", ")}
                       </div>
                     )}
                     {line.instructions && (

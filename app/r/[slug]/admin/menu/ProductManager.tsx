@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Search, ShoppingBag, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Plus, Search, ShoppingBag, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,23 +41,33 @@ import {
 } from "./actions";
 
 const GST_RATES = ["0", "5", "12", "18"];
-const VEG_OPTIONS = ["Veg", "Non-Veg"];
+const VEG_OPTIONS = ["Veg", "Egg", "Non-Veg"];
 const ALL_VALUE = "__all__";
 
-export type GroupOption = { id: string; display_name: string };
+export type GroupOption = {
+  id: string;
+  display_name: string;
+  is_required: boolean;
+  selection_type: string;
+};
+
+export type AttachedGroupConfig = {
+  group_id: string;
+  is_required_override: boolean | null;
+};
 
 export function ProductManager({
   slug,
   categories,
   products,
   groups,
-  productGroupIds,
+  productGroups,
 }: {
   slug: string;
   categories: Category[];
   products: Product[];
   groups: GroupOption[];
-  productGroupIds: Record<string, string[]>;
+  productGroups: Record<string, AttachedGroupConfig[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -189,9 +199,11 @@ export function ProductManager({
             </TableHeader>
             <TableBody>
               {filteredProducts.map((p) => {
-                const isVeg = (p.veg_status ?? "Veg").toLowerCase() === "veg";
+                const diet = (p.veg_status ?? "Veg").toLowerCase();
+                const isVeg = diet === "veg";
+                const isEgg = diet === "egg";
                 const isActive = p.status === "active";
-                const attachedCount = productGroupIds[p.id]?.length ?? 0;
+                const attachedCount = productGroups[p.id]?.length ?? 0;
 
                 return (
                   <TableRow key={p.id}>
@@ -209,16 +221,24 @@ export function ProductManager({
                           </div>
                         )}
                         <span
-                          aria-label={isVeg ? "Veg" : "Non-veg"}
+                          aria-label={p.veg_status ?? "Veg"}
                           className={cn(
                             "flex h-3 w-3 shrink-0 items-center justify-center rounded-[2px] border",
-                            isVeg ? "border-emerald-600" : "border-rose-600",
+                            isVeg
+                              ? "border-emerald-600"
+                              : isEgg
+                                ? "border-amber-500"
+                                : "border-rose-600",
                           )}
                         >
                           <span
                             className={cn(
                               "h-1.5 w-1.5 rounded-full",
-                              isVeg ? "bg-emerald-600" : "bg-rose-600",
+                              isVeg
+                                ? "bg-emerald-600"
+                                : isEgg
+                                  ? "bg-amber-500"
+                                  : "bg-rose-600",
                             )}
                           />
                         </span>
@@ -312,7 +332,7 @@ export function ProductManager({
         slug={slug}
         categories={activeCategories}
         groups={groups}
-        selectedGroupIds={[]}
+        selectedProductGroups={[]}
         open={creating}
         onOpenChange={setCreating}
         product={null}
@@ -327,7 +347,7 @@ export function ProductManager({
         slug={slug}
         categories={activeCategories}
         groups={groups}
-        selectedGroupIds={editing ? (productGroupIds[editing.id] ?? []) : []}
+        selectedProductGroups={editing ? (productGroups[editing.id] ?? []) : []}
         open={editing !== null}
         onOpenChange={(o) => {
           if (!o) setEditing(null);
@@ -348,7 +368,7 @@ function ProductDialog({
   slug,
   categories,
   groups,
-  selectedGroupIds,
+  selectedProductGroups,
   open,
   onOpenChange,
   product,
@@ -359,7 +379,7 @@ function ProductDialog({
   slug: string;
   categories: Category[];
   groups: GroupOption[];
-  selectedGroupIds: string[];
+  selectedProductGroups: AttachedGroupConfig[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
   product: Product | null;
@@ -374,8 +394,8 @@ function ProductDialog({
   const [vegStatus, setVegStatus] = useState<string>(
     product?.veg_status ?? "Veg",
   );
-  const [groupIds, setGroupIds] = useState<Set<string>>(
-    new Set(selectedGroupIds),
+  const [attachedGroups, setAttachedGroups] = useState<AttachedGroupConfig[]>(
+    selectedProductGroups,
   );
   const [err, setErr] = useState<string | null>(null);
 
@@ -387,9 +407,24 @@ function ProductDialog({
   const currentKey = product?.id ?? "";
   if (open && seedKey !== currentKey) {
     setSeedKey(currentKey);
-    setGroupIds(new Set(selectedGroupIds));
+    setAttachedGroups(selectedProductGroups);
     setGstRate(String(product?.gst_rate ?? 5));
     setVegStatus(product?.veg_status ?? "Veg");
+  }
+
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+  const attachedSet = new Set(attachedGroups.map((a) => a.group_id));
+  const unattachedGroups = groups.filter((g) => !attachedSet.has(g.id));
+
+  function moveGroup(idx: number, delta: -1 | 1) {
+    setAttachedGroups((prev) => {
+      const target = idx + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const copy = [...prev];
+      const [item] = copy.splice(idx, 1);
+      copy.splice(target, 0, item);
+      return copy;
+    });
   }
 
   return (
@@ -418,7 +453,7 @@ function ProductDialog({
             fd.set("category", category);
             fd.set("gst_rate", gstRate);
             fd.set("veg_status", vegStatus);
-            fd.set("group_ids", JSON.stringify([...groupIds]));
+            fd.set("product_groups", JSON.stringify(attachedGroups));
             if (product) fd.set("id", String(product.id));
             setErr(null);
             start(async () => {
@@ -559,37 +594,135 @@ function ProductDialog({
           </div>
 
           <div className="grid gap-1.5">
-            <Label>Customization groups</Label>
+            <Label>Customization groups (prompt order &amp; requirement)</Label>
             {groups.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No customization groups yet. Create one in the Customizations tab to offer add-ons here.
               </p>
             ) : (
-              <div className="grid gap-1.5 rounded-lg border border-border p-2 sm:grid-cols-2">
-                {groups.map((g) => {
-                  const checked = groupIds.has(g.id);
-                  return (
-                    <label
-                      key={g.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setGroupIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(g.id)) next.delete(g.id);
-                            else next.add(g.id);
-                            return next;
-                          })
+              <div className="space-y-2 rounded-lg border border-border p-2.5">
+                {attachedGroups.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No groups attached yet. Click a group below to attach it.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {attachedGroups.map((cfg, idx) => {
+                      const grp = groupById.get(cfg.group_id);
+                      if (!grp) return null;
+                      const overrideVal =
+                        cfg.is_required_override === true
+                          ? "required"
+                          : cfg.is_required_override === false
+                            ? "optional"
+                            : "default";
+                      return (
+                        <div
+                          key={cfg.group_id}
+                          className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-xs"
+                        >
+                          <span className="w-4 text-center font-mono text-[10px] text-muted-foreground">
+                            {idx + 1}.
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {grp.display_name}
+                          </span>
+                          <Select
+                            value={overrideVal}
+                            onValueChange={(v) => {
+                              const nextOv =
+                                v === "required"
+                                  ? true
+                                  : v === "optional"
+                                    ? false
+                                    : null;
+                              setAttachedGroups((prev) =>
+                                prev.map((item) =>
+                                  item.group_id === cfg.group_id
+                                    ? { ...item, is_required_override: nextOv }
+                                    : item,
+                                ),
+                              );
+                            }}
+                          >
+                            <SelectTrigger size="sm" className="h-7 w-40 text-[11px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                Group default ({grp.is_required ? "Required" : "Optional"})
+                              </SelectItem>
+                              <SelectItem value="required">Required here</SelectItem>
+                              <SelectItem value="optional">Optional here</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <div className="flex items-center gap-0.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              disabled={idx === 0}
+                              onClick={() => moveGroup(idx, -1)}
+                              title="Move up"
+                            >
+                              <ArrowUp className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              disabled={idx === attachedGroups.length - 1}
+                              onClick={() => moveGroup(idx, 1)}
+                              title="Move down"
+                            >
+                              <ArrowDown className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              onClick={() =>
+                                setAttachedGroups((prev) =>
+                                  prev.filter((item) => item.group_id !== cfg.group_id),
+                                )
+                              }
+                              title="Detach"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {unattachedGroups.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      Attach:
+                    </span>
+                    {unattachedGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() =>
+                          setAttachedGroups((prev) => [
+                            ...prev,
+                            { group_id: g.id, is_required_override: null },
+                          ])
                         }
-                        className="h-3.5 w-3.5 accent-primary"
-                      />
-                      {g.display_name}
-                    </label>
-                  );
-                })}
+                        className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-background px-2 py-0.5 text-[11px] font-medium hover:border-primary/50 hover:bg-muted/40"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {g.display_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

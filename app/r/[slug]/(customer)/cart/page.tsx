@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { Minus, Plus, ShoppingBag, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -11,13 +12,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { useCart } from "@/components/CartProvider";
+import { useCart, type CartLine } from "@/components/CartProvider";
 import { EmptyState } from "@/components/EmptyState";
+import { ModifierDialog } from "@/components/ModifierDialog";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import { cn } from "@/lib/utils";
 
 export default function CartPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { lines, setQuantity, remove, subtotal, clear } = useCart();
+  const { lines, setQuantity, updateLine, remove, subtotal, clear } = useCart();
+  const [editingLine, setEditingLine] = useState<CartLine | null>(null);
 
   if (lines.length === 0) {
     return (
@@ -46,56 +50,85 @@ export default function CartPage() {
 
         <Card className="p-0">
           <ul className="divide-y">
-            {lines.map(({ configKey, product, quantity, selectedOptions, unitPrice }) => (
-              <li key={configKey} className="flex items-center gap-3 p-4">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{product.name}</p>
-                  {selectedOptions.length > 0 && (
-                    <p className="truncate text-xs text-muted-foreground">
-                      {selectedOptions.map((o) => o.option_name).join(" · ")}
+            {lines.map((line) => {
+              const {
+                configKey,
+                product,
+                quantity,
+                selectedOptions,
+                instructions,
+                unitPrice,
+              } = line;
+              return (
+                <li key={configKey} className="flex items-center gap-3 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-medium">{product.name}</p>
+                      {product.has_addons && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingLine(line)}
+                          className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                        >
+                          <SlidersHorizontal className="h-2.5 w-2.5" />
+                          Customize
+                        </button>
+                      )}
+                    </div>
+                    {selectedOptions.length > 0 && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {selectedOptions
+                          .map((o) => formatSelectedOptionLabel(o))
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {instructions && (
+                      <p className="truncate text-xs text-amber-700 dark:text-amber-400">
+                        Note: {instructions}
+                      </p>
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      ₹{unitPrice.toFixed(0)} each
                     </p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    ₹{unitPrice.toFixed(0)} each
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setQuantity(configKey, quantity - 1)}
-                    aria-label="Decrease"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </Button>
-                  <span className="w-8 text-center text-sm tabular-nums">
-                    {quantity}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setQuantity(configKey, quantity - 1)}
+                      aria-label="Decrease"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="w-8 text-center text-sm tabular-nums">
+                      {quantity}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setQuantity(configKey, quantity + 1)}
+                      aria-label="Increase"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <span className="w-20 text-right text-sm font-semibold tabular-nums">
+                    ₹{(unitPrice * quantity).toFixed(0)}
                   </span>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setQuantity(configKey, quantity + 1)}
-                    aria-label="Increase"
+                    className="h-7 w-7 text-muted-foreground"
+                    onClick={() => remove(configKey)}
+                    aria-label="Remove"
                   >
-                    <Plus className="h-3 w-3" />
+                    <Trash2 className="h-3 w-3" />
                   </Button>
-                </div>
-                <span className="w-20 text-right text-sm font-semibold tabular-nums">
-                  ₹{(unitPrice * quantity).toFixed(0)}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground"
-                  onClick={() => remove(configKey)}
-                  aria-label="Remove"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </Card>
 
@@ -138,6 +171,23 @@ export default function CartPage() {
           </CardContent>
         </Card>
       </aside>
+
+      <ModifierDialog
+        product={editingLine?.product ?? null}
+        open={editingLine !== null}
+        onOpenChange={(o) => {
+          if (!o) setEditingLine(null);
+        }}
+        initialSelections={editingLine?.selectedOptions}
+        initialInstructions={editingLine?.instructions ?? ""}
+        confirmLabel="Save changes"
+        onConfirm={(opts, note) => {
+          if (editingLine) {
+            updateLine(editingLine.configKey, opts, note);
+          }
+          setEditingLine(null);
+        }}
+      />
     </div>
   );
 }

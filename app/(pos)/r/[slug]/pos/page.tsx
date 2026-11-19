@@ -2,6 +2,11 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserRoles, getRestaurantBySlug, requireRole } from "@/lib/auth";
+import {
+  buildModifiersByProductMap,
+  type ModifierGroupData,
+  type ModifierOptionData,
+} from "@/lib/customizations";
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import { getPublicPaymentConfig } from "@/lib/payments";
 import { PosBilling } from "./PosBilling";
@@ -13,7 +18,13 @@ import {
   canTakePayment,
   canVoidSentItems,
 } from "@/lib/roles";
-import type { Category, Coupon, CustomerTab, Product } from "@/lib/types";
+import type {
+  Category,
+  Coupon,
+  CustomerTab,
+  Product,
+  ProductCustomization,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +70,7 @@ export default async function PosPage(props: Props) {
   const [
     { data: products },
     { data: categories },
+    { data: groups },
     paymentConfig,
     customerTabsRes,
     couponsRes,
@@ -72,6 +84,12 @@ export default async function PosPage(props: Props) {
       .order("name"),
     supabase
       .from("categories")
+      .select("*")
+      .eq("status", "active")
+      .eq("outlet_id", outlet.id)
+      .order("sort_order"),
+    supabase
+      .from("customization_groups")
       .select("*")
       .eq("status", "active")
       .eq("outlet_id", outlet.id)
@@ -92,6 +110,35 @@ export default async function PosPage(props: Props) {
       .order("min_order_amount", { ascending: true }),
   ]);
 
+  const productList = (products ?? []) as Product[];
+  const groupRows = (groups ?? []) as ModifierGroupData[];
+  const prodIds = productList.map((p) => p.id);
+  const groupIds = groupRows.map((g) => g.id);
+
+  const [{ data: links }, { data: options }] = await Promise.all([
+    prodIds.length > 0
+      ? supabase
+          .from("product_customizations")
+          .select("*")
+          .in("product_id", prodIds)
+          .order("sort_order")
+      : Promise.resolve({ data: [] }),
+    groupIds.length > 0
+      ? supabase
+          .from("customization_options")
+          .select("*")
+          .in("group_id", groupIds)
+          .eq("status", "active")
+          .order("sort_order")
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const modifiersByProduct = buildModifiersByProductMap({
+    links: (links ?? []) as ProductCustomization[],
+    groups: groupRows,
+    options: (options ?? []) as ModifierOptionData[],
+  });
+
   const posCoupons = ((couponsRes.data ?? []) as Coupon[]).filter((c) => {
     if (c.expires_at && new Date(c.expires_at).getTime() <= nowMs) return false;
     if (c.usage_limit && c.used_count >= c.usage_limit) return false;
@@ -103,7 +150,8 @@ export default async function PosPage(props: Props) {
       outlet={outlet}
       outlets={outlets}
       categories={(categories ?? []) as Category[]}
-      products={(products ?? []) as Product[]}
+      products={productList}
+      modifiersByProduct={modifiersByProduct}
       paymentConfig={paymentConfig}
       customerTabs={(customerTabsRes.data ?? []) as CustomerTab[]}
       posCoupons={posCoupons}

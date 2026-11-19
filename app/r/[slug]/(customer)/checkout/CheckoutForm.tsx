@@ -28,6 +28,7 @@ import {
   formatCouponOfferLabel,
   type CouponRuleShape,
 } from "@/lib/coupons";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
 import type { PublicPaymentConfig } from "@/lib/payments";
 import { cn } from "@/lib/utils";
 
@@ -149,6 +150,7 @@ export function CheckoutForm({
       quantity: l.quantity,
       unit_price: l.unitPrice,
       total_price: l.unitPrice * l.quantity,
+      instructions: l.instructions?.trim() || undefined,
     }));
   }
 
@@ -437,8 +439,13 @@ export function CheckoutForm({
                         {l.selectedOptions.length > 0 && (
                           <div className="text-xs text-muted-foreground">
                             {l.selectedOptions
-                              .map((o) => o.option_name)
+                              .map((o) => formatSelectedOptionLabel(o))
                               .join(", ")}
+                          </div>
+                        )}
+                        {l.instructions && (
+                          <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                            Note: {l.instructions}
                           </div>
                         )}
                       </div>

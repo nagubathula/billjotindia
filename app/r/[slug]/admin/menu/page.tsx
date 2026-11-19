@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { Layers, Settings2, ShoppingBag, Tag } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getDefaultOutletForRestaurant, getRestaurantBySlug } from "@/lib/auth";
+import { getRestaurantBySlug } from "@/lib/auth";
+import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import {
   Card,
   CardContent,
@@ -12,7 +13,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/PageHeader";
 import { CategoryManager } from "./CategoryManager";
-import { ProductManager } from "./ProductManager";
+import { MenuOutletBar } from "./MenuOutletBar";
+import { ProductManager, type AttachedGroupConfig, type GroupOption } from "./ProductManager";
 import {
   CustomizationGroupManager,
   type GroupWithOptions,
@@ -34,7 +36,10 @@ export default async function MenuPage(props: Props) {
   const restaurant = await getRestaurantBySlug(params.slug);
   if (!restaurant) notFound();
 
-  const outlet = await getDefaultOutletForRestaurant(restaurant.id);
+  const [outlet, outlets] = await Promise.all([
+    getSelectedOutlet(restaurant.id, params.slug),
+    getOutletsForRestaurant(restaurant.id),
+  ]);
   if (!outlet) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -93,15 +98,23 @@ export default async function MenuPage(props: Props) {
     options: optsByGroup.get(g.id) ?? [],
   }));
 
-  const attachableGroups = groupList
+  const attachableGroups: GroupOption[] = groupList
     .filter((g) => g.status === "active")
-    .map((g) => ({ id: g.id, display_name: g.display_name }));
+    .map((g) => ({
+      id: g.id,
+      display_name: g.display_name,
+      is_required: Boolean(g.is_required || (g.min_selections ?? 0) > 0),
+      selection_type: g.selection_type,
+    }));
 
   const ownGroupIds = new Set(groupIds);
-  const productGroupIds: Record<string, string[]> = {};
+  const productGroups: Record<string, AttachedGroupConfig[]> = {};
   for (const l of (links ?? []) as ProductCustomization[]) {
     if (!ownGroupIds.has(l.group_id)) continue;
-    (productGroupIds[l.product_id] ??= []).push(l.group_id);
+    (productGroups[l.product_id] ??= []).push({
+      group_id: l.group_id,
+      is_required_override: l.is_required_override ?? null,
+    });
   }
 
   const activeProductsCount = products.filter((p) => p.status === "active").length;
@@ -111,7 +124,14 @@ export default async function MenuPage(props: Props) {
     <div className="space-y-6">
       <PageHeader
         title="Menu & Pricing"
-        description="Manage products, categories, GST rates, and modifier groups. Updates reflect in the POS and storefront immediately."
+        description={`Managing menu for ${outlet.name}. Updates reflect in the POS and storefront immediately.`}
+        actions={
+          <MenuOutletBar
+            slug={params.slug}
+            outlets={outlets}
+            currentOutletId={outlet.id}
+          />
+        }
       />
 
       {/* Quick catalog summary */}
@@ -190,7 +210,7 @@ export default async function MenuPage(props: Props) {
                 categories={categories}
                 products={products}
                 groups={attachableGroups}
-                productGroupIds={productGroupIds}
+                productGroups={productGroups}
               />
             </CardContent>
           </Card>
@@ -215,13 +235,15 @@ export default async function MenuPage(props: Props) {
             <CardHeader className="border-b border-border/60 pb-3">
               <CardTitle>Customization Groups</CardTitle>
               <CardDescription>
-                Reusable add-on sets (sizes, portions, toppings, extras). Attach them to products in the product editor.
+                Reusable add-on sets (variants, sizes, min/max toppings, free allowances, dietary tags). Attach them to products in prompt order.
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-3">
               <CustomizationGroupManager
                 slug={params.slug}
                 groups={groupsWithOptions}
+                outlets={outlets}
+                currentOutletId={outlet.id}
               />
             </CardContent>
           </Card>
