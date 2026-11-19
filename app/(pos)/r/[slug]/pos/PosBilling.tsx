@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Banknote,
   Bike,
@@ -147,6 +147,7 @@ type Props = {
   paymentConfig: PublicPaymentConfig;
   customerTabs?: CustomerTab[];
   posCoupons?: Coupon[];
+  requestedTable?: string | null;
   restaurantSlug: string;
   restaurantName: string;
   staffEmail: string;
@@ -205,6 +206,7 @@ export function PosBilling({
   paymentConfig,
   customerTabs = [],
   posCoupons = [],
+  requestedTable = null,
   restaurantSlug,
   restaurantName,
   staffEmail,
@@ -215,8 +217,6 @@ export function PosBilling({
   canOpenAdmin,
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const requestedTable = searchParams?.get("table") ?? null;
   const outletId = outlet.id;
   const [switchingOutlet, startOutletSwitch] = useTransition();
 

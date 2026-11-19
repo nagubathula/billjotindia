@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    optimisticRouting: false,
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.supabase.co" },

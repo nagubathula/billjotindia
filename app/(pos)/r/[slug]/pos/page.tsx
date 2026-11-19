@@ -17,10 +17,13 @@ import type { Category, Coupon, CustomerTab, Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ table?: string }>;
+};
 
 export default async function PosPage(props: Props) {
-  const params = await props.params;
+  const [params, query] = await Promise.all([props.params, props.searchParams]);
   const [restaurant] = await Promise.all([
     getRestaurantBySlug(params.slug),
     getCurrentUserRoles(),
@@ -104,6 +107,7 @@ export default async function PosPage(props: Props) {
       paymentConfig={paymentConfig}
       customerTabs={(customerTabsRes.data ?? []) as CustomerTab[]}
       posCoupons={posCoupons}
+      requestedTable={query.table ?? null}
       restaurantSlug={params.slug}
       restaurantName={restaurant.name}
       staffEmail={user.email ?? "unknown"}
