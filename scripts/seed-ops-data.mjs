@@ -1003,6 +1003,150 @@ for (let rIdx = 0; rIdx < restaurants.length; rIdx++) {
       },
     ]);
   }
+
+  // -------------------------------------------------------------------------
+  // 8. RECENT ORDERS FOR LIVE DASHBOARD & BRAND ANALYTICS (TODAY / 7D / 30D)
+  // -------------------------------------------------------------------------
+  const recentCutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const sampleChannels = [
+    { source: "pos", email: "pos+upi@billjot.local", type: "dine-in" },
+    { source: "pos", email: "pos+cash@billjot.local", type: "takeaway" },
+    { source: "pos", email: "pos+card@billjot.local", type: "dine-in" },
+    { source: "web", email: "aarav.sharma@gmail.com", type: "takeaway", customer: "Aarav Sharma" },
+    { source: "web", email: "diya.menon@gmail.com", type: "dine-in", customer: "Diya Menon" },
+    { source: "zomato", email: "guest+zomato@billjot.local", type: "delivery", customer: "Rohan (Zomato)" },
+    { source: "swiggy", email: "guest+swiggy@billjot.local", type: "delivery", customer: "Meera (Swiggy)" },
+  ];
+
+  for (const out of outlets ?? []) {
+    const { count: recentCount } = await admin
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("outlet_id", out.id)
+      .gte("placed_at", recentCutoff);
+
+    if (recentCount && recentCount > 0) continue;
+
+    const { data: outProducts } = await admin
+      .from("products")
+      .select("id, name, price, gst_rate, hsn_code")
+      .eq("outlet_id", out.id)
+      .eq("status", "active")
+      .limit(20);
+
+    if (!outProducts || outProducts.length === 0) continue;
+
+    const freshOrders = [];
+    const linesByUid = new Map();
+    const uidPrefix = `BJ-${out.id.slice(0, 6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
+    // 4 orders today (within last few hours), plus 3 orders per day for days -1..-4
+    const scheduleOffsetsMs = [
+      25 * 60 * 1000,
+      70 * 60 * 1000,
+      140 * 60 * 1000,
+      210 * 60 * 1000,
+      25 * 3600 * 1000,
+      28 * 3600 * 1000,
+      31 * 3600 * 1000,
+      49 * 3600 * 1000,
+      53 * 3600 * 1000,
+      56 * 3600 * 1000,
+      74 * 3600 * 1000,
+      78 * 3600 * 1000,
+      82 * 3600 * 1000,
+      98 * 3600 * 1000,
+      102 * 3600 * 1000,
+      106 * 3600 * 1000,
+    ];
+
+    for (let i = 0; i < scheduleOffsetsMs.length; i++) {
+      const placedAt = new Date(Date.now() - scheduleOffsetsMs[i]).toISOString();
+      const ch = sampleChannels[(i + rIdx) % sampleChannels.length];
+      const itemCount = 1 + (i % 3);
+      const orderLines = [];
+      let gross = 0;
+      let gstTotal = 0;
+
+      for (let k = 0; k < itemCount; k++) {
+        const prod = outProducts[(i * 2 + k) % outProducts.length];
+        const qty = k === 0 && i % 2 === 0 ? 2 : 1;
+        const unitPrice = Number(prod.price ?? 0);
+        const gstRate = Number(prod.gst_rate ?? 5);
+        const lineTotal = round2(unitPrice * qty);
+        gross = round2(gross + lineTotal);
+        gstTotal += lineTotal - lineTotal / (1 + gstRate / 100);
+        orderLines.push({
+          quantity: qty,
+          unit_price: unitPrice,
+          total_price: lineTotal,
+          product_config: {
+            product_id: prod.id,
+            name: prod.name,
+            base_price: unitPrice,
+            gst_rate: gstRate,
+            hsn_code: prod.hsn_code ?? "996331",
+            selected_options: [],
+          },
+        });
+      }
+
+      const uid = `${uidPrefix}-${String(i + 1).padStart(2, "0")}`;
+      linesByUid.set(uid, orderLines);
+
+      const isThirdParty = ch.source === "zomato" || ch.source === "swiggy";
+      const netPayout = isThirdParty ? round2(gross * 0.78) : null;
+      const commission = isThirdParty ? round2(gross * 0.22) : 0;
+
+      freshOrders.push({
+        outlet_id: out.id,
+        unique_order_id: uid,
+        source: ch.source,
+        status: i === 0 ? "preparing" : "completed",
+        order_type: ch.type,
+        customer_name: ch.customer ?? (ch.source === "pos" ? "Walk-in" : "Guest"),
+        customer_email: ch.email,
+        subtotal: round2(gross - gstTotal),
+        cgst_amount: isThirdParty ? 0 : round2(gstTotal / 2),
+        sgst_amount: isThirdParty ? 0 : round2(gstTotal / 2),
+        igst_amount: 0,
+        gst_paid_by_operator: isThirdParty,
+        takeaway_charges: 0,
+        discount_amount: 0,
+        rounding_amount: 0,
+        commission_amount: commission,
+        net_payout: netPayout,
+        total_amount: gross,
+        payment_status: "paid",
+        payment_provider: ch.source === "pos" ? "pos" : ch.source,
+        placed_at: placedAt,
+        created_at: placedAt,
+        updated_at: placedAt,
+      });
+    }
+
+    const { data: insertedOrders, error: insOrdErr } = await admin
+      .from("orders")
+      .insert(freshOrders)
+      .select("id, unique_order_id");
+
+    if (insOrdErr) {
+      console.warn(`  ! recent orders for ${out.name}:`, insOrdErr.message);
+      continue;
+    }
+
+    const orderItemRows = [];
+    for (const row of insertedOrders ?? []) {
+      const items = linesByUid.get(row.unique_order_id) ?? [];
+      for (const it of items) {
+        orderItemRows.push({ order_id: row.id, ...it });
+      }
+    }
+    if (orderItemRows.length > 0) {
+      await admin.from("order_items").insert(orderItemRows);
+    }
+    console.log(`  ✓ Seeded ${insertedOrders?.length ?? 0} recent orders for ${out.name}`);
+  }
 }
 
 console.log("\n✓ Completed seeding operations data across all restaurants.");

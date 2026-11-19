@@ -13,7 +13,10 @@ import {
   Store,
   TrendingDown,
   TrendingUp,
+  Truck,
+  Users,
   Utensils,
+  Wallet,
 } from "lucide-react";
 import {
   Card,
@@ -151,12 +154,12 @@ export default async function BrandPage(props: Props) {
     notFound();
   }
 
-  const rawRange = (searchParams.range ?? "today") as Range;
+  const rawRange = (searchParams.range ?? "7d") as Range;
   const validRange: Range = ["today", "yesterday", "7d", "30d"].includes(
     rawRange,
   )
     ? rawRange
-    : "today";
+    : "7d";
 
   const restIds = attachedList.map((r) => r.id);
   const { data: outletsData } = restIds.length
@@ -174,34 +177,112 @@ export default async function BrandPage(props: Props) {
   const periodMs = end.getTime() - start.getTime();
   const prevEnd = new Date(start.getTime() - 1);
   const prevStart = new Date(prevEnd.getTime() - periodMs);
+  const startDateKey = dayKey(start, timeZone);
+  const endDateKey = dayKey(end, timeZone);
 
-  const [{ data: ordersData }, { data: prevData }, { data: liveQueueData }] =
-    outletIds.length > 0
+  const [
+    { data: ordersData },
+    { data: prevData },
+    { data: liveQueueData },
+    tabsRes,
+    corpInvoicesRes,
+    vendorPosRes,
+    employeesRes,
+    expensesRes,
+  ] =
+    restIds.length > 0
       ? await Promise.all([
+          outletIds.length > 0
+            ? admin
+                .from("orders")
+                .select(
+                  "id, outlet_id, source, status, order_type, customer_email, total_amount, cgst_amount, sgst_amount, gst_paid_by_operator, placed_at, order_items(id, order_id, quantity, total_amount:total_price, total_price, product_config)",
+                )
+                .in("outlet_id", outletIds)
+                .gte("placed_at", start.toISOString())
+                .lte("placed_at", end.toISOString())
+                .neq("status", "cancelled")
+                .order("placed_at", { ascending: true })
+            : Promise.resolve({ data: [] }),
+          outletIds.length > 0
+            ? admin
+                .from("orders")
+                .select("id, outlet_id, customer_email, source, total_amount")
+                .in("outlet_id", outletIds)
+                .gte("placed_at", prevStart.toISOString())
+                .lte("placed_at", prevEnd.toISOString())
+                .neq("status", "cancelled")
+            : Promise.resolve({ data: [] }),
+          outletIds.length > 0
+            ? admin
+                .from("orders")
+                .select("id, outlet_id, status")
+                .in("outlet_id", outletIds)
+                .in("status", ["pending", "confirmed", "preparing", "ready"])
+            : Promise.resolve({ data: [] }),
           admin
-            .from("orders")
-            .select(
-              "id, outlet_id, source, status, order_type, customer_email, total_amount, cgst_amount, sgst_amount, gst_paid_by_operator, placed_at, order_items(id, order_id, quantity, total_amount:total_price, total_price, product_config)",
-            )
-            .in("outlet_id", outletIds)
-            .gte("placed_at", start.toISOString())
-            .lte("placed_at", end.toISOString())
-            .neq("status", "cancelled")
-            .order("placed_at", { ascending: true }),
+            .from("customer_tabs")
+            .select("restaurant_id, current_balance, status")
+            .in("restaurant_id", restIds)
+            .eq("status", "active"),
           admin
-            .from("orders")
-            .select("id, outlet_id, customer_email, source, total_amount")
-            .in("outlet_id", outletIds)
-            .gte("placed_at", prevStart.toISOString())
-            .lte("placed_at", prevEnd.toISOString())
+            .from("corporate_invoices")
+            .select("restaurant_id, total_amount, amount_paid, payment_status, status")
+            .in("restaurant_id", restIds)
             .neq("status", "cancelled"),
           admin
-            .from("orders")
-            .select("id, outlet_id, status")
-            .in("outlet_id", outletIds)
-            .in("status", ["pending", "confirmed", "preparing", "ready"]),
+            .from("vendor_purchase_orders")
+            .select("restaurant_id, total_amount, amount_paid, status")
+            .in("restaurant_id", restIds)
+            .neq("status", "cancelled"),
+          admin
+            .from("hr_employees")
+            .select("restaurant_id, status")
+            .in("restaurant_id", restIds)
+            .eq("status", "active"),
+          admin
+            .from("outlet_expenses")
+            .select("restaurant_id, amount")
+            .in("restaurant_id", restIds)
+            .gte("expense_date", startDateKey)
+            .lte("expense_date", endDateKey),
         ])
-      : [{ data: [] }, { data: [] }, { data: [] }];
+      : [
+          { data: [] },
+          { data: [] },
+          { data: [] },
+          { data: [] },
+          { data: [] },
+          { data: [] },
+          { data: [] },
+          { data: [] },
+        ];
+
+  const totalTabReceivable = (tabsRes.data ?? []).reduce(
+    (s, t) => s + Math.max(0, Number(t.current_balance ?? 0)),
+    0,
+  );
+  const activeTabAccountsCount = (tabsRes.data ?? []).length;
+
+  const totalCorpReceivable = (corpInvoicesRes.data ?? []).reduce(
+    (s, inv) =>
+      s + Math.max(0, Number(inv.total_amount ?? 0) - Number(inv.amount_paid ?? 0)),
+    0,
+  );
+  const openCorpInvoicesCount = (corpInvoicesRes.data ?? []).filter(
+    (inv) => inv.payment_status !== "paid",
+  ).length;
+
+  const totalVendorPayables = (vendorPosRes.data ?? []).reduce(
+    (s, po) =>
+      s + Math.max(0, Number(po.total_amount ?? 0) - Number(po.amount_paid ?? 0)),
+    0,
+  );
+  const activeStaffCount = (employeesRes.data ?? []).length;
+  const periodExpensesTotal = (expensesRes.data ?? []).reduce(
+    (s, ex) => s + Number(ex.amount ?? 0),
+    0,
+  );
 
   const outletToRest = new Map<string, string>(
     outlets.map((o) => [o.id, o.restaurant_id]),
@@ -475,6 +556,34 @@ export default async function BrandPage(props: Props) {
           label="Live kitchen queue"
           value={String(totalBrandLiveQueue)}
           sub={`${attachedList.length} restaurants · ${outlets.length} outlets`}
+        />
+      </section>
+
+      {/* Brand Operations & Working Capital Roll-Up */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <BrandStat
+          icon={Building2}
+          label="Corporate B2B receivable"
+          value={formatINR(totalCorpReceivable)}
+          sub={`${openCorpInvoicesCount} unpaid/partial GST invoices`}
+        />
+        <BrandStat
+          icon={Users}
+          label="People's Tabs (Khata)"
+          value={formatINR(totalTabReceivable)}
+          sub={`${activeTabAccountsCount} active credit accounts`}
+        />
+        <BrandStat
+          icon={Truck}
+          label="Vendor PO payables"
+          value={formatINR(totalVendorPayables)}
+          sub="Outstanding across supplier POs"
+        />
+        <BrandStat
+          icon={Wallet}
+          label={`Staff & expenses (${RANGE_LABEL[validRange]})`}
+          value={formatINR(periodExpensesTotal)}
+          sub={`${activeStaffCount} active staff across kitchens`}
         />
       </section>
 
