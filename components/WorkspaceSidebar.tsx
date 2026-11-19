@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { PwaInstallButton } from "@/components/PwaInstallButton";
 import { cn } from "@/lib/utils";
 import { ROLE_LABEL, strongestRole } from "@/lib/roles";
 import type { AppRole, Brand, Restaurant } from "@/lib/types";
@@ -210,15 +211,18 @@ export function WorkspaceSidebar({
             </div>
           </div>
         </div>
-        <form action="/logout" method="post" className="mt-2">
-          <button
-            type="submit"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Sign out
-          </button>
-        </form>
+        <div className="mt-2 space-y-1.5">
+          <PwaInstallButton variant="sidebar" />
+          <form action="/logout" method="post">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
     </aside>
   );

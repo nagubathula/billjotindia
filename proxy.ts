@@ -22,6 +22,10 @@ const RESERVED_PATHS = [
   "/signup",
   "/dashboard",
   "/brands",
+  "/offline",
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/icons/",
 ];
 
 // Custom-domain → slug lookups hit the DB, so cache them (including negative
@@ -124,5 +128,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };

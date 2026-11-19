@@ -54,6 +54,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { FullscreenToggle } from "@/components/FullscreenToggle";
 import { ModifierDialog } from "@/components/ModifierDialog";
+import { PwaInstallButton } from "@/components/PwaInstallButton";
 import { QrCodeSvg } from "@/components/QrCodeSvg";
 import type { SelectedOption } from "@/components/CartProvider";
 import {
@@ -1315,6 +1316,7 @@ export function PosBilling({
               Admin
             </Link>
           )}
+          <PwaInstallButton variant="compact" />
           <FullscreenToggle />
         </div>
 

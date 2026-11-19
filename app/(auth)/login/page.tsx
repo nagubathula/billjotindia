@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { PwaInstallButton } from "@/components/PwaInstallButton";
 import {
   getCurrentUser,
   isSafeInternalNext,
@@ -71,6 +72,10 @@ export default async function LoginPage(props: { searchParams: Promise<SearchPar
           </Link>
         </p>
         <p>Staff &amp; Captains: use the credentials provided by your manager.</p>
+      </div>
+
+      <div className="mt-4 flex justify-center">
+        <PwaInstallButton variant="auth" />
       </div>
     </div>
   );

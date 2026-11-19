@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Billjot Console">
+  <defs>
+    <linearGradient id="billjot-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="55%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#billjot-bg)" />
+  <path
+    d="M150 102h212a26 26 0 0 1 26 26v276l-33-26-33 26-33-26-33 26-33-26-33 26-33-26-33 26V128a26 26 0 0 1 26-26z"
+    fill="#ffffff"
+  />
+  <rect x="174" y="168" width="112" height="24" rx="12" fill="#059669" />
+  <circle cx="324" cy="180" r="14" fill="#10b981" />
+  <rect x="174" y="228" width="164" height="24" rx="12" fill="#059669" opacity="0.88" />
+  <rect x="174" y="288" width="128" height="24" rx="12" fill="#059669" opacity="0.65" />
+</svg>
