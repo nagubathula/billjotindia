@@ -1,48 +1,57 @@
 # Frontend Architecture
 
-This document describes the structure and tooling of the Next.js frontend, specifically how Route Groups isolate different parts of the application.
+This document describes the structure and tooling of the Next.js frontend and how Route Groups isolate the storefront, POS, back-office admin, and auth flows.
 
 ## Tooling
-- **Framework**: Next.js 14+ (App Router)
-- **Styling**: Tailwind CSS
-- **Component Library**: [shadcn/ui](https://ui.shadcn.com/) (using components like Avatar, Button, Dialog, Sheet, Table, etc.)
-- **Icons**: `lucide-react`
-- **State Management**: React Context (`CartProvider`), Server Actions, and URL state.
+- **Framework:** Next.js 16.4.6 (App Router + Turbopack)
+- **UI & Styling:** React 19, Tailwind CSS v4, `@base-ui/react` / Shadcn UI primitives (`components/ui/*`), `lucide-react`, `sonner`
+- **State & Data:** React Context (`CartProvider`), Server Components & Server Actions (`actions.ts`), URL/cookie outlet context (`lib/outlet-context.ts`)
+- **PWA:** `app/manifest.ts`, `public/sw.js`, `app/offline/page.tsx`, `components/PwaProvider.tsx`, `components/PwaInstallButton.tsx`
 
 ---
 
-## Route Groups
+## Route Groups & Surfaces
 
-The application uses Next.js [Route Groups](https://nextjs.org/docs/app/building-your-application/routing/route-groups) (folders in parentheses like `(auth)`) to organize the app into distinct logical sections without affecting the URL path.
+### 1. Auth (`app/(auth)`)
+- `/login` (`app/(auth)/login/page.tsx`) — Email/password sign-in returning to `next` or `resolveDefaultHome()`
+- `/signup` (`app/(auth)/signup/page.tsx`) — Account registration + initial restaurant setup
+- `/callback` (`app/(auth)/callback/route.ts`) & `/logout` (`app/(auth)/logout/route.ts`) — Supabase Auth session handlers
 
-### 1. `app/(storefront)`
-**Purpose**: The public-facing customer experience (menus, ordering, brand landing pages).
-- **Key Routes**:
-  - `/` (Home page)
-  - `/brands/[slug]` (Brand page)
-  - `/r/[slug]` (Restaurant menu)
-  - `/r/[slug]/checkout` (Customer checkout)
-- **Characteristics**: Extremely read-heavy. Uses Supabase's `anon` key to fetch public active menus.
+### 2. Workspace Dashboard & Brands (`app/(storefront)`)
+- `/dashboard` (`app/(storefront)/dashboard/page.tsx`) — Multi-restaurant workspace overview with live Portfolio Analytics (`Today`, `Yesterday`, `7d`, `30d`)
+- `/brands/new` & `/brands/[slug]` (`app/(storefront)/brands/`) — Franchise brand creation and cross-restaurant financial roll-ups
 
-### 2. `app/(pos)`
-**Purpose**: The Point-of-Sale interface used by cashiers and staff inside the physical restaurant.
-- **Key Routes**:
-  - `/r/[slug]/pos` (Main register)
-  - `/r/[slug]/pos/receipt/[id]` (Receipt printing page)
-- **Characteristics**: Requires authentication. Highly interactive (managing open tabs, triggering KOTs, quick checkouts).
+### 3. Public Customer Storefront (`app/r/[slug]/(customer)`)
+Wrapped by a shared storefront navbar (`StorefrontNavbar.tsx`) and Cart Context:
+- `/r/[slug]` — Public menu with outlet switcher, category chips, Veg-only filter, bestsellers, search, and `ModifierDialog`
+- `/r/[slug]/book` — Table Reservations, Live Walk-in Waitlist, Booking Lookup/Cancel & Online Cover Deposit Checkout
+- `/r/[slug]/cart` — Cart review and item re-customization
+- `/r/[slug]/checkout` & `/r/[slug]/checkout/stripe-return` — Coupon application, dynamic UPI QR, and Razorpay/Stripe checkout
+- `/r/[slug]/orders/[id]` — Live customer order status tracker
+- `/r/[slug]/me/orders` — Signed-in customer order history & 1-click reorder
 
-### 3. `app/r/[slug]/admin`
-**Purpose**: The back-office dashboard for restaurant managers and admins.
-- **Key Routes**:
-  - `/admin` (Overview: today's sales vs same time yesterday, live order queue, top sellers, menu health)
-  - `/admin/menu` (Menu builder)
-  - `/admin/orders` (Order management Pipeline)
-  - `/admin/kitchen` (Kitchen Display Screen / KDS)
-  - `/admin/users` (Staff management)
-- **Characteristics**: Heavily reliant on RLS. Users must have the `admin` or `manager` role in `user_roles` to access these pages. Protected by `proxy.ts`.
+### 4. Point of Sale & Staff Kitchen (`app/(pos)/r/[slug]`)
+Requires staff authentication (`checkPosAccess` / `lib/pos-auth.ts`):
+- `/r/[slug]/pos` — Billing register, running table KOTs, `PosHostDeskDialog` (reservations/waitlist & 1-tap `Seat & Open Table` with deposit credit), promo coupon chips, Khata charging, and online payment links
+- `/r/[slug]/pos/receipt/[id]` — Printable GST thermal/A4 receipt view
+- `/r/[slug]/kitchen` — Floor/Cashier/Captain Kitchen Display Board
 
-### 4. `app/(auth)`
-**Purpose**: Authentication flows.
-- **Key Routes**:
-  - `/login`, `/signup`, `/forgot-password`
-- **Characteristics**: Handles Supabase Auth session creation and cookie setting.
+### 5. Restaurant Back-Office Admin (`app/r/[slug]/admin`)
+Guarded by `requireRole(["admin", "manager"])` and `proxy.ts`:
+- `/admin` — Sales Overview, live order queue, top sellers, menu health
+- `/admin/orders` & `/admin/orders/[id]` — Order pipeline, fulfillment & structured cancellation
+- `/admin/kitchen` — Manager Kitchen Display System
+- `/admin/menu` — Categories, Dishes & Customization Engine v2 manager + outlet cloning
+- `/admin/tables` & `/admin/tables/qr-sheet` — Spatial Floor Board, Matrix & List views with `Reserved` badges + printable QR sheets
+- `/admin/bookings` — Host Desk Workbench (`Reservations`, `Live Waitlist`, and `Policy & Deposits` settings)
+- `/admin/inventory` — Inventory & Recipe BOM food-cost tracking
+- `/admin/vendors` — Vendors, GST Purchase Orders, GRNs & Vendor Payments
+- `/admin/hr` — Staff Directory, Daily Attendance, Salary Advances & Monthly Payroll
+- `/admin/accounts` & `/admin/accounts/invoices/[invoiceId]/print` — People's Tabs (Khata), Corporate B2B GST Tax Invoices & Petty Cash Expenses
+- `/admin/customers` — Customer directory & promo Coupons
+- `/admin/register` — Day-End Z-Report, tender breakdown & cash drawer reconciliation
+- `/admin/reports` — Sales, GST & item performance reports
+- `/admin/channels` — Aggregator channel links, prep time & busy switches
+- `/admin/users` — Staff onboarding & RBAC roles (`admin`, `manager`, `user`, `captain`)
+- `/admin/api-keys` — API keys, permission scopes, allowed origins & outgoing webhooks
+- `/admin/settings` — Outlet configuration, opening hours, custom domain & payment gateways

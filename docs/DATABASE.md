@@ -1,134 +1,66 @@
 # Database Schema
 
-This application runs on a **Supabase (PostgreSQL)** database. Access is strictly controlled via Row Level Security (RLS) policies.
-
-## 1. Core Tables
-
-### `brands`
-Top-level entity for a company that can own multiple restaurant concepts.
-- **Fields:** `id`, `name`, `status`, `created_at`, `updated_at`
-
-### `restaurants`
-A specific tenant or restaurant concept. Belongs to a brand.
-- **Fields:** `id`, `brand_id`, `owner_user_id`, `slug`, `name`, `status`, `custom_domain`
-
-### `outlets`
-Physical store locations belonging to a `restaurant`. Orders, menu items, and POS settings are scoped to this ID.
-- **Fields:** `id`, `restaurant_id`, `slug`, `name`, `address`, `city`, `state`, `state_code`, `pincode`, `phone`, `gstin`, `fssai_license`, `status`
-- **Opening hours:** `opening_hours` (jsonb, outlet's own timezone) — `{"mon":[{"open":"09:00","close":"22:00"}], "tue":[], …}`. An empty array is a closed day; a close time earlier than the open time runs past midnight; `NULL` means never set. Parsed by `lib/opening-hours.ts`.
-
-### `user_roles`
-Maps a Supabase Auth `user_id` to a specific `restaurant_id` with a specific role (`admin`, `manager`, `user`).
-- **Fields:** `user_id`, `restaurant_id`, `role`
-
-### `profiles`
-Extended user metadata attached to a Supabase Auth user.
-- **Fields:** `id` (matches auth.users), `display_name`, `avatar_url`
+This application runs on **Supabase (PostgreSQL)** with **45 public tables**, strict multi-tenant scoping (`restaurant_id` / `outlet_id`), UUID identifiers (`isUuid()`), and Row Level Security (RLS).
 
 ---
 
-## 2. Menu Tables
-*All menu tables are scoped to a specific `outlet_id` to allow per-outlet pricing and availability.*
+## 1. Multi-Tenancy, Auth & Workspaces
 
-### `categories`
-Top-level menu sections (e.g., "Beverages", "Pizza").
-- **Fields:** `id`, `outlet_id`, `name`, `emoji`, `sort_order`, `status`
-
-### `products`
-Individual items available for sale.
-- **Fields:** `id`, `outlet_id`, `category`, `name`, `price`, `gst_rate`, `hsn_code`, `veg_status`, `is_kot_required`, `status`, `has_addons`
-
-### `customization_groups`
-Add-on groups for products (e.g., "Size", "Extra Toppings").
-- **Fields:** `id`, `outlet_id`, `name`, `display_name`, `selection_type` (`single`|`multi`), `is_required`, `sort_order`
-
-### `customization_options`
-The specific choices inside a group (e.g., "Large" inside "Size").
-- **Fields:** `id`, `group_id`, `name`, `price`, `sort_order`
-
-### `product_customizations`
-Junction table linking a `product` to a `customization_group`.
-- **Fields:** `id`, `product_id`, `group_id`, `sort_order`
+- **`brands`**: Top-level franchise brand entities (`id`, `owner_user_id`, `slug`, `name`, `status`).
+- **`restaurants`**: Tenant concepts optionally linked to a brand (`id`, `brand_id`, `owner_user_id`, `slug`, `name`, `status`, `custom_domain`).
+- **`outlets`**: Store locations with tax/contact info, timezone, opening hours (`opening_hours` jsonb parsed by `lib/opening-hours.ts`), and booking policies (`bookings_enabled`, `booking_slot_minutes`, `booking_turn_minutes`, `booking_max_party_size`, `booking_advance_days`, `booking_deposit_per_guest`, `booking_deposit_min_party`).
+- **`user_roles`**: Maps `user_id` to `restaurant_id` with `app_role` enum (`admin`, `manager`, `user`, `captain`).
+- **`profiles`**: Extended user metadata (`id`, `display_name`, `avatar_url`).
 
 ---
 
-## 3. Orders & Kitchen
+## 2. Menu & Customization Engine v2
 
-### `orders`
-The top-level record of a transaction.
-- **Fields:** `id`, `unique_order_id`, `outlet_id`, `source` (`pos`, `kiosk`, `web`, `zomato`, `swiggy`, `magicpin`, `dunzo`, `ondc`, `uber-eats`, `dotpe`, `other`), `customer_name`, `customer_email`, `customer_phone`, `order_type` (`dine-in`, `takeaway`, `delivery`), `subtotal`, `cgst_amount`, `sgst_amount`, `igst_amount`, `discount_amount`, `takeaway_charges` (packaging), `total_amount`, `status`, `token_number`, `placed_at`
-- **Aggregator fields:** `external_order_id` (unique per outlet + source, so webhook retries can't duplicate), `external_payload` (raw platform payload), `external_status` (platform-side status), `gst_paid_by_operator`, `commission_amount`, `platform_discount`, `delivery_charges`, `net_payout`, `delivery_partner` (`{name, phone, eta_minutes}`)
-- **Instructions:** `instructions` — the customer's note for the whole order. Shown on the kitchen board, the order page and the printed receipt.
-- **Cancellation:** `cancel_reason` (one of our own codes in `lib/order-cancel.ts`; each platform adapter maps them onto its own list), `cancel_note`, `cancelled_by` (`merchant`, `customer`, `platform`, `system`), `cancelled_at`, `cancel_product_ids` (the products that were out of stock). Staff can't cancel without a reason.
-- **GST:** Swiggy and Zomato orders have `gst_paid_by_operator = true` and zero CGST/SGST — the platform pays that 5% GST under Section 9(5) of the CGST Act. Reports exclude them from "GST collected".
-
-### `order_items`
-Line items for an order.
-- **Fields:** `id`, `order_id`, `product_config` (JSON snapshot of product+options), `quantity`, `unit_price`, `total_price`, `instructions` (the customer's note for this item)
-
-### `printers` & `kitchen_stations`
-Configures kitchen display screens (KDS) or physical printers.
-- **Fields (stations):** `id`, `outlet_id`, `name`
-- **Fields (printers):** `id`, `outlet_id`, `name`, `ip_address`
-
-### `kot_tickets` & `kot_ticket_items`
-Kitchen Order Tickets sent to specific stations when an order is accepted.
-- **Fields (ticket):** `id`, `order_id`, `station_id`, `status`
-- **Fields (items):** `id`, `ticket_id`, `order_item_id`, `notes`
-
-### Aggregator channels (Swiggy, Zomato, …)
-How a platform order maps onto our data. An adapter for each platform only has to translate its payload into these:
-
-| Table | Maps |
-| --- | --- |
-| `channel_outlets` | The platform's store id → our outlet, with `is_online` (busy switch), `offline_reason` / `offline_since` (why and since when it is off; our own codes in `lib/channels.ts`) and `prep_time_minutes`. Unique per outlet + channel and per channel + store id. Edited under Admin → Channels. |
-| `channel_item_mappings` | The platform's item id → our product, with `price_override` (platform price) and `is_available`. |
-| `channel_option_mappings` | The platform's add-on/variant id → our `customization_options` row, same shape. |
-| `external_order_events` | Every webhook received: `event_type` (`order.placed`, `rider.assigned`, `order.delivered`, `order.cancelled`, …), raw `payload`, `signature_ok`, and `external_event_id` (unique per channel, for de-duplication). |
-
-All are admin/manager-only under RLS; webhook adapters write with the service role.
+All menu catalogs are scoped per `outlet_id`:
+- **`categories`**, **`category_submenus`**, **`submenu_items`**: Top-level menu sections and optional submenu groupings.
+- **`products`**: Menu items (`price`, `gst_rate`, `hsn_code`, `veg_status`, `is_kot_required`, `code`, `status`, `has_addons`).
+- **`customization_groups`**: Modifier groups (`selection_type`, `is_required`, `min_selections`, `max_selections`, `free_selections`, `sort_order`, `status`).
+- **`customization_options`**: Choices (`price`, `veg_status`, `is_default`, `max_qty`, `variant_prices` jsonb, `sort_order`, `status`).
+- **`product_customizations`**: Product-to-group join (`product_id`, `group_id`, `sort_order`, `is_required_override`).
+- **`promotional_banners`**: Storefront promotional banner metadata.
 
 ---
 
-## 4. Database RPC Functions
+## 3. Orders, POS, KDS & Floor Management
 
-Because RLS prevents anonymous users from reading sensitive table data, we use `SECURITY DEFINER` Remote Procedure Calls (RPCs) to expose *only exactly what is needed* to the client.
-
-### `restaurant_slug_for_domain(host text)`
-- **Purpose:** Used by the Next.js Middleware. Given a custom domain string (e.g., `order.cafemocha.com`), it securely looks up the corresponding `restaurant.slug` without exposing the whole restaurants table.
-
-### `public_restaurant_by_slug(p_slug text)`
-- **Purpose:** Allows the public storefront to fetch basic restaurant details (name, slug) using the URL slug, without leaking owner IDs, GSTINs, or statuses.
-
-### `public_restaurant_by_id(p_restaurant_id uuid)`
-- **Purpose:** Same public identity fields as the slug lookup, keyed by id.
-
-### `public_outlets_for_restaurant(p_restaurant_id uuid)`
-- **Purpose:** Returns the active outlets for a restaurant so a customer can pick where to order from.
-
-### `get_my_orders(p_restaurant_id uuid)` — `authenticated` only
-- **Purpose:** The signed-in customer's last 100 orders at this restaurant, matched on the **verified email in their JWT**, with items carrying enough to reorder (`product_id`, `name`, `base_price`, `gst_rate`).
-
-### `get_my_order(p_order_id uuid)` — `authenticated` only
-- **Purpose:** One order, with line items, modifiers, GST split and the outlet's name/phone, for the live order-tracking page. Same email match as `get_my_orders`, so a guessed id returns nothing.
-
-### `purge_channel_data(p_channel text, p_older_than interval default '90 days')` — `service_role` only
-- **Purpose:** Stops us keeping what a delivery platform sent longer than needed. For that channel's orders older than the cutoff it clears `external_payload`, `customer_phone` and `delivery_partner` and sets `customer_name` to `Customer`; it also deletes the channel's `external_order_events` of that age. Amounts, items, tax and `external_order_id` stay. Returns `(orders_scrubbed, events_deleted)`. Pass `interval '0'` to scrub everything for a channel. **Irreversible.** Not scheduled by any migration — see `scripts/schedule-aggregator-purge.sql`.
-
-### Access helpers used by RLS policies
-- `user_has_restaurant_access(rid uuid)`, `user_has_restaurant_role(rid uuid, allowed text[])`, `outlet_restaurant_id(oid uuid)`.
+- **`pos_tabs`**: Open dine-in floor tables and walk-in tabs synced over Supabase Realtime (`id`, `outlet_id`, `name`, `lines` jsonb, `order_id` FK to running order).
+- **`orders`**: Unified ledger across `pos`, `kiosk`, `web`, and aggregator channels (`unique_order_id`, `order_type` in `dine-in | takeaway | delivery`, `table_id`, `customer_account_id`, GST breakdown `cgst_amount`/`sgst_amount`/`igst_amount`, `gst_paid_by_operator`, `voided_items` jsonb, `cancel_reason`, `payment_status`, `payment_provider`, `razorpay_order_id`, `stripe_session_id`, `external_order_id`, `external_payload`).
+- **`order_items`**: Line snapshots (`product_config` jsonb, `quantity`, `unit_price`, `total_price`, `instructions`, `created_at`).
+- **`printers`**, **`kitchen_stations`**, **`kot_tickets`**, **`kot_ticket_items`**: Kitchen routing and ticket state per station.
+- **`table_bookings`**: Scheduled table reservations & walk-in waitlist entries (`booking_code`, `booking_type` in `reservation | waitlist`, `source`, `status` across `pending_payment | pending | confirmed | waitlisted | notified | seated | completed | cancelled | no_show`, `table_id`, `party_size`, `preferred_zone`, `occasion`, `reserved_for`, `duration_minutes`, `quoted_wait_minutes`, `queue_number`, `deposit_amount`, `deposit_status`, `payment_provider`, `payment_reference`).
 
 ---
 
-## 5. POS
+## 4. Payments, Storefront Auth, Webhooks & Security
 
-### `pos_tabs`
-Open "bar tabs" shared across all POS terminals of an outlet, synced over Supabase Realtime.
-- **Fields:** `id`, `outlet_id`, `name`, `lines` (jsonb cart lines), `created_at`, `updated_at`
-- **Access:** RLS on, staff of the outlet's restaurant only. The POS tab server actions use the service-role client and gate on `requireRole`.
+- **`payment_settings`** & **`payment_sessions`**: Per-outlet gateway settings and temporary payment/checkout session state (for online food orders as well as `table_booking_deposit` sessions).
+- **`storefront_customers`**: Per-restaurant customer accounts (`(restaurant_id, lower(email))`, `password_hash`, `phone`).
+- **`restaurant_api_keys`**: Hashed API keys (`key_hash`), scopes (`menu:read`, `orders:write`, `bookings:read`, `bookings:write`), `allowed_origins`, and `webhook_url` / `webhook_secret`.
+- **`api_rate_limits`**: Backing store for Postgres fixed-window API throttling.
+- **`push_subscriptions`** & **`server_error_logs`**: Notification subscriptions and persisted server-side 5xx telemetry.
 
 ---
 
-## 6. Identifiers
+## 5. Back-Office Operations (HR, Vendors, Accounts & Channels)
 
-Every `id` and `*_id` column is a **uuid** since migration `20260719000000_uuid_refactor`. That migration truncated all tables and dropped `public_restaurant_by_slug` / `get_my_orders` without recreating them; `20261103090000_restore_storefront_rpcs_and_pos_tabs` restores both. Don't reuse `scripts/create-pos-tabs.sql` — it predates the uuid change.
+- **Staff HR:** `hr_employees`, `hr_attendance`, `hr_advances`, `hr_payroll_entries`.
+- **Vendors & Purchasing:** `vendors`, `vendor_purchase_orders`, `vendor_payments`.
+- **Promos, Khata, Corporate B2B & Cash:** `coupons`, `customer_tabs`, `customer_tab_transactions`, `corporate_clients`, `corporate_invoices`, `outlet_expenses`.
+- **Delivery Aggregators:** `channel_outlets`, `channel_item_mappings`, `channel_option_mappings`, `external_order_events`.
+
+---
+
+## 6. Database RPC Functions
+
+- `restaurant_slug_for_domain(host text)` — Resolves white-label domain hostnames to restaurant slugs.
+- `public_restaurant_by_slug(p_slug text)` & `public_restaurant_by_id(p_restaurant_id uuid)` — Safe anonymous storefront identity lookups.
+- `public_outlets_for_restaurant(p_restaurant_id uuid)` & `public_bestsellers(...)` — Safe anonymous outlet and top-dish lookups.
+- `get_my_orders(p_restaurant_id uuid)` & `get_my_order(p_order_id uuid)` — Authenticated customer order history and live tracking scoped to JWT email.
+- `consume_rate_limit(p_bucket text, p_window_seconds integer)` — Service-role fixed-window rate-limit incrementer.
+- `purge_channel_data(p_channel text, p_older_than interval)` — Service-role PII scrubber for old aggregator orders and webhook logs.
+- `user_has_restaurant_role(rid uuid, allowed text[])` & `user_is_brand_restaurant_admin(...)` — RLS access helpers (`user_has_restaurant_access`, `outlet_restaurant_id` are also used across core tables).

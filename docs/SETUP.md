@@ -1,50 +1,62 @@
-# Project Setup & Configuration
+# Project Setup, Seeding & Commands
 
-This document outlines how the project is configured, seeded, and run locally.
+## Prerequisites & Local Startup
 
-## Environment Variables
-The application requires the following environment variables (defined in `.env.local`). A template is provided in `.env.example`.
-
-### Supabase Keys
-- `NEXT_PUBLIC_SUPABASE_URL`: The URL of your Supabase project (used by both client and server).
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: The public key for anonymous/authenticated access (governed by RLS).
-- `SUPABASE_SERVICE_ROLE_KEY`: The secret admin key used **only** on the server to bypass RLS (e.g., for processing external webhooks or critical DB migrations).
-
-### Routing
-- `NEXT_PUBLIC_ROOT_DOMAIN`: The apex domain for per-store subdomain routing (e.g., `billjot.app`). 
-  - If set, stores live at `[slug].billjot.app`.
-  - If unset (default for local dev), stores live at `/r/[slug]`.
-  - For local subdomain testing, set to `lvh.me` and visit `http://[slug].lvh.me:3000`.
-
-### Security
-- External storefronts authenticate with per-restaurant API keys created in **Admin → Administration → API keys** (scoped to outlet, permissions, and allowed websites).
-- `STOREFRONT_ALLOWED_ORIGINS`: Optional fallback comma-separated browser origins when an API key doesn't restrict specific websites.
-
----
-
-## Database Management & Scripts
-
-The `scripts/` folder contains Node.js scripts for managing the database state. Since they use the `@supabase/supabase-js` client, they bypass the local Supabase CLI and operate directly against the database URL.
-
-- `clear-all.mjs`: Completely wipes all data from the database. It deletes from `user_roles`, `restaurants`, `brands`, and `profiles`, which cascades down and deletes all menus and orders. Useful for resetting staging environments.
-- `seed-demo.mjs`: Populates the database with dummy data (e.g., a sample brand, a few restaurants/outlets, categories, and products) so you can test the POS and storefront immediately after a fresh install.
-
-**To run a script:**
-```bash
-node scripts/seed-demo.mjs
+```powershell
+npm install
+Copy-Item .env.example .env.local
+# Populate .env.local with Supabase credentials and optional gateway/webhook env vars
+npm run dev
 ```
-*(Ensure your `.env.local` is present in the root directory, as the scripts load `dotenv` to authenticate).*
+
+App runs at `http://localhost:3000`.
+
+### Required Environment Variables (`.env.local`)
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase Project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase anonymous key
+- `SUPABASE_SERVICE_ROLE_KEY` — Server-only service role key (never expose to browsers)
+- `NEXT_PUBLIC_DEFAULT_OUTLET_ID` — Optional default outlet UUID fallback
+- `STOREFRONT_ALLOWED_ORIGINS` — Optional fallback comma-separated browser origins
+- `CHANNEL_ORDER_TOKEN` / `CHANNEL_BRIDGE_WEBHOOK_URL` — Optional delivery-platform channel bridge configuration
+- `ERROR_ALERT_WEBHOOK_URL` / `SENTRY_DSN` — Optional server 5xx telemetry alerts
 
 ---
 
-## Troubleshooting
+## Database Migrations & Types (Supabase CLI v3+)
 
-### `AuthApiError: Invalid Refresh Token` in console
-During development, if a user's browser has a stale or invalid session cookie, you might have previously seen `[AuthApiError: Invalid Refresh Token: Refresh Token Not Found]` logged multiple times on the server.
+Supabase CLI v3 targets a local instance by default; pass `--remote` when inspecting or pushing to the linked hosted database:
 
-This happens due to how Next.js propagates modified cookies from Middleware to Server Components in a single request lifecycle:
-1. The middleware detects an invalid session via `@supabase/ssr` and triggers a cookie clear (`maxAge: 0`).
-2. If the middleware simply sets the request cookie to an empty string (`request.cookies.set(name, '')`), Next.js Server Components will still read that empty string via `cookies().getAll()`.
-3. The Server Component then calls `supabase.auth.getUser()`, which blindly attempts a second redundant refresh using the empty token, triggering the `AuthApiError` log inside the Supabase client.
+```bash
+npx supabase migration list --remote
+npx supabase db push --remote --dry-run
+npx supabase db push --remote --yes
+npx supabase gen types typescript --remote --schema public > lib/database.types.ts
+```
 
-**Resolution:** In `lib/supabase/middleware.ts`, we explicitly use `request.cookies.delete(name)` when the `setAll` callback attempts to clear a cookie (when `value === ""`). This prevents the Server Components from seeing the stale token in the same request, eliminating the duplicate authentication attempts and the console spam.
+> On Windows PowerShell, avoid raw `>` redirection for UTF-8 TypeScript files (PowerShell writes UTF-16LE by default); use Git Bash or write UTF-8 explicitly.
+
+---
+
+## Seeding & Maintenance Scripts (`scripts/`)
+
+All seed scripts are idempotent and read Supabase credentials from environment / `.env.local`:
+- **`scripts/seed-demo.mjs`** / **`scripts/seed-manaruchulu.mjs`** — Baseline brands, outlets, floor tables, menus, and sample orders (`node --env-file=.env.local scripts/seed-demo.mjs`)
+- **`scripts/seed-ops-data.mjs`** — Vendors, Purchase Orders, Vendor Payments, Staff HR (employees, 7-day attendance, advances, payroll), Coupons, People's Tabs, Corporate Clients/GST Invoices, and Petty Cash Expenses (`node --env-file=.env.local scripts/seed-ops-data.mjs`)
+- **`scripts/seed-bookings.mjs`** — Upcoming table reservations (including paid cover deposits) and active walk-in waitlist queues across outlets (`node scripts/seed-bookings.mjs`)
+- **`scripts/create-user.mjs`** / **`scripts/delete-user.mjs`** / **`scripts/attach-brand.mjs`** — Staff user & brand management helpers
+- **`scripts/generate-pwa-icons.mjs`** — Generates raster/vector PWA icons under `public/icons/`
+- **`scripts/clear-all.mjs`** — Resets restaurant/brand data cleanly (use only in non-production/reset scenarios)
+
+---
+
+## Quality Checks & Build
+
+```powershell
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build
+```
+
+- `npm test` runs Node's built-in test runner (`node --no-warnings --experimental-strip-types --import ./scripts/test-loader.mjs --test tests/*.test.ts`) across all unit test suites under `tests/`.
+- `npm run lint` runs ESLint directly (`eslint`) compatible with Next.js 16.
