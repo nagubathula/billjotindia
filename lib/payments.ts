@@ -12,6 +12,7 @@ import {
   type ModifierOptionData,
 } from "@/lib/customizations";
 import { isOutletOpen } from "@/lib/opening-hours";
+import { deductOrderRecipeStock } from "@/lib/inventory";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
@@ -812,6 +813,7 @@ export async function finalizePaidOrderFromSession(params: {
         total_amount: draft.total_amount,
         payment_status: "paid",
         payment_provider: params.gateway,
+        payment_mode: params.gateway,
         razorpay_order_id: params.razorpayOrderId ?? null,
         external_order_id: extRef,
         external_status: "paid",
@@ -841,6 +843,10 @@ export async function finalizePaidOrderFromSession(params: {
     }
 
     void dispatchOrderStatusWebhooks(settledOrder.id, "order.updated");
+    void deductOrderRecipeStock({
+      orderId: settledOrder.id,
+      outletId: settledOrder.outlet_id,
+    });
     return { ok: true, order: settledOrder };
   }
 
@@ -867,6 +873,7 @@ export async function finalizePaidOrderFromSession(params: {
       status: "confirmed",
       payment_status: "paid",
       payment_provider: params.gateway,
+      payment_mode: params.gateway,
       unique_order_id: newOrderNumber(),
       razorpay_order_id: params.razorpayOrderId ?? null,
       external_order_id: extRef,
@@ -940,6 +947,7 @@ export async function finalizePaidOrderFromSession(params: {
   if (draft.coupon_code && draft.discount_amount > 0) {
     void recordCouponRedemption(admin, draft.outlet_id, draft.coupon_code);
   }
+  void deductOrderRecipeStock({ orderId: order.id, outletId: draft.outlet_id });
   void dispatchOrderStatusWebhooks(order.id, "order.created");
   return { ok: true, order };
 }

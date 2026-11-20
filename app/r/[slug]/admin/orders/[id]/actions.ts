@@ -12,6 +12,7 @@ import {
 } from "@/lib/order-cancel";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { dispatchChannelBridgeEvent } from "@/lib/channel-bridge";
+import { deductOrderRecipeStock } from "@/lib/inventory";
 import { isAggregatorSource } from "@/lib/channels";
 import type { OrderStatus, ProductConfig } from "@/lib/types";
 
@@ -100,6 +101,9 @@ export async function updateOrderStatusAction(
   if (error) return { ok: false, error: error.message };
 
   revalidateOrder(slug, orderId);
+  if (newStatus === "completed") {
+    void deductOrderRecipeStock({ orderId, outletId: found.order.outlet_id });
+  }
   dispatchOrderStatusWebhooks(
     orderId,
     newStatus === "completed" ? "order.completed" : "order.updated",

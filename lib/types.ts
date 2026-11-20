@@ -49,8 +49,25 @@ export type CorporateClient      = Row<"corporate_clients">;
 export type CorporateInvoice     = Row<"corporate_invoices">;
 export type OutletExpense        = Row<"outlet_expenses">;
 export type TableBooking         = Row<"table_bookings">;
+export type InventoryMaterial    = Row<"inventory_materials">;
+export type ProductRecipe        = Row<"product_recipes">;
+export type InventoryStockMovement = Row<"inventory_stock_movements">;
+export type RegisterShift        = Row<"register_shifts">;
+export type OrderPayment         = Row<"order_payments">;
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
+export type OrderPaymentMode =
+  | "open"
+  | "cash"
+  | "upi"
+  | "card"
+  | "razorpay"
+  | "stripe"
+  | "tab"
+  | "online"
+  | "split"
+  | "aggregator";
+
 export type BookingType = "reservation" | "waitlist";
 
 export type BookingStatus =

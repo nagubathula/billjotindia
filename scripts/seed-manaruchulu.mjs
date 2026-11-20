@@ -533,8 +533,6 @@ async function seedManaruchuluRestaurant(restaurant) {
   }
   console.log(`✓ ${outlets.length} outlets ready: ${outlets.map((o) => o.name).join(", ")}`);
 
-  const primaryOutlet = outlets[0];
-
   // 2. Seed Menu, Stations, Channels, and Orders on the Primary Outlet (and menu on secondary)
   for (let idx = 0; idx < outlets.length; idx++) {
     const outlet = outlets[idx];
@@ -1081,7 +1079,8 @@ async function seedManaruchuluRestaurant(restaurant) {
       const rawLines = linesByUid.get(ord.unique_order_id) ?? [];
       stationMetaByOrderId.set(ord.id, rawLines.map((l) => l._station_id));
       for (const l of rawLines) {
-        const { _station_id, ...cleanLine } = l;
+        const cleanLine = { ...l };
+        delete cleanLine._station_id;
         orderItemsPayload.push({
           order_id: ord.id,
           ...cleanLine,

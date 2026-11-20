@@ -37,10 +37,10 @@ Roles are enforced on the UI, Server Actions, and Supabase RLS (`lib/roles.ts`, 
 
 ## 4. Counter POS, Running Table KOTs & Printing (`/r/[slug]/pos`)
 
-- **Keyboard-Fast Counter POS:** Category tabs, item search, variant/modifier picker, active coupon chips, packing charges, flat/percentage discounts, and multi-tender settlements (Cash, UPI QR, Card, Razorpay/Stripe online payment links, Customer Khata Tabs).
-- **Running Table Orders (KOTs):** Cashiers and Captains send Kitchen Order Tickets per floor table (`pos_tabs.order_id`); subsequent KOTs append new items with timestamps, highlight late additions on the KDS, support manager-audited item voids, table transfers, and unified bill settlement.
-- **Thermal & Browser Receipts:** Browser-printable GST receipts (`/r/[slug]/pos/receipt/[id]`) plus an authenticated 80mm ESC/POS byte generator for thermal printers.
-- **Day-End Z-Register (`/r/[slug]/admin/register`):** Reconciles cash, UPI, card, online, and Customer Khata sales separately alongside unsettled open tables and deducted petty cash vouchers.
+- **Counter POS:** Category tabs, item search, variant/modifier picker, active coupon chips, packing charges, flat/percentage discounts, and single or **multi-tender split settlements** (Cash + UPI + Card), Razorpay/Stripe online payment links, and Customer Khata Tabs.
+- **Running Table Orders, Item Split & Table Merge:** Cashiers and Captains send Kitchen Order Tickets per floor table (`pos_tabs.order_id`); subsequent KOTs append new items with timestamps, highlight late additions on the KDS, support manager-audited item voids, split selected items onto a separate tab (`splitTabItemsAction`), merge or transfer occupied tables, and settle unified bills (`settleTabAction`, `settlePosSplitPaymentAction`).
+- **Thermal & Browser Receipts:** Browser-printable GST receipts (`/r/[slug]/pos/receipt/[id]`) displaying multi-tender payment legs plus an authenticated 80mm ESC/POS byte generator for thermal printers.
+- **Persisted Day-End Z-Register Shifts (`/r/[slug]/admin/register`):** Reconciles Cash, UPI, Card, Online, Split Payments, and Customer Khata sales alongside unsettled open tables and deducted petty cash vouchers; persists opening float, physical denomination counts, conditional cash variance notes, and historical Z-Close audit logs (`register_shifts`) with CSV export.
 
 ---
 
@@ -74,7 +74,7 @@ Roles are enforced on the UI, Server Actions, and Supabase RLS (`lib/roles.ts`, 
 
 - **Staff HR & Payroll (`/r/[slug]/admin/hr`):** Employee directory, shifts, departments, daily/bulk attendance tracking with overtime hours, salary advances, automated monthly payroll computation with bonus/deduction adjustments, payout settlement, and CSV export.
 - **Vendor Management & PO/GRN (`/r/[slug]/admin/vendors`):** Supplier registry with GSTIN validation and credit terms (`cod`, `net_7`, `net_15`, `net_30`), itemized GST purchase orders, goods receipt (GRN) with supplier invoice tracking, payment ledger, payable balances, and CSV export.
-- **Inventory & Recipe BOM (`/r/[slug]/admin/inventory`):** Kitchen raw material tracking, par-level alerts, and 30-day dish velocity & food-cost margin analysis.
+- **Inventory & Recipe BOM (`/r/[slug]/admin/inventory`):** Database-backed raw material SKU registry (`inventory_materials`) with par-level low-stock alerts, dish recipe BOMs (`product_recipes`) with wastage % and live food-cost margins, automatic Vendor GRN restocking with weighted average cost recalculation, automatic BOM consumption deductions on settled/completed orders, and an immutable stock ledger (`inventory_stock_movements`) with CSV export.
 - **People's Tabs (Khata), Corporate B2B GST Invoices & Petty Cash (`/r/[slug]/admin/accounts`):**
   - **People's Tabs / Khata:** Regular customer running credit accounts with credit limits, POS tab charging, settlement entries, WhatsApp payment reminders, and CSV export.
   - **Corporate B2B GST Tax Invoices:** Corporate client registry with GSTIN & state code validation, intra-state CGST+SGST vs inter-state IGST calculation (`SAC 996331`), settled-order import, payment tracking, CSV export, and printable A4 Tax Invoices (`/r/[slug]/admin/accounts/invoices/[invoiceId]/print`).

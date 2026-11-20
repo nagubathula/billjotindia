@@ -3,6 +3,7 @@ import { randomInt } from "node:crypto";
 import { buildModifierConfigKey } from "@/lib/customizations";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { deductOrderRecipeStock } from "@/lib/inventory";
 import {
   ORDER_NOTE_MAX,
   cleanNote,
@@ -206,6 +207,7 @@ export async function sendKotForTab(
         source: "pos",
         customer_name: name ? `${code} · ${name}` : code,
         customer_email: RUNNING_ORDER_EMAIL,
+        payment_mode: "open",
         order_type: "dine-in",
         subtotal: t.subtotal,
         cgst_amount: t.cgst,
@@ -744,17 +746,270 @@ export async function settleTab(
       rounding_amount: rounding,
       total_amount: total,
       customer_email: `pos+${input.mode}@billjot.local`,
+      payment_mode: input.mode,
+      payment_status: "paid",
       ...(name ? { customer_name: `${code} · ${name}` } : {}),
       ...(note ? { instructions: note } : {}),
     })
     .eq("id", orderId);
   if (error) return { ok: false, error: error.message };
 
+  const { data: outlet } = await db
+    .from("outlets")
+    .select("restaurant_id")
+    .eq("id", tab.outlet_id)
+    .maybeSingle();
+
+  if (outlet && total > 0) {
+    await db.from("order_payments").insert({
+      restaurant_id: outlet.restaurant_id,
+      outlet_id: tab.outlet_id,
+      order_id: orderId,
+      payment_mode: input.mode,
+      amount: total,
+    });
+  }
+
   await db
     .from("pos_tabs")
     .update({ lines: [], order_id: null, updated_at: new Date().toISOString() })
     .eq("id", tab.id);
 
+  void deductOrderRecipeStock({ orderId, outletId: tab.outlet_id });
   void dispatchOrderStatusWebhooks(orderId, "order.updated");
   return { ok: true, orderId };
+}
+
+/**
+ * Splits selected item quantities from `source` onto `target`, splitting both
+ * `pos_tabs.lines` (conserving `sentQty` invariants) and running kitchen
+ * `order_items` if `source` already has a running order.
+ */
+export async function splitTabItems(
+  source: TabRow & { lines: PosLine[] },
+  target: TabRow & { lines: PosLine[] },
+  moveQuantities: Record<string, number>,
+): Promise<
+  | {
+      ok: true;
+      sourceLines: PosLine[];
+      sourceOrderId: string | null;
+      targetLines: PosLine[];
+      targetOrderId: string | null;
+    }
+  | { ok: false; error: string }
+> {
+  if (source.id === target.id) {
+    return { ok: false, error: "Choose a different destination tab." };
+  }
+  if (source.outlet_id !== target.outlet_id) {
+    return { ok: false, error: "Tabs belong to different outlets." };
+  }
+
+  const remainingSourceLines: PosLine[] = [];
+  const movedLines: PosLine[] = [];
+  const sentMovesByKey = new Map<string, number>();
+
+  for (const line of source.lines) {
+    const key = configKeyForPosLine(line);
+    const curQty = whole(line.qty);
+    const curSent = Math.min(curQty, whole(line.sentQty));
+    const reqMove = whole(moveQuantities[key] ?? 0);
+    const moveQty = Math.min(curQty, reqMove);
+
+    if (moveQty <= 0) {
+      remainingSourceLines.push(line);
+      continue;
+    }
+
+    const stayQty = curQty - moveQty;
+    const staySent = Math.min(curSent, stayQty);
+    const moveSent = curSent - staySent;
+
+    if (stayQty > 0) {
+      remainingSourceLines.push({ ...line, qty: stayQty, sentQty: staySent });
+    }
+    movedLines.push({ ...line, qty: moveQty, sentQty: moveSent });
+    if (moveSent > 0) {
+      sentMovesByKey.set(key, (sentMovesByKey.get(key) ?? 0) + moveSent);
+    }
+  }
+
+  if (movedLines.length === 0) {
+    return { ok: false, error: "Select at least 1 item to split onto the new bill." };
+  }
+
+  const db = createAdminClient();
+  const nowIso = new Date().toISOString();
+  const [sourceOrder, existingTargetOrder] = await Promise.all([
+    openOrderFor(db, source.order_id),
+    openOrderFor(db, target.order_id),
+  ]);
+
+  let finalSourceOrderId: string | null = sourceOrder?.id ?? null;
+  let finalTargetOrderId: string | null = existingTargetOrder?.id ?? null;
+
+  if (sourceOrder && sentMovesByKey.size > 0) {
+    let targetOrderId = existingTargetOrder?.id ?? null;
+    if (!targetOrderId) {
+      const code = tableCode(target.name);
+      const { data: newOrder, error: newOrdErr } = await db
+        .from("orders")
+        .insert({
+          outlet_id: target.outlet_id,
+          table_id: target.id,
+          source: "pos",
+          customer_name: code,
+          customer_email: RUNNING_ORDER_EMAIL,
+          payment_mode: "open",
+          order_type: "dine-in",
+          subtotal: 0,
+          cgst_amount: 0,
+          sgst_amount: 0,
+          gst_paid_by_operator: false,
+          takeaway_charges: 0,
+          discount_amount: 0,
+          rounding_amount: 0,
+          total_amount: 0,
+          token_number: sourceOrder.token_number ?? randomInt(101, 999),
+          status: sourceOrder.status ?? "pending",
+          unique_order_id: newOrderNumber(),
+        })
+        .select("id")
+        .single();
+
+      if (newOrdErr || !newOrder) {
+        return {
+          ok: false,
+          error: newOrdErr?.message ?? "Could not create split kitchen order.",
+        };
+      }
+      targetOrderId = newOrder.id;
+    }
+
+    const { data: sourceItems } = await db
+      .from("order_items")
+      .select("id, quantity, unit_price, total_price, product_config, instructions")
+      .eq("order_id", sourceOrder.id)
+      .order("created_at", { ascending: false });
+
+    for (const [key, moveQtyNeeded] of sentMovesByKey) {
+      let rem = moveQtyNeeded;
+      const matching = (sourceItems ?? []).filter((row) => {
+        const cfg =
+          row.product_config &&
+          typeof row.product_config === "object" &&
+          !Array.isArray(row.product_config)
+            ? (row.product_config as { product_id?: string; selected_options?: unknown })
+            : {};
+        if (!cfg.product_id) return false;
+        return buildLineConfigKey(cfg.product_id, cfg.selected_options) === key;
+      });
+
+      for (const row of matching) {
+        if (rem <= 0) break;
+        const rowQty = whole(row.quantity);
+        if (rowQty <= 0) continue;
+        const take = Math.min(rowQty, rem);
+        rem -= take;
+
+        if (take >= rowQty) {
+          await db
+            .from("order_items")
+            .update({ order_id: targetOrderId })
+            .eq("id", row.id);
+        } else {
+          const unitPrice = Number(row.unit_price ?? 0);
+          const stayRowQty = rowQty - take;
+          await db
+            .from("order_items")
+            .update({
+              quantity: stayRowQty,
+              total_price: round2(unitPrice * stayRowQty),
+            })
+            .eq("id", row.id);
+          await db.from("order_items").insert({
+            order_id: targetOrderId,
+            product_config: row.product_config,
+            quantity: take,
+            unit_price: unitPrice,
+            total_price: round2(unitPrice * take),
+            ...(row.instructions ? { instructions: row.instructions } : {}),
+          });
+        }
+      }
+    }
+
+    const [srcTotals, dstTotals] = await Promise.all([
+      recomputeOrderTotalsFromRemainingItems(db, sourceOrder.id),
+      recomputeOrderTotalsFromRemainingItems(db, targetOrderId),
+    ]);
+
+    await db
+      .from("orders")
+      .update({
+        subtotal: dstTotals.subtotal,
+        cgst_amount: dstTotals.cgst,
+        sgst_amount: dstTotals.sgst,
+        total_amount: dstTotals.total_amount,
+      })
+      .eq("id", targetOrderId);
+    finalTargetOrderId = targetOrderId;
+
+    if (srcTotals.count === 0) {
+      await db
+        .from("orders")
+        .update({
+          subtotal: 0,
+          cgst_amount: 0,
+          sgst_amount: 0,
+          total_amount: 0,
+          status: "cancelled",
+          cancel_reason: "split_table",
+          cancel_note: `Split onto ${tableCode(target.name)}`,
+          cancelled_by: "merchant",
+          cancelled_at: nowIso,
+        })
+        .eq("id", sourceOrder.id);
+      finalSourceOrderId = null;
+    } else {
+      await db
+        .from("orders")
+        .update({
+          subtotal: srcTotals.subtotal,
+          cgst_amount: srcTotals.cgst,
+          sgst_amount: srcTotals.sgst,
+          total_amount: srcTotals.total_amount,
+        })
+        .eq("id", sourceOrder.id);
+    }
+  }
+
+  const finalTargetLines = mergePosLines(target.lines, movedLines);
+  await Promise.all([
+    db
+      .from("pos_tabs")
+      .update({
+        lines: remainingSourceLines as unknown as Json,
+        order_id: finalSourceOrderId,
+        updated_at: nowIso,
+      })
+      .eq("id", source.id),
+    db
+      .from("pos_tabs")
+      .update({
+        lines: finalTargetLines as unknown as Json,
+        order_id: finalTargetOrderId,
+        updated_at: nowIso,
+      })
+      .eq("id", target.id),
+  ]);
+
+  return {
+    ok: true,
+    sourceLines: remainingSourceLines,
+    sourceOrderId: finalSourceOrderId,
+    targetLines: finalTargetLines,
+    targetOrderId: finalTargetOrderId,
+  };
 }

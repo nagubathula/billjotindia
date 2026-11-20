@@ -38,7 +38,7 @@ async function clearData() {
   for (const table of tablesToClear) {
     console.log(`Clearing ${table}...`);
     // we use a dummy condition to delete everything because delete() without filters errors
-    const { data, error } = await admin.from(table).delete().not("id", "is", null);
+    const { error } = await admin.from(table).delete().not("id", "is", null);
     if (error) {
       console.error(`Failed to clear ${table}:`, error.message);
     } else {

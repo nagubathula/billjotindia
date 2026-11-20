@@ -1,6 +1,6 @@
 # Database Schema
 
-This application runs on **Supabase (PostgreSQL)** with **45 public tables**, strict multi-tenant scoping (`restaurant_id` / `outlet_id`), UUID identifiers (`isUuid()`), and Row Level Security (RLS).
+This application runs on **Supabase (PostgreSQL)** with **50 public tables**, strict multi-tenant scoping (`restaurant_id` / `outlet_id`), UUID identifiers (`isUuid()`), and Row Level Security (RLS).
 
 ---
 
@@ -29,7 +29,9 @@ All menu catalogs are scoped per `outlet_id`:
 ## 3. Orders, POS, KDS & Floor Management
 
 - **`pos_tabs`**: Open dine-in floor tables and walk-in tabs synced over Supabase Realtime (`id`, `outlet_id`, `name`, `lines` jsonb, `order_id` FK to running order).
-- **`orders`**: Unified ledger across `pos`, `kiosk`, `web`, and aggregator channels (`unique_order_id`, `order_type` in `dine-in | takeaway | delivery`, `table_id`, `customer_account_id`, GST breakdown `cgst_amount`/`sgst_amount`/`igst_amount`, `gst_paid_by_operator`, `voided_items` jsonb, `cancel_reason`, `payment_status`, `payment_provider`, `razorpay_order_id`, `stripe_session_id`, `external_order_id`, `external_payload`).
+- **`orders`**: Unified ledger across `pos`, `kiosk`, `web`, and aggregator channels (`unique_order_id`, `order_type` in `dine-in | takeaway | delivery`, `table_id`, `customer_account_id`, explicit `payment_mode`, GST breakdown `cgst_amount`/`sgst_amount`/`igst_amount`, `gst_paid_by_operator`, `voided_items` jsonb, `cancel_reason`, `payment_status`, `payment_provider`, `razorpay_order_id`, `stripe_session_id`, `external_order_id`, `external_payload`).
+- **`order_payments`**: Multi-tender settlement legs (`order_id`, `payment_mode` in `cash | upi | card | razorpay | stripe | tab | online`, `amount`, `reference_no`).
+- **`register_shifts`**: Persisted Day-End Z-Report shifts per `(outlet_id, shift_date)` (`status`, `opening_float`, `expected_cash`, `counted_cash`, `variance`, `denominations` jsonb, tender totals, `variance_note`, `opened_by`, `closed_by`, `closed_at`).
 - **`order_items`**: Line snapshots (`product_config` jsonb, `quantity`, `unit_price`, `total_price`, `instructions`, `created_at`).
 - **`printers`**, **`kitchen_stations`**, **`kot_tickets`**, **`kot_ticket_items`**: Kitchen routing and ticket state per station.
 - **`table_bookings`**: Scheduled table reservations & walk-in waitlist entries (`booking_code`, `booking_type` in `reservation | waitlist`, `source`, `status` across `pending_payment | pending | confirmed | waitlisted | notified | seated | completed | cancelled | no_show`, `table_id`, `party_size`, `preferred_zone`, `occasion`, `reserved_for`, `duration_minutes`, `quoted_wait_minutes`, `queue_number`, `deposit_amount`, `deposit_status`, `payment_provider`, `payment_reference`).
@@ -50,6 +52,7 @@ All menu catalogs are scoped per `outlet_id`:
 
 - **Staff HR:** `hr_employees`, `hr_attendance`, `hr_advances`, `hr_payroll_entries`.
 - **Vendors & Purchasing:** `vendors`, `vendor_purchase_orders`, `vendor_payments`.
+- **Inventory & Recipe BOM:** `inventory_materials`, `product_recipes`, `inventory_stock_movements` (idempotent GRN restocking and order BOM deductions).
 - **Promos, Khata, Corporate B2B & Cash:** `coupons`, `customer_tabs`, `customer_tab_transactions`, `corporate_clients`, `corporate_invoices`, `outlet_expenses`.
 - **Delivery Aggregators:** `channel_outlets`, `channel_item_mappings`, `channel_option_mappings`, `external_order_events`.
 

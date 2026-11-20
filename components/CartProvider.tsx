@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { buildModifierConfigKey } from "@/lib/customizations";
 import type { Product } from "@/lib/types";
 
@@ -105,13 +113,16 @@ export function CartProvider({
     } catch {}
   }, [lines, restaurantSlug]);
 
-  const setTableName = (t: string | null) => {
-    setTableNameState(t);
-    try {
-      if (t) sessionStorage.setItem(tableStorageKey(restaurantSlug), t);
-      else sessionStorage.removeItem(tableStorageKey(restaurantSlug));
-    } catch {}
-  };
+  const setTableName = useCallback(
+    (t: string | null) => {
+      setTableNameState(t);
+      try {
+        if (t) sessionStorage.setItem(tableStorageKey(restaurantSlug), t);
+        else sessionStorage.removeItem(tableStorageKey(restaurantSlug));
+      } catch {}
+    },
+    [restaurantSlug],
+  );
 
   const value = useMemo<CartContextValue>(() => {
     const subtotal = lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
@@ -221,7 +232,7 @@ export function CartProvider({
         ),
       clear: () => setLines([]),
     };
-  }, [lines, restaurantSlug, tableName]);
+  }, [lines, restaurantSlug, tableName, setTableName]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AutoPrint } from "./AutoPrint";
 import { formatSelectedOptionLabel } from "@/lib/customizations";
-import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
+import { formatOrderTenderLabel } from "@/lib/register";
+import type { Order, OrderItem, OrderPayment, Outlet, ProductConfig } from "@/lib/types";
 import { isUuid } from "@/lib/utils";
 import { resolveTimeZone } from "@/lib/time";
 
@@ -23,7 +24,7 @@ export default async function ReceiptPage(props: Params) {
     .maybeSingle<Order>();
   if (!order) notFound();
 
-  const [{ data: items }, { data: outlet }] = await Promise.all([
+  const [{ data: items }, { data: outlet }, { data: paymentsData }] = await Promise.all([
     supabase
       .from("order_items")
       .select("*")
@@ -34,28 +35,17 @@ export default async function ReceiptPage(props: Params) {
       .select("*")
       .eq("id", order.outlet_id)
       .maybeSingle<Outlet>(),
+    supabase
+      .from("order_payments")
+      .select("*")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true }),
   ]);
 
   const lines = (items ?? []) as OrderItem[];
+  const payments = (paymentsData ?? []) as OrderPayment[];
   const placedAt = order.placed_at ?? order.created_at;
-  const extPayload =
-    order.external_payload &&
-    typeof order.external_payload === "object" &&
-    !Array.isArray(order.external_payload)
-      ? (order.external_payload as {
-          gateway?: string;
-          payment_id?: string;
-        })
-      : null;
-  const tenderMode = extPayload?.gateway
-    ? `${extPayload.gateway.toUpperCase()}${extPayload.payment_id ? ` (${extPayload.payment_id.slice(-10)})` : ""}`
-    : order.customer_email?.startsWith("pos+tab")
-      ? "CUSTOMER TAB (KHATA)"
-      : order.customer_email?.startsWith("pos+")
-        ? order.customer_email.split("@")[0].replace("pos+", "")
-        : order.external_status === "paid"
-          ? "ONLINE PAID"
-          : null;
+  const tenderMode = formatOrderTenderLabel(order, payments);
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-neutral-200 p-6 print:block print:bg-white print:p-0">

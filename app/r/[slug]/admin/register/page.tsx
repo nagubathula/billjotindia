@@ -1,11 +1,15 @@
 import { notFound } from "next/navigation";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { getOutletsForRestaurant } from "@/lib/outlet-context";
+import {
+  summarizeRegisterOrders,
+  type OrderPaymentLeg,
+} from "@/lib/register";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dayKey, resolveTimeZone, startOfDay } from "@/lib/time";
 import { PageHeader } from "@/components/PageHeader";
-import type { Order, OutletExpense } from "@/lib/types";
+import type { Order, OutletExpense, RegisterShift } from "@/lib/types";
 import {
   RegisterWorkbench,
   type OutletShiftSummary,
@@ -39,134 +43,76 @@ export default async function AdminRegisterPage(props: Props) {
 
   const supabase = await createClient();
   const admin = createAdminClient();
-  const [{ data: todayOrdersData }, { data: todayExpensesData }] =
-    await Promise.all([
-      supabase
-        .from("orders")
-        .select(
-          "id, outlet_id, source, status, customer_name, customer_email, token_number, placed_at, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
-        )
-        .in("outlet_id", scoped)
-        .gte("placed_at", todayStart.toISOString()),
-      admin
-        .from("outlet_expenses")
-        .select("*")
-        .eq("restaurant_id", restaurant.id)
-        .eq("expense_date", todayDate)
-        .order("created_at", { ascending: false }),
-    ]);
+  const [
+    { data: todayOrdersData },
+    { data: todayExpensesData },
+    { data: shiftsData },
+  ] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id, outlet_id, source, status, customer_name, customer_email, payment_mode, external_status, token_number, placed_at, total_amount, cgst_amount, sgst_amount, discount_amount, net_payout",
+      )
+      .in("outlet_id", scoped)
+      .gte("placed_at", todayStart.toISOString()),
+    admin
+      .from("outlet_expenses")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .eq("expense_date", todayDate)
+      .order("created_at", { ascending: false }),
+    admin
+      .from("register_shifts")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .order("shift_date", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(30),
+  ]);
 
-  const orders = (todayOrdersData ?? []) as Pick<
-    Order,
-    | "id"
-    | "outlet_id"
-    | "source"
-    | "status"
-    | "customer_name"
-    | "customer_email"
-    | "token_number"
-    | "placed_at"
-    | "total_amount"
-    | "cgst_amount"
-    | "sgst_amount"
-    | "discount_amount"
-    | "net_payout"
-  >[];
+  const orders = (todayOrdersData ?? []) as Array<
+    Pick<
+      Order,
+      | "id"
+      | "outlet_id"
+      | "source"
+      | "status"
+      | "customer_name"
+      | "customer_email"
+      | "payment_mode"
+      | "external_status"
+      | "token_number"
+      | "placed_at"
+      | "total_amount"
+      | "cgst_amount"
+      | "sgst_amount"
+      | "discount_amount"
+      | "net_payout"
+    >
+  >;
+
+  const orderIds = orders.map((o) => o.id);
+  const paymentsByOrderId = new Map<string, OrderPaymentLeg[]>();
+  if (orderIds.length > 0) {
+    const { data: legs } = await admin
+      .from("order_payments")
+      .select("order_id, payment_mode, amount")
+      .in("order_id", orderIds);
+    for (const l of legs ?? []) {
+      const list = paymentsByOrderId.get(l.order_id) ?? [];
+      list.push(l);
+      paymentsByOrderId.set(l.order_id, list);
+    }
+  }
 
   const summaries: OutletShiftSummary[] = outlets.map((o) => {
     const outletOrders = orders.filter((ord) => ord.outlet_id === o.id);
-    const valid = outletOrders.filter((ord) => ord.status !== "cancelled");
-    const cancelled = outletOrders.filter((ord) => ord.status === "cancelled");
-
-    let settledCount = 0;
-    let grossSales = 0;
-    let cgst = 0;
-    let sgst = 0;
-    let discounts = 0;
-    let cashSales = 0;
-    let upiSales = 0;
-    let cardSales = 0;
-    let tabSales = 0;
-    let webSales = 0;
-    let aggregatorGross = 0;
-    let aggregatorNet = 0;
-    let openTablesAmount = 0;
-    const openTables: OutletShiftSummary["openTables"] = [];
-
-    for (const ord of valid) {
-      const amt = Number(ord.total_amount ?? 0);
-
-      if (ord.source === "pos") {
-        const email = (ord.customer_email ?? "").toLowerCase();
-        // An open table (running order not yet settled) isn't money in the
-        // drawer yet — track separately so cashiers settle before Z-close.
-        if (email.startsWith("pos+open")) {
-          openTablesAmount += amt;
-          openTables.push({
-            id: ord.id,
-            label: ord.customer_name || "Open Table",
-            tokenNumber: ord.token_number ?? null,
-            amount: amt,
-            placedAt: ord.placed_at ?? null,
-          });
-          continue;
-        }
-        settledCount += 1;
-        grossSales += amt;
-        cgst += Number(ord.cgst_amount ?? 0);
-        sgst += Number(ord.sgst_amount ?? 0);
-        discounts += Number(ord.discount_amount ?? 0);
-
-        if (email.startsWith("pos+tab")) {
-          tabSales += amt;
-        } else if (email.startsWith("pos+upi") || email.startsWith("pos+razorpay")) {
-          upiSales += amt;
-        } else if (
-          email.startsWith("pos+card") ||
-          email.startsWith("pos+stripe")
-        ) {
-          cardSales += amt;
-        } else {
-          cashSales += amt;
-        }
-      } else if (ord.source === "web" || ord.source === "kiosk") {
-        settledCount += 1;
-        grossSales += amt;
-        cgst += Number(ord.cgst_amount ?? 0);
-        sgst += Number(ord.sgst_amount ?? 0);
-        discounts += Number(ord.discount_amount ?? 0);
-        webSales += amt;
-      } else {
-        settledCount += 1;
-        grossSales += amt;
-        cgst += Number(ord.cgst_amount ?? 0);
-        sgst += Number(ord.sgst_amount ?? 0);
-        discounts += Number(ord.discount_amount ?? 0);
-        aggregatorGross += amt;
-        aggregatorNet += Number(ord.net_payout ?? amt * 0.78);
-      }
-    }
-
+    const agg = summarizeRegisterOrders(outletOrders, paymentsByOrderId);
     return {
       outletId: o.id,
       outletName: o.name,
       gstin: o.gstin,
-      totalOrders: settledCount,
-      cancelledOrders: cancelled.length,
-      openTablesCount: openTables.length,
-      openTablesAmount,
-      openTables,
-      grossSales,
-      cgst,
-      sgst,
-      discounts,
-      cashSales,
-      upiSales,
-      cardSales,
-      tabSales,
-      webSales,
-      aggregatorGross,
-      aggregatorNet,
+      ...agg,
     };
   });
 
@@ -182,12 +128,13 @@ export default async function AdminRegisterPage(props: Props) {
     <div className="space-y-6">
       <PageHeader
         title="Day-End Register & Petty Cash (Z-Report)"
-        description="Reconcile physical cash drawer denominations, log petty cash vouchers, and print thermal day-end closing slips."
+        description="Reconcile physical cash drawer denominations, log petty cash vouchers, persist audited Z-Close shifts, and review shift history."
       />
 
       <RegisterWorkbench
         summaries={summaries}
         initialExpenses={(todayExpensesData ?? []) as OutletExpense[]}
+        initialShifts={(shiftsData ?? []) as RegisterShift[]}
         todayDate={todayDate}
         dateLabel={dateLabel}
         restaurantSlug={params.slug}

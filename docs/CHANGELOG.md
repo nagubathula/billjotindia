@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-11-21 — DB Inventory & Recipe BOM, Register Shifts, POS Split-Bills & Repo Polish
+
+### Migration (`20261121010000_inventory_shifts_and_split_payments`)
+- Added `public.inventory_materials`, `public.product_recipes`, and `public.inventory_stock_movements` (with idempotent PO GRN and order consumption deduplication indexes).
+- Added `public.register_shifts` (unique per `(outlet_id, shift_date)`) for opening floats, note denominations, variance notes, and Z-close audit tracking.
+- Added `orders.payment_mode` (backfilled from legacy POS email conventions) and `public.order_payments` for multi-tender settlement tracking.
+
+### What changed
+- **DB-Backed Inventory & Recipe BOM (`/r/[slug]/admin/inventory`):** Replaced in-memory materials with live Postgres SKUs, low-stock par alerts, Stock Movement Ledger, Recipe BOM margin editor (`lib/inventory.ts`), automated Vendor PO GRN restocking (weighted average cost), and automated BOM stock deduction on order settlement/completion.
+- **Persisted Register Shifts (`/r/[slug]/admin/register`):** Real opening float persistence, audited Z-Close confirmation (requiring variance explanation when |variance| ≥ ₹50), shift reopen support, split-tender register bucketing (`lib/register.ts`), and Shift Audit Log CSV export.
+- **POS Multi-Tender Split Payments & Split-by-Item (`/r/[slug]/pos`):** Cash + UPI + Card split settlements (`settlePosSplitPaymentAction`), item-level bill splitting across new/existing tabs (`splitTabItemsAction`), table merging (`moveTabAction`), and split tender display on thermal/ESC-POS receipts & Reports.
+- **Repo Hygiene & Docs:** Updated `supabase/config.toml` auth flags, refreshed `README.md` and `docs/`, resolved all 15 remaining ESLint warnings (0 errors, 0 warnings), and added `scripts/seed-inventory-and-shifts.mjs` + `tests/inventory-shifts-and-splits.test.ts`.
+
+---
+
 ## 2026-11-20 — Table Bookings & Live Walk-in Waitlist
 
 ### Migration (`20261120010000_table_bookings_and_waitlist`)

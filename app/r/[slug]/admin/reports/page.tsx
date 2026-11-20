@@ -29,13 +29,12 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
-  TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
+import { resolveOrderPaymentMode } from "@/lib/register";
 import { cn } from "@/lib/utils";
 import type { Order, OrderItem, ProductConfig } from "@/lib/types";
 
@@ -261,6 +260,26 @@ export default async function ReportsPage(props: Props) {
     (a, b) => b[1].revenue - a[1].revenue,
   );
 
+  const orderIds = orders.map((o) => o.id);
+  const paymentsByOrderId = new Map<
+    string,
+    Array<{ payment_mode: string; amount: number }>
+  >();
+  if (orderIds.length > 0) {
+    const { data: legs } = await supabase
+      .from("order_payments")
+      .select("order_id, payment_mode, amount")
+      .in("order_id", orderIds);
+    for (const l of legs ?? []) {
+      const list = paymentsByOrderId.get(l.order_id) ?? [];
+      list.push({
+        payment_mode: l.payment_mode,
+        amount: Number(l.amount ?? 0),
+      });
+      paymentsByOrderId.set(l.order_id, list);
+    }
+  }
+
   // ---- Payment / Tender mode split (for cash drawer reconciliation) ----
   const TENDER_META: Record<
     string,
@@ -270,6 +289,8 @@ export default async function ReportsPage(props: Props) {
     cash: { label: "POS Cash" },
     upi: { label: "POS UPI" },
     card: { label: "POS Card" },
+    tab: { label: "Customer Tab (Khata)" },
+    split: { label: "POS Split Payment" },
     razorpay: { label: "POS Razorpay" },
     stripe: { label: "POS Stripe" },
     online: { label: "Storefront Online" },
@@ -278,27 +299,26 @@ export default async function ReportsPage(props: Props) {
 
   const tenderTotals = new Map<string, { count: number; revenue: number }>();
   for (const o of orders) {
-    let mode =
-      o.source === "pos"
-        ? "cash"
-        : o.source === "web" || o.source === "kiosk"
-          ? "online"
-          : "aggregator";
-    if (o.source === "pos") {
-      const emailLower = (o.customer_email ?? "").toLowerCase();
-      if (emailLower.startsWith("pos+open")) {
-        mode = "open";
-      } else {
-        const firstIt = firstItemByOrder.get(o.id);
-        const cfg = firstIt?.product_config as unknown as {
-          tender_mode?: string;
-        } | null;
-        if (cfg?.tender_mode) mode = cfg.tender_mode.toLowerCase();
-        else if (emailLower.startsWith("pos+")) {
-          mode = emailLower.split("@")[0].replace("pos+", "");
+    const legs = paymentsByOrderId.get(o.id) ?? [];
+    if (legs.length > 0) {
+      const seenModes = new Set<string>();
+      for (const leg of legs) {
+        const cur = tenderTotals.get(leg.payment_mode) ?? { count: 0, revenue: 0 };
+        if (!seenModes.has(leg.payment_mode)) {
+          cur.count += 1;
+          seenModes.add(leg.payment_mode);
         }
+        cur.revenue += leg.amount;
+        tenderTotals.set(leg.payment_mode, cur);
       }
+      continue;
     }
+
+    const firstIt = firstItemByOrder.get(o.id);
+    const cfg = firstIt?.product_config as unknown as {
+      tender_mode?: string;
+    } | null;
+    const mode = resolveOrderPaymentMode(o, cfg?.tender_mode ?? null);
     const cur = tenderTotals.get(mode) ?? { count: 0, revenue: 0 };
     cur.count += 1;
     cur.revenue += Number(o.total_amount);

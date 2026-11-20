@@ -20,6 +20,8 @@ import {
 } from "@/lib/channel-bridge";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
+import { deductOrderRecipeStock } from "@/lib/inventory";
+import { resolveOrderPaymentMode } from "@/lib/register";
 import { resolveOptionalCustomerIdForOrder } from "@/lib/storefront-customers";
 import {
   ITEM_NOTE_MAX,
@@ -48,6 +50,8 @@ import type { Json } from "@/lib/database.types";
 type OrderBody = {
   customer_name: string;
   customer_email: string;
+  customer_phone?: string | null;
+  payment_mode?: string | null;
   order_type?: string;
   table_id?: string | null;
   table_code?: string | null;
@@ -361,6 +365,11 @@ export async function POST(request: Request) {
   const orderNote = cleanNote(body.instructions, ORDER_NOTE_MAX);
   const anyItemNote = totals.items.some((it) => it.instructions);
   const tokenNumber = randomInt(101, 999);
+  const resolvedPaymentMode = resolveOrderPaymentMode({
+    source,
+    payment_mode: body.payment_mode ?? null,
+    customer_email: body.customer_email,
+  });
 
   const { data: order, error: orderErr } = await supabase
     .from("orders")
@@ -371,6 +380,10 @@ export async function POST(request: Request) {
       source,
       customer_name: body.customer_name,
       customer_email: body.customer_email,
+      ...(body.customer_phone?.trim()
+        ? { customer_phone: body.customer_phone.trim().slice(0, 30) }
+        : {}),
+      payment_mode: resolvedPaymentMode,
       order_type: resolvedOrderType,
       subtotal: totals.subtotal,
       cgst_amount: totals.cgst,
@@ -451,6 +464,26 @@ export async function POST(request: Request) {
         })),
       );
     }
+  }
+
+  if (
+    source === "pos" &&
+    totals.total_amount > 0 &&
+    (resolvedPaymentMode === "cash" ||
+      resolvedPaymentMode === "upi" ||
+      resolvedPaymentMode === "card")
+  ) {
+    await supabase.from("order_payments").insert({
+      restaurant_id: outletRow.restaurant_id,
+      outlet_id: outletId,
+      order_id: order.id,
+      payment_mode: resolvedPaymentMode,
+      amount: totals.total_amount,
+    });
+  }
+
+  if (resolvedPaymentMode !== "open") {
+    void deductOrderRecipeStock({ orderId: order.id, outletId });
   }
 
   if (firstParty && source !== "pos" && body.coupon_code && totals.discount_amount > 0) {

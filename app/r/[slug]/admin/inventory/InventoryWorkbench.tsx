@@ -1,20 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Boxes,
-  CheckCircle2,
   ChefHat,
+  Download,
+  History,
   IndianRupee,
+  Loader2,
   PackagePlus,
+  Pencil,
   Plus,
   Search,
+  Trash2,
   Truck,
-  Utensils,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -33,6 +38,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -42,6 +54,19 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import type {
+  InventoryMaterial,
+  InventoryStockMovement,
+  ProductRecipe,
+  Vendor,
+  VendorPurchaseOrder,
+} from "@/lib/types";
+import {
+  adjustMaterialStockAction,
+  deleteMaterialAction,
+  saveMaterialAction,
+  saveProductRecipeAction,
+} from "./actions";
 
 export type MenuProductSummary = {
   id: string;
@@ -53,154 +78,148 @@ export type MenuProductSummary = {
   sold30d: number;
 };
 
-type RawMaterial = {
-  id: string;
-  sku: string;
-  name: string;
-  category: "Grains & Pulses" | "Meat & Seafood" | "Spices & Produce" | "Dairy & Oils" | "Packaging";
-  stock: number;
-  unit: string;
-  minLevel: number;
-  costPerUnit: number;
-  supplier: string;
+const CATEGORIES = [
+  { value: "produce", label: "Fresh Produce" },
+  { value: "meat_seafood", label: "Meat & Seafood" },
+  { value: "dairy_oils", label: "Dairy & Oils" },
+  { value: "grocery", label: "Grains & Grocery" },
+  { value: "spices", label: "Spices & Dry Goods" },
+  { value: "packaging", label: "Packaging & Disposables" },
+  { value: "beverages", label: "Beverages" },
+  { value: "other", label: "Other" },
+] as const;
+
+const CAT_LABEL: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.value, c.label]),
+);
+
+const UNITS = ["kg", "g", "L", "ml", "pcs", "pkt", "rolls"] as const;
+
+const MOVEMENT_META: Record<
+  string,
+  { label: string; badgeClass: string }
+> = {
+  opening: {
+    label: "Opening",
+    badgeClass: "border-slate-300 bg-slate-500/10 text-slate-700",
+  },
+  purchase_grn: {
+    label: "PO GRN",
+    badgeClass: "border-emerald-300 bg-emerald-500/10 text-emerald-700",
+  },
+  order_consumption: {
+    label: "Order BOM",
+    badgeClass: "border-blue-300 bg-blue-500/10 text-blue-700",
+  },
+  wastage: {
+    label: "Wastage",
+    badgeClass: "border-rose-300 bg-rose-500/10 text-rose-700",
+  },
+  manual_adjustment: {
+    label: "Adjustment",
+    badgeClass: "border-amber-300 bg-amber-500/10 text-amber-800",
+  },
 };
-
-type PurchaseOrder = {
-  id: string;
-  poNumber: string;
-  supplier: string;
-  itemsSummary: string;
-  amount: number;
-  status: "Pending Delivery" | "Received";
-  date: string;
-};
-
-const INITIAL_MATERIALS: RawMaterial[] = [
-  { id: "rm-1", sku: "RM-GR01", name: "Aged Basmati Rice (XXL)", category: "Grains & Pulses", stock: 48, unit: "kg", minLevel: 20, costPerUnit: 115, supplier: "Godavari Agro Traders" },
-  { id: "rm-2", sku: "RM-GR02", name: "Chitti Muthyalu Short-Grain Rice", category: "Grains & Pulses", stock: 14, unit: "kg", minLevel: 15, costPerUnit: 130, supplier: "Godavari Agro Traders" },
-  { id: "rm-3", sku: "RM-GR03", name: "Sona Masoori Steaming Rice", category: "Grains & Pulses", stock: 65, unit: "kg", minLevel: 25, costPerUnit: 62, supplier: "Godavari Agro Traders" },
-  { id: "rm-4", sku: "RM-MT01", name: "Fresh Broiler Chicken (Curry Cut)", category: "Meat & Seafood", stock: 22, unit: "kg", minLevel: 15, costPerUnit: 210, supplier: "Deccan Fresh Poultry" },
-  { id: "rm-5", sku: "RM-MT02", name: "Natu Kodi (Country Chicken)", category: "Meat & Seafood", stock: 6.5, unit: "kg", minLevel: 8, costPerUnit: 420, supplier: "Deccan Fresh Poultry" },
-  { id: "rm-6", sku: "RM-MT03", name: "Tender Goat Mutton (Biryani Cut)", category: "Meat & Seafood", stock: 9, unit: "kg", minLevel: 10, costPerUnit: 740, supplier: "Deccan Fresh Poultry" },
-  { id: "rm-7", sku: "RM-MT04", name: "Bhimavaram Tiger Prawns (Cleaned)", category: "Meat & Seafood", stock: 5.5, unit: "kg", minLevel: 5, costPerUnit: 560, supplier: "Coastal Catch Seafoods" },
-  { id: "rm-8", sku: "RM-SP01", name: "Guntur Sannam Dry Red Chillies", category: "Spices & Produce", stock: 11, unit: "kg", minLevel: 5, costPerUnit: 290, supplier: "Guntur Mirchi Yard Co." },
-  { id: "rm-9", sku: "RM-SP02", name: "Ulavacharu (Concentrated Horsegram Paste)", category: "Spices & Produce", stock: 4.2, unit: "L", minLevel: 6, costPerUnit: 340, supplier: "Krishna Homemade Foods" },
-  { id: "rm-10", sku: "RM-SP03", name: "Fresh Red Gongura (Sorrel Leaves)", category: "Spices & Produce", stock: 7.5, unit: "kg", minLevel: 5, costPerUnit: 85, supplier: "Rythu Bazaar Produce" },
-  { id: "rm-11", sku: "RM-DO01", name: "Pure Cow Bilona Ghee", category: "Dairy & Oils", stock: 12, unit: "L", minLevel: 6, costPerUnit: 640, supplier: "Nizam Pure Dairy" },
-  { id: "rm-12", sku: "RM-DO02", name: "Cold-Pressed Groundnut Oil", category: "Dairy & Oils", stock: 34, unit: "L", minLevel: 15, costPerUnit: 175, supplier: "Nizam Pure Dairy" },
-  { id: "rm-13", sku: "RM-DO03", name: "Fresh Malai Paneer Block", category: "Dairy & Oils", stock: 8.5, unit: "kg", minLevel: 6, costPerUnit: 360, supplier: "Nizam Pure Dairy" },
-  { id: "rm-14", sku: "RM-PK01", name: "750ml Tamper-Proof Biryani Handi Box", category: "Packaging", stock: 140, unit: "pcs", minLevel: 150, costPerUnit: 11, supplier: "EcoPack F&B Supplies" },
-  { id: "rm-15", sku: "RM-PK02", name: "250ml Leak-Proof Salan/Raitha Cup", category: "Packaging", stock: 310, unit: "pcs", minLevel: 150, costPerUnit: 4.5, supplier: "EcoPack F&B Supplies" },
-  { id: "rm-16", sku: "RM-PK03", name: "80mm Thermal POS Paper Rolls", category: "Packaging", stock: 18, unit: "rolls", minLevel: 10, costPerUnit: 42, supplier: "EcoPack F&B Supplies" },
-];
-
-const INITIAL_POS: PurchaseOrder[] = [
-  {
-    id: "po-1",
-    poNumber: "PO-MN-2041",
-    supplier: "Deccan Fresh Poultry",
-    itemsSummary: "12 kg Country Chicken, 10 kg Goat Mutton",
-    amount: 12440,
-    status: "Pending Delivery",
-    date: "Today, 07:30 AM",
-  },
-  {
-    id: "po-2",
-    poNumber: "PO-MN-2040",
-    supplier: "Krishna Homemade Foods",
-    itemsSummary: "10 L Ulavacharu Paste, 5 kg Kandi Podi",
-    amount: 4650,
-    status: "Pending Delivery",
-    date: "Today, 09:15 AM",
-  },
-  {
-    id: "po-3",
-    poNumber: "PO-MN-2039",
-    supplier: "Godavari Agro Traders",
-    itemsSummary: "50 kg Aged Basmati Rice, 25 kg Chitti Muthyalu",
-    amount: 9000,
-    status: "Received",
-    date: "Yesterday",
-  },
-  {
-    id: "po-4",
-    poNumber: "PO-MN-2038",
-    supplier: "EcoPack F&B Supplies",
-    itemsSummary: "300 pcs Biryani Boxes, 500 pcs Gravy Cups",
-    amount: 5550,
-    status: "Received",
-    date: "2 days ago",
-  },
-];
-
-// Deterministic recipe BOM estimation per menu item
-function buildRecipeForProduct(p: MenuProductSummary) {
-  const name = p.name.toLowerCase();
-  if (name.includes("mutton") && name.includes("biryani")) {
-    return {
-      ingredients: "180g Goat Mutton, 160g Basmati Rice, 40g Gongura/Spices, 20ml Ghee",
-      foodCost: 138,
-      packagingCost: 16,
-    };
-  }
-  if (name.includes("biryani") || name.includes("pulao")) {
-    const isVeg = (p.veg_status ?? "Veg").toLowerCase() === "veg";
-    return {
-      ingredients: isVeg
-        ? "160g Basmati/Pulao Rice, 120g Paneer/Vankaya, 30ml Ulavacharu/Ghee"
-        : "180g Chicken/Seafood, 160g Rice, 35ml Ulavacharu/Ghee & Spices",
-      foodCost: isVeg ? 78 : 104,
-      packagingCost: 15,
-    };
-  }
-  if (name.includes("vepudu") || name.includes("fry") || name.includes("roast")) {
-    return {
-      ingredients: "200g Primary Protein/Paneer, 25g Guntur Chilli Paste, 20ml Groundnut Oil",
-      foodCost: Math.round(p.price * 0.31),
-      packagingCost: 9,
-    };
-  }
-  if (name.includes("bhojanam") || name.includes("thali")) {
-    return {
-      ingredients: "250g Sona Masoori, Dal, 3 Curries, Curd, Sweet, Ghee & Banana Leaf",
-      foodCost: Math.round(p.price * 0.29),
-      packagingCost: 18,
-    };
-  }
-  return {
-    ingredients: "Standard kitchen recipe BOM & accompaniments",
-    foodCost: Math.round(p.price * 0.27),
-    packagingCost: 8,
-  };
-}
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const inrExact = (n: number) =>
+  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+type RecipeDraftLine = {
+  materialId: string;
+  quantityPerUnit: string;
+  wastagePct: string;
+};
 
 export function InventoryWorkbench({
+  restaurantSlug,
+  outlets,
+  defaultOutletId,
   products,
+  initialMaterials,
+  initialRecipes,
+  initialMovements,
+  vendors,
+  purchaseOrders,
 }: {
+  restaurantSlug: string;
+  outlets: Array<{ id: string; name: string }>;
+  defaultOutletId: string;
   products: MenuProductSummary[];
+  initialMaterials: InventoryMaterial[];
+  initialRecipes: ProductRecipe[];
+  initialMovements: InventoryStockMovement[];
+  vendors: Array<Pick<Vendor, "id" | "vendor_code" | "name" | "status">>;
+  purchaseOrders: VendorPurchaseOrder[];
 }) {
-  const [materials, setMaterials] = useState<RawMaterial[]>(INITIAL_MATERIALS);
-  const [pos, setPos] = useState<PurchaseOrder[]>(INITIAL_POS);
+  const router = useRouter();
+  const [busy, startTransition] = useTransition();
+  const [bannerError, setBannerError] = useState<string | null>(null);
+
+  const [materials, setMaterials] =
+    useState<InventoryMaterial[]>(initialMaterials);
+  const [recipes, setRecipes] = useState<ProductRecipe[]>(initialRecipes);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
   const [stockFilter, setStockFilter] = useState<"all" | "low">("all");
-  const [addingItem, setAddingItem] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newCat, setNewCat] = useState<RawMaterial["category"]>("Spices & Produce");
-  const [newUnit, setNewUnit] = useState("kg");
-  const [newStock, setNewStock] = useState("10");
-  const [newMin, setNewMin] = useState("5");
-  const [newCost, setNewCost] = useState("150");
-  const [newSupplier, setNewSupplier] = useState("Local Vendor");
+  const [recipeSearch, setRecipeSearch] = useState("");
 
-  const lowStockCount = useMemo(
-    () => materials.filter((m) => m.stock <= m.minLevel).length,
+  // Material Add/Edit Dialog state
+  const [matDialogOpen, setMatDialogOpen] = useState(false);
+  const [editingMatId, setEditingMatId] = useState<string | null>(null);
+  const [matSku, setMatSku] = useState("");
+  const [matName, setMatName] = useState("");
+  const [matCat, setMatCat] = useState<string>("spices");
+  const [matUnit, setMatUnit] = useState("kg");
+  const [matStock, setMatStock] = useState("10");
+  const [matReorder, setMatReorder] = useState("5");
+  const [matCost, setMatCost] = useState("150");
+  const [matVendorId, setMatVendorId] = useState<string>("__none__");
+  const [matOutletId, setMatOutletId] = useState<string>("__all__");
+  const [matError, setMatError] = useState<string | null>(null);
+
+  // Stock Adjust / Wastage Dialog state
+  const [adjTarget, setAdjTarget] = useState<InventoryMaterial | null>(null);
+  const [adjMode, setAdjMode] = useState<"manual_adjustment" | "wastage">(
+    "wastage",
+  );
+  const [adjQty, setAdjQty] = useState("1");
+  const [adjNote, setAdjNote] = useState("");
+  const [adjError, setAdjError] = useState<string | null>(null);
+
+  // Recipe BOM Dialog state
+  const [recipeProduct, setRecipeProduct] = useState<MenuProductSummary | null>(
+    null,
+  );
+  const [recipeDrafts, setRecipeDrafts] = useState<RecipeDraftLine[]>([]);
+  const [recipeError, setRecipeError] = useState<string | null>(null);
+
+  const vendorById = useMemo(
+    () => new Map(vendors.map((v) => [v.id, v])),
+    [vendors],
+  );
+  const materialById = useMemo(
+    () => new Map(materials.map((m) => [m.id, m])),
     [materials],
   );
+
+  const lowStockCount = useMemo(
+    () =>
+      materials.filter(
+        (m) =>
+          m.status === "active" &&
+          Number(m.current_stock ?? 0) <= Number(m.reorder_level ?? 0),
+      ).length,
+    [materials],
+  );
+
   const totalInventoryValue = useMemo(
-    () => materials.reduce((s, m) => s + m.stock * m.costPerUnit, 0),
+    () =>
+      materials.reduce(
+        (s, m) =>
+          s + Number(m.current_stock ?? 0) * Number(m.cost_per_unit ?? 0),
+        0,
+      ),
     [materials],
   );
 
@@ -208,132 +227,327 @@ export function InventoryWorkbench({
     const q = search.trim().toLowerCase();
     return materials.filter((m) => {
       if (catFilter !== "all" && m.category !== catFilter) return false;
-      if (stockFilter === "low" && m.stock > m.minLevel) return false;
+      const isLow =
+        Number(m.current_stock ?? 0) <= Number(m.reorder_level ?? 0);
+      if (stockFilter === "low" && !isLow) return false;
       if (!q) return true;
+      const vendorName = m.vendor_id
+        ? vendorById.get(m.vendor_id)?.name?.toLowerCase() ?? ""
+        : "";
       return (
         m.name.toLowerCase().includes(q) ||
         m.sku.toLowerCase().includes(q) ||
-        m.supplier.toLowerCase().includes(q)
+        vendorName.includes(q)
       );
     });
-  }, [materials, search, catFilter, stockFilter]);
+  }, [materials, search, catFilter, stockFilter, vendorById]);
 
-  const recipes = useMemo(() => {
-    return products.map((p) => {
-      const r = buildRecipeForProduct(p);
-      const totalCost = r.foodCost + r.packagingCost;
-      const margin = p.price - totalCost;
-      const costPct = p.price > 0 ? Math.round((totalCost / p.price) * 100) : 0;
-      return {
-        ...p,
-        ...r,
-        totalCost,
-        margin,
-        costPct,
-      };
-    });
-  }, [products]);
-
-  const avgFoodCostPct = useMemo(() => {
-    if (recipes.length === 0) return 0;
-    return Math.round(
-      recipes.reduce((s, r) => s + r.costPct, 0) / recipes.length,
-    );
+  const recipesByProduct = useMemo(() => {
+    const map = new Map<string, ProductRecipe[]>();
+    for (const r of recipes) {
+      const list = map.get(r.product_id) ?? [];
+      list.push(r);
+      map.set(r.product_id, list);
+    }
+    return map;
   }, [recipes]);
 
-  function adjustStock(id: string, delta: number) {
-    setMaterials((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? { ...m, stock: Math.max(0, Number((m.stock + delta).toFixed(1))) }
-          : m,
-      ),
+  const dishMargins = useMemo(() => {
+    const q = recipeSearch.trim().toLowerCase();
+    return products
+      .filter(
+        (p) =>
+          !q ||
+          p.name.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q),
+      )
+      .map((p) => {
+        const bomLines = recipesByProduct.get(p.id) ?? [];
+        let foodCost = 0;
+        const summaryParts: string[] = [];
+
+        for (const bl of bomLines) {
+          const mat = materialById.get(bl.material_id);
+          if (!mat) continue;
+          const qty = Number(bl.quantity_per_unit ?? 0);
+          const waste = Number(bl.wastage_pct ?? 0);
+          const unitCost = Number(mat.cost_per_unit ?? 0);
+          foodCost += qty * (1 + waste / 100) * unitCost;
+          summaryParts.push(`${qty} ${mat.unit} ${mat.name}`);
+        }
+
+        const roundedCost = Math.round(foodCost * 100) / 100;
+        const margin = p.price - roundedCost;
+        const costPct = p.price > 0 ? Math.round((roundedCost / p.price) * 100) : 0;
+
+        return {
+          ...p,
+          bomCount: bomLines.length,
+          summaryText: summaryParts.join(", "),
+          foodCost: roundedCost,
+          margin,
+          costPct,
+        };
+      });
+  }, [products, recipesByProduct, materialById, recipeSearch]);
+
+  const configuredBomDishes = useMemo(
+    () => products.filter((p) => (recipesByProduct.get(p.id)?.length ?? 0) > 0),
+    [products, recipesByProduct],
+  );
+
+  const avgFoodCostPct = useMemo(() => {
+    const priced = dishMargins.filter((d) => d.bomCount > 0 && d.price > 0);
+    if (priced.length === 0) return 0;
+    return Math.round(
+      priced.reduce((s, r) => s + r.costPct, 0) / priced.length,
     );
+  }, [dishMargins]);
+
+  function openNewMaterialDialog() {
+    setEditingMatId(null);
+    setMatSku("");
+    setMatName("");
+    setMatCat("spices");
+    setMatUnit("kg");
+    setMatStock("10");
+    setMatReorder("5");
+    setMatCost("150");
+    setMatVendorId(vendors[0]?.id ?? "__none__");
+    setMatOutletId(defaultOutletId || "__all__");
+    setMatError(null);
+    setMatDialogOpen(true);
   }
 
-  function handleAddMaterial(e: React.FormEvent) {
+  function openEditMaterialDialog(m: InventoryMaterial) {
+    setEditingMatId(m.id);
+    setMatSku(m.sku);
+    setMatName(m.name);
+    setMatCat(m.category);
+    setMatUnit(m.unit);
+    setMatStock(String(Number(m.current_stock ?? 0)));
+    setMatReorder(String(Number(m.reorder_level ?? 0)));
+    setMatCost(String(Number(m.cost_per_unit ?? 0)));
+    setMatVendorId(m.vendor_id ?? "__none__");
+    setMatOutletId(m.outlet_id ?? "__all__");
+    setMatError(null);
+    setMatDialogOpen(true);
+  }
+
+  function handleSaveMaterial(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
-    const item: RawMaterial = {
-      id: `rm-${Date.now()}`,
-      sku: `RM-${Math.floor(100 + Math.random() * 900)}`,
-      name: newName.trim(),
-      category: newCat,
-      stock: Number(newStock) || 0,
-      unit: newUnit.trim() || "kg",
-      minLevel: Number(newMin) || 5,
-      costPerUnit: Number(newCost) || 100,
-      supplier: newSupplier.trim() || "Direct Vendor",
-    };
-    setMaterials((prev) => [item, ...prev]);
-    setNewName("");
-    setAddingItem(false);
+    setMatError(null);
+    startTransition(async () => {
+      const res = await saveMaterialAction(restaurantSlug, {
+        id: editingMatId,
+        sku: matSku,
+        name: matName,
+        category: matCat,
+        unit: matUnit,
+        currentStock: Number(matStock) || 0,
+        reorderLevel: Number(matReorder) || 0,
+        costPerUnit: Number(matCost) || 0,
+        vendorId: matVendorId,
+        outletId: matOutletId,
+        status: "active",
+      });
+      if (!res.ok) {
+        setMatError(res.error);
+        return;
+      }
+      setMatDialogOpen(false);
+      router.refresh();
+    });
   }
 
-  function receivePo(id: string) {
-    setPos((prev) =>
-      prev.map((po) => (po.id === id ? { ...po, status: "Received" } : po)),
+  function quickAdjust(materialId: string, delta: number) {
+    setBannerError(null);
+    startTransition(async () => {
+      const res = await adjustMaterialStockAction(restaurantSlug, {
+        materialId,
+        movementType: "manual_adjustment",
+        quantityDelta: delta,
+        note: delta > 0 ? "Quick + stock check" : "Quick - stock check",
+      });
+      if (!res.ok) {
+        setBannerError(res.error);
+        return;
+      }
+      setMaterials((prev) =>
+        prev.map((m) =>
+          m.id === materialId ? { ...m, current_stock: res.nextStock } : m,
+        ),
+      );
+      router.refresh();
+    });
+  }
+
+  function handleConfirmAdjustment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!adjTarget) return;
+    setAdjError(null);
+    const val = Number(adjQty) || 0;
+    if (val === 0) {
+      setAdjError("Enter a non-zero quantity.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await adjustMaterialStockAction(restaurantSlug, {
+        materialId: adjTarget.id,
+        movementType: adjMode,
+        quantityDelta: adjMode === "wastage" ? -Math.abs(val) : val,
+        note: adjNote,
+      });
+      if (!res.ok) {
+        setAdjError(res.error);
+        return;
+      }
+      setMaterials((prev) =>
+        prev.map((m) =>
+          m.id === adjTarget.id ? { ...m, current_stock: res.nextStock } : m,
+        ),
+      );
+      setAdjTarget(null);
+      router.refresh();
+    });
+  }
+
+  function handleDeleteMaterial(m: InventoryMaterial) {
+    setBannerError(null);
+    startTransition(async () => {
+      const res = await deleteMaterialAction(restaurantSlug, m.id);
+      if (!res.ok) {
+        setBannerError(res.error);
+        return;
+      }
+      setMaterials((prev) => prev.filter((x) => x.id !== m.id));
+      router.refresh();
+    });
+  }
+
+  function openRecipeEditor(product: MenuProductSummary) {
+    const existing = recipesByProduct.get(product.id) ?? [];
+    setRecipeProduct(product);
+    setRecipeError(null);
+    setRecipeDrafts(
+      existing.length > 0
+        ? existing.map((l) => ({
+            materialId: l.material_id,
+            quantityPerUnit: String(Number(l.quantity_per_unit)),
+            wastagePct: String(Number(l.wastage_pct ?? 0)),
+          }))
+        : [
+            {
+              materialId: materials[0]?.id ?? "",
+              quantityPerUnit: "0.15",
+              wastagePct: "5",
+            },
+          ],
     );
-    // Also bump low stock items to healthy
-    setMaterials((prev) =>
-      prev.map((m) =>
-        m.stock <= m.minLevel ? { ...m, stock: m.minLevel + 12 } : m,
-      ),
-    );
+  }
+
+  function handleSaveRecipe(e: React.FormEvent) {
+    e.preventDefault();
+    if (!recipeProduct) return;
+    setRecipeError(null);
+    startTransition(async () => {
+      const res = await saveProductRecipeAction(restaurantSlug, {
+        productId: recipeProduct.id,
+        lines: recipeDrafts
+          .filter((d) => d.materialId && Number(d.quantityPerUnit) > 0)
+          .map((d) => ({
+            materialId: d.materialId,
+            quantityPerUnit: Number(d.quantityPerUnit),
+            wastagePct: Number(d.wastagePct) || 0,
+          })),
+      });
+      if (!res.ok) {
+        setRecipeError(res.error);
+        return;
+      }
+      setRecipes((prev) => [
+        ...prev.filter((r) => r.product_id !== recipeProduct.id),
+        ...recipeDrafts
+          .filter((d) => d.materialId && Number(d.quantityPerUnit) > 0)
+          .map((d, idx) => ({
+            id: `temp-${idx}`,
+            restaurant_id: "",
+            product_id: recipeProduct.id,
+            material_id: d.materialId,
+            quantity_per_unit: Number(d.quantityPerUnit),
+            wastage_pct: Number(d.wastagePct) || 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })),
+      ]);
+      setRecipeProduct(null);
+      router.refresh();
+    });
+  }
+
+  function exportMaterialsCsv() {
+    const header = [
+      "SKU",
+      "Name",
+      "Category",
+      "Unit",
+      "Current Stock",
+      "Reorder Level",
+      "Unit Cost (INR)",
+      "Valuation (INR)",
+      "Supplier",
+    ];
+    const rows = materials.map((m) => {
+      const st = Number(m.current_stock ?? 0);
+      const uc = Number(m.cost_per_unit ?? 0);
+      const supplier = m.vendor_id
+        ? vendorById.get(m.vendor_id)?.name ?? ""
+        : "";
+      return [
+        m.sku,
+        m.name,
+        CAT_LABEL[m.category] ?? m.category,
+        m.unit,
+        st,
+        Number(m.reorder_level ?? 0),
+        uc,
+        (st * uc).toFixed(2),
+        supplier,
+      ]
+        .map((v) => `"${String(v).replaceAll('"', '""')}"`)
+        .join(",");
+    });
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${restaurantSlug}-inventory-materials.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
+      {bannerError && (
+        <div className="rounded-lg bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          {bannerError}
+        </div>
+      )}
+
+      {/* KPI Strip */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card size="sm">
           <CardContent className="pt-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Raw Materials Tracked</span>
-              <Boxes className="h-3.5 w-3.5" />
-            </div>
-            <div className="mt-1.5 text-2xl font-semibold tabular-nums">
-              {materials.length}
-            </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              Across 5 kitchen store categories
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card size="sm">
-          <CardContent className="pt-1">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Low Stock Alerts</span>
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-            </div>
-            <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="text-2xl font-semibold tabular-nums">
-                {lowStockCount}
-              </span>
-              {lowStockCount > 0 && (
-                <span className="text-xs font-medium text-amber-700">
-                  Needs reorder
-                </span>
-              )}
-            </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              Below minimum par stock level
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card size="sm">
-          <CardContent className="pt-1">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Current Stock Valuation</span>
+              <span>Inventory Valuation</span>
               <IndianRupee className="h-3.5 w-3.5" />
             </div>
             <div className="mt-1.5 text-2xl font-semibold tabular-nums">
               {inr(totalInventoryValue)}
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              Weighted average purchase cost
+              Across {materials.length} raw materials &amp; packaging SKUs
             </div>
           </CardContent>
         </Card>
@@ -341,422 +555,1021 @@ export function InventoryWorkbench({
         <Card size="sm">
           <CardContent className="pt-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Avg Recipe Food Cost</span>
-              <ChefHat className="h-3.5 w-3.5" />
+              <span>Low-Stock Alerts</span>
+              <AlertTriangle
+                className={cn(
+                  "h-3.5 w-3.5",
+                  lowStockCount > 0 ? "text-amber-600" : "",
+                )}
+              />
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
               <span className="text-2xl font-semibold tabular-nums">
-                {avgFoodCostPct}%
+                {lowStockCount}
               </span>
-              <span className="text-xs text-emerald-700">Target &lt; 34%</span>
+              {lowStockCount > 0 && (
+                <Badge className="bg-amber-500/15 text-amber-800 hover:bg-amber-500/15">
+                  Reorder needed
+                </Badge>
+              )}
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              Across {recipes.length} active menu recipes
+              Items at or below minimum par level
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card size="sm">
+          <CardContent className="pt-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Dishes with Recipe BOM</span>
+              <ChefHat className="h-3.5 w-3.5" />
+            </div>
+            <div className="mt-1.5 text-2xl font-semibold tabular-nums">
+              {configuredBomDishes.length}{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                / {products.length}
+              </span>
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              Auto-deducts stock when orders settle/complete
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card size="sm">
+          <CardContent className="pt-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Avg BOM Food Cost %</span>
+              <Boxes className="h-3.5 w-3.5" />
+            </div>
+            <div className="mt-1.5 text-2xl font-semibold tabular-nums">
+              {avgFoodCostPct > 0 ? `${avgFoodCostPct}%` : "—"}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              Live margin across BOM-linked menu dishes
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Tabs defaultValue="stock">
+      <Tabs defaultValue="materials" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
-            <TabsTrigger value="stock">
-              Raw Material Stock ({materials.length})
+            <TabsTrigger value="materials">
+              Raw Materials ({materials.length})
             </TabsTrigger>
             <TabsTrigger value="recipes">
-              Recipes &amp; Food Cost ({recipes.length})
+              Recipe BOM &amp; Margins ({products.length})
             </TabsTrigger>
-            <TabsTrigger value="purchasing">
-              Suppliers &amp; POs ({pos.length})
+            <TabsTrigger value="ledger">
+              Stock Ledger ({initialMovements.length})
+            </TabsTrigger>
+            <TabsTrigger value="pos">
+              Supplier POs ({purchaseOrders.length})
             </TabsTrigger>
           </TabsList>
 
-          <Button size="sm" onClick={() => setAddingItem(true)}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add Raw Material
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportMaterialsCsv}
+              disabled={materials.length === 0}
+            >
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              CSV
+            </Button>
+            <Button size="sm" onClick={openNewMaterialDialog}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add Raw Material
+            </Button>
+          </div>
         </div>
 
-        <Dialog open={addingItem} onOpenChange={setAddingItem}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add Raw Material</DialogTitle>
-              <DialogDescription>
-                Set opening stock, unit, and minimum par level for low-stock alerts.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleAddMaterial} className="grid gap-3.5">
-              <div className="grid gap-1.5">
-                <Label className="text-xs">Material Name</Label>
-                <Input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Guntur Chilli Powder"
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Category</Label>
-                  <select
-                    value={newCat}
-                    onChange={(e) =>
-                      setNewCat(e.target.value as RawMaterial["category"])
-                    }
-                    className="h-9 rounded-lg border border-input bg-card px-2.5 text-xs"
-                  >
-                    <option value="Grains & Pulses">Grains &amp; Pulses</option>
-                    <option value="Meat & Seafood">Meat &amp; Seafood</option>
-                    <option value="Spices & Produce">Spices &amp; Produce</option>
-                    <option value="Dairy & Oils">Dairy &amp; Oils</option>
-                    <option value="Packaging">Packaging</option>
-                  </select>
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Supplier</Label>
-                  <Input
-                    value={newSupplier}
-                    onChange={(e) => setNewSupplier(e.target.value)}
-                    placeholder="Vendor name"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Opening Stock</Label>
-                  <Input
-                    type="number"
-                    value={newStock}
-                    onChange={(e) => setNewStock(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Unit</Label>
-                  <Input
-                    value={newUnit}
-                    onChange={(e) => setNewUnit(e.target.value)}
-                    placeholder="kg"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Cost / Unit (₹)</Label>
-                  <Input
-                    type="number"
-                    value={newCost}
-                    onChange={(e) => setNewCost(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setAddingItem(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit">Add Material</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-
-        {/* TAB 1: Raw Materials */}
-        <TabsContent value="stock" className="mt-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                "all",
-                "Grains & Pulses",
-                "Meat & Seafood",
-                "Spices & Produce",
-                "Dairy & Oils",
-                "Packaging",
-              ].map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCatFilter(c)}
-                  className={cn(
-                    "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
-                    catFilter === c
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {c === "all" ? "All Categories" : c}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setStockFilter((s) => (s === "low" ? "all" : "low"))
-                }
-                className={cn(
-                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
-                  stockFilter === "low"
-                    ? "border-amber-500 bg-amber-500/10 text-amber-800"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                Low Stock Only ({lowStockCount})
-              </button>
-              <div className="relative w-56">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search ingredient, SKU…"
-                  className="h-8 pl-8 text-xs"
-                />
-              </div>
-            </div>
-          </div>
-
+        {/* TAB 1: RAW MATERIALS STOCK */}
+        <TabsContent value="materials" className="space-y-4">
           <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="relative min-w-[220px] flex-1 max-w-sm">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search SKU, ingredient, or supplier..."
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    variant={stockFilter === "all" ? "default" : "outline"}
+                    size="xs"
+                    onClick={() => setStockFilter("all")}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={stockFilter === "low" ? "default" : "outline"}
+                    size="xs"
+                    onClick={() => setStockFilter("low")}
+                  >
+                    Low Stock ({lowStockCount})
+                  </Button>
+                  <Select
+                    value={catFilter}
+                    onValueChange={(val) => setCatFilter(val ?? "all")}
+                  >
+                    <SelectTrigger className="h-7 w-[170px] text-xs">
+                      <SelectValue placeholder="All Categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Ingredient / Material</TableHead>
+                    <TableHead>SKU / Material</TableHead>
                     <TableHead>Category</TableHead>
+                    <TableHead>Preferred Supplier</TableHead>
                     <TableHead className="text-right">In Stock</TableHead>
-                    <TableHead className="text-right">Min Par</TableHead>
-                    <TableHead className="text-right">Unit Cost</TableHead>
-                    <TableHead className="text-right">Stock Value</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Quick Adjust</TableHead>
+                    <TableHead className="text-right">Par Level</TableHead>
+                    <TableHead className="text-right">Avg Cost / Unit</TableHead>
+                    <TableHead className="text-right">Valuation</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredMaterials.map((m) => {
-                    const isLow = m.stock <= m.minLevel;
-                    return (
-                      <TableRow key={m.id}>
+                  {filteredMaterials.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={8}
+                        className="py-10 text-center text-xs text-muted-foreground"
+                      >
+                        {materials.length === 0
+                          ? "No raw materials added yet. Add ingredients manually or receive a Supplier PO to populate stock."
+                          : "No raw materials match your filters."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredMaterials.map((m) => {
+                      const stock = Number(m.current_stock ?? 0);
+                      const par = Number(m.reorder_level ?? 0);
+                      const cost = Number(m.cost_per_unit ?? 0);
+                      const isLow = stock <= par;
+                      const supplier = m.vendor_id
+                        ? vendorById.get(m.vendor_id)?.name ?? "—"
+                        : "—";
+
+                      return (
+                        <TableRow key={m.id}>
+                          <TableCell>
+                            <div className="font-medium">{m.name}</div>
+                            <div className="text-[11px] font-mono text-muted-foreground">
+                              {m.sku}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[11px]">
+                              {CAT_LABEL[m.category] ?? m.category}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {supplier}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            <span
+                              className={cn(
+                                "font-semibold",
+                                isLow ? "text-amber-700" : "",
+                              )}
+                            >
+                              {stock} {m.unit}
+                            </span>
+                            {isLow && (
+                              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                                LOW
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground tabular-nums">
+                            {par} {m.unit}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {inrExact(cost)}/{m.unit}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {inr(stock * cost)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => quickAdjust(m.id, -1)}
+                                title="Deduct 1 unit"
+                              >
+                                −1
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => quickAdjust(m.id, 1)}
+                                title="Add 1 unit"
+                              >
+                                +1
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                disabled={busy}
+                                title="Log wastage / stock count"
+                                onClick={() => {
+                                  setAdjTarget(m);
+                                  setAdjMode("wastage");
+                                  setAdjQty("1");
+                                  setAdjNote("");
+                                  setAdjError(null);
+                                }}
+                              >
+                                <History className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                disabled={busy}
+                                title="Edit material"
+                                onClick={() => openEditMaterialDialog(m)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                disabled={busy}
+                                title="Delete material"
+                                onClick={() => handleDeleteMaterial(m)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 2: RECIPE BOM & MARGINS */}
+        <TabsContent value="recipes" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">
+                    Dish Recipe Costing &amp; Food-Cost Margins
+                  </CardTitle>
+                  <CardDescription>
+                    Bind raw materials (plus prep wastage %) to each dish. Settled &amp; completed orders automatically deduct ingredient stock.
+                  </CardDescription>
+                </div>
+                <div className="relative w-64">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={recipeSearch}
+                    onChange={(e) => setRecipeSearch(e.target.value)}
+                    placeholder="Filter menu dishes..."
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Dish / Category</TableHead>
+                    <TableHead>Recipe BOM Ingredients</TableHead>
+                    <TableHead className="text-right">Selling Price</TableHead>
+                    <TableHead className="text-right">BOM Cost</TableHead>
+                    <TableHead className="text-right">Margin</TableHead>
+                    <TableHead className="text-right">Food Cost %</TableHead>
+                    <TableHead className="text-right">30d Sold</TableHead>
+                    <TableHead className="text-right">BOM</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dishMargins.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={8}
+                        className="py-10 text-center text-xs text-muted-foreground"
+                      >
+                        No matching menu items found for the selected outlet.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    dishMargins.map((r) => (
+                      <TableRow key={r.id}>
                         <TableCell>
-                          <div className="font-medium">{m.name}</div>
+                          <div className="font-medium">{r.name}</div>
                           <div className="text-[11px] text-muted-foreground">
-                            {m.sku} · {m.supplier}
+                            {r.category}
+                            {r.code ? ` · ${r.code}` : ""}
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="font-normal">
-                            {m.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">
-                          {m.stock} {m.unit}
-                        </TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground tabular-nums">
-                          {m.minLevel} {m.unit}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          ₹{m.costPerUnit}/{m.unit}
+                        <TableCell className="max-w-sm text-xs text-muted-foreground">
+                          {r.bomCount > 0 ? (
+                            r.summaryText
+                          ) : (
+                            <span className="italic text-muted-foreground/70">
+                              No BOM linked yet
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
-                          {inr(m.stock * m.costPerUnit)}
+                          {inr(r.price)}
                         </TableCell>
-                        <TableCell>
-                          {isLow ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-800">
-                              <AlertTriangle className="h-3 w-3" /> Low Stock
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">
-                              <CheckCircle2 className="h-3 w-3" /> Healthy
-                            </span>
-                          )}
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {r.bomCount > 0 ? inrExact(r.foodCost) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-emerald-700 tabular-nums">
+                          {r.bomCount > 0 ? inr(r.margin) : "—"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <Button
+                          {r.bomCount > 0 ? (
+                            <Badge
                               variant="outline"
-                              size="xs"
-                              onClick={() => adjustStock(m.id, -1)}
-                              title="Record 1 unit consumption / wastage"
+                              className={cn(
+                                "text-[11px] tabular-nums",
+                                r.costPct <= 35
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+                                  : "border-amber-500/40 bg-amber-500/10 text-amber-800",
+                              )}
                             >
-                              -1 {m.unit}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              onClick={() => adjustStock(m.id, 5)}
-                              title="Quick restock +5 units"
-                            >
-                              <PackagePlus className="mr-1 h-3 w-3" />
-                              +5
-                            </Button>
-                          </div>
+                              {r.costPct}%
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                          {r.sold30d}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={materials.length === 0}
+                            onClick={() => openRecipeEditor(r)}
+                          >
+                            {r.bomCount > 0 ? "Edit BOM" : "Link BOM"}
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* TAB 2: Recipe BOM & Food Costing */}
-        <TabsContent value="recipes" className="mt-4">
+        {/* TAB 3: STOCK MOVEMENT LEDGER */}
+        <TabsContent value="ledger" className="space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-3">
               <CardTitle className="text-base">
-                Recipe Bill of Materials (BOM) &amp; Margin Analysis
+                Inventory Stock Ledger
               </CardTitle>
               <CardDescription>
-                Auto-deducts raw material inventory per order sold and tracks dish-level gross profitability.
+                Immutable log of opening balances, vendor GRN receipts, automated order BOM deductions, wastage, and manual counts.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Dish</TableHead>
-                    <TableHead>Recipe BOM (Per Portion)</TableHead>
-                    <TableHead className="text-right">Raw Cost</TableHead>
-                    <TableHead className="text-right">Packing</TableHead>
-                    <TableHead className="text-right">Menu Price</TableHead>
-                    <TableHead className="text-right">Food Cost %</TableHead>
-                    <TableHead className="text-right">Gross Profit</TableHead>
-                    <TableHead className="text-right">30d Sold</TableHead>
+                    <TableHead>Material</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Delta</TableHead>
+                    <TableHead className="text-right">Stock After</TableHead>
+                    <TableHead>Note</TableHead>
+                    <TableHead>By</TableHead>
+                    <TableHead className="text-right">Timestamp</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recipes.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2 font-medium">
-                          {r.code && (
-                            <span className="rounded-md bg-muted px-1.5 py-0.5 tabular-nums text-[11px] text-muted-foreground">
-                              {r.code}
-                            </span>
-                          )}
-                          <span>{r.name}</span>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {r.category}
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-xs text-xs text-muted-foreground">
-                        {r.ingredients}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        ₹{r.foodCost}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        ₹{r.packagingCost}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">
-                        ₹{r.price}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span
-                          className={cn(
-                            "rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
-                            r.costPct <= 33
-                              ? "bg-emerald-500/10 text-emerald-700"
-                              : r.costPct <= 38
-                                ? "bg-amber-500/10 text-amber-800"
-                                : "bg-rose-500/10 text-rose-700",
-                          )}
-                        >
-                          {r.costPct}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums text-emerald-700">
-                        +₹{r.margin}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {r.sold30d}
+                  {initialMovements.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="py-10 text-center text-xs text-muted-foreground"
+                      >
+                        No stock movements recorded yet.
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* TAB 3: Suppliers & POs */}
-        <TabsContent value="purchasing" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Purchase Orders &amp; Vendor Deliveries
-              </CardTitle>
-              <CardDescription>
-                Receive supplier deliveries to automatically replenish raw material stock.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>PO Number</TableHead>
-                    <TableHead>Vendor / Supplier</TableHead>
-                    <TableHead>Items Ordered</TableHead>
-                    <TableHead>Ordered At</TableHead>
-                    <TableHead className="text-right">PO Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pos.map((po) => (
-                    <TableRow key={po.id}>
-                      <TableCell className="tabular-nums text-xs font-semibold">
-                        {po.poNumber}
-                      </TableCell>
-                      <TableCell className="font-medium">{po.supplier}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {po.itemsSummary}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {po.date}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums">
-                        {inr(po.amount)}
-                      </TableCell>
-                      <TableCell>
-                        {po.status === "Received" ? (
-                          <Badge className="bg-emerald-500/10 text-emerald-700">
-                            Received in Store
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-amber-700">
-                            <Truck className="mr-1 h-3 w-3" />
-                            Pending Delivery
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {po.status === "Pending Delivery" ? (
-                          <Button
-                            size="xs"
-                            onClick={() => receivePo(po.id)}
+                  ) : (
+                    initialMovements.map((mv) => {
+                      const mat = materialById.get(mv.material_id);
+                      const delta = Number(mv.quantity_delta ?? 0);
+                      const meta = MOVEMENT_META[mv.movement_type] ?? {
+                        label: mv.movement_type,
+                        badgeClass: "border-border",
+                      };
+                      return (
+                        <TableRow key={mv.id}>
+                          <TableCell>
+                            <div className="font-medium">
+                              {mat?.name ?? "Material"}
+                            </div>
+                            {mat?.sku && (
+                              <div className="font-mono text-[10px] text-muted-foreground">
+                                {mat.sku}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={meta.badgeClass}>
+                              {meta.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className={cn(
+                              "text-right font-semibold tabular-nums",
+                              delta >= 0 ? "text-emerald-700" : "text-rose-700",
+                            )}
                           >
-                            Mark Received &amp; Restock
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Stock updated
-                          </span>
-                        )}
+                            {delta > 0 ? `+${delta}` : delta}{" "}
+                            {mat?.unit ?? ""}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {Number(mv.stock_after ?? 0)} {mat?.unit ?? ""}
+                          </TableCell>
+                          <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
+                            {mv.note ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {mv.created_by ?? "system"}
+                          </TableCell>
+                          <TableCell className="text-right text-[11px] text-muted-foreground tabular-nums">
+                            {new Date(mv.created_at).toLocaleString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 4: LIVE VENDOR PURCHASE ORDERS */}
+        <TabsContent value="pos" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">
+                    Supplier Purchase Orders (GRN Sync)
+                  </CardTitle>
+                  <CardDescription>
+                    Marking any PO as Received in Vendors automatically restocks matching materials and updates weighted average cost.
+                  </CardDescription>
+                </div>
+                <Link
+                  href={`/r/${restaurantSlug}/admin/vendors`}
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                  )}
+                >
+                  <Truck className="mr-1.5 h-3.5 w-3.5" />
+                  Manage POs in Vendors
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>PO #</TableHead>
+                    <TableHead>Supplier</TableHead>
+                    <TableHead>Items Summary</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {purchaseOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className="py-10 text-center text-xs text-muted-foreground"
+                      >
+                        No purchase orders created yet.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    purchaseOrders.map((po) => {
+                      const itemsArr = Array.isArray(po.items)
+                        ? (po.items as Array<{
+                            name?: string;
+                            qty?: number;
+                            unit?: string;
+                          }>)
+                        : [];
+                      const summary = itemsArr
+                        .slice(0, 3)
+                        .map((it) => `${it.qty ?? 0} ${it.unit ?? ""} ${it.name ?? ""}`)
+                        .join(", ");
+                      const vendorName =
+                        vendorById.get(po.vendor_id)?.name ?? "Supplier";
+                      return (
+                        <TableRow key={po.id}>
+                          <TableCell className="font-mono text-xs font-semibold">
+                            {po.po_number}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {vendorName}
+                          </TableCell>
+                          <TableCell className="max-w-md truncate text-xs text-muted-foreground">
+                            {summary || "—"}
+                            {itemsArr.length > 3
+                              ? ` (+${itemsArr.length - 3} more)`
+                              : ""}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {po.order_date}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums">
+                            {inr(Number(po.total_amount ?? 0))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge
+                              variant={
+                                po.status === "received"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                            >
+                              {po.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Add / Edit Raw Material Dialog */}
+      <Dialog open={matDialogOpen} onOpenChange={setMatDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <PackagePlus className="h-4 w-4 text-primary" />
+              {editingMatId ? "Edit Raw Material" : "Add Raw Material SKU"}
+            </DialogTitle>
+            <DialogDescription>
+              Track kitchen stock levels, minimum par alerts, and cost per unit.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveMaterial} className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">SKU (optional)</Label>
+                <Input
+                  value={matSku}
+                  onChange={(e) => setMatSku(e.target.value)}
+                  placeholder="Auto RM-..."
+                  className="h-8 font-mono text-xs uppercase"
+                />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-xs">Material Name</Label>
+                <Input
+                  value={matName}
+                  onChange={(e) => setMatName(e.target.value)}
+                  placeholder="e.g., Aged Basmati Rice"
+                  required
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Category</Label>
+                <Select
+                  value={matCat}
+                  onValueChange={(v) => v && setMatCat(v)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Unit</Label>
+                <Select value={matUnit} onValueChange={(v) => v && setMatUnit(v)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNITS.map((u) => (
+                      <SelectItem key={u} value={u}>
+                        {u}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Current Stock</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={matStock}
+                  onChange={(e) => setMatStock(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Min Par Level</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={matReorder}
+                  onChange={(e) => setMatReorder(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Cost / Unit (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={matCost}
+                  onChange={(e) => setMatCost(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Preferred Supplier</Label>
+                <Select
+                  value={matVendorId}
+                  onValueChange={(v) => v && setMatVendorId(v)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No fixed vendor</SelectItem>
+                    {vendors.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {v.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Outlet Scope</Label>
+                <Select
+                  value={matOutletId}
+                  onValueChange={(v) => v && setMatOutletId(v)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Outlets (Shared)</SelectItem>
+                    {outlets.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {matError && (
+              <p className="rounded bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                {matError}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setMatDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={busy}>
+                {busy ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Saving…
+                  </>
+                ) : editingMatId ? (
+                  "Save Changes"
+                ) : (
+                  "Create Material"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stock Adjustment / Wastage Dialog */}
+      <Dialog
+        open={adjTarget !== null}
+        onOpenChange={(open) => !open && setAdjTarget(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              {adjMode === "wastage" ? "Log Kitchen Wastage" : "Adjust Stock Count"}
+            </DialogTitle>
+            <DialogDescription>
+              {adjTarget?.name} (Current: {Number(adjTarget?.current_stock ?? 0)}{" "}
+              {adjTarget?.unit})
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmAdjustment} className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={adjMode === "wastage" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAdjMode("wastage")}
+              >
+                Wastage (−)
+              </Button>
+              <Button
+                type="button"
+                variant={adjMode === "manual_adjustment" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAdjMode("manual_adjustment")}
+              >
+                Stock Count (+/−)
+              </Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Quantity ({adjTarget?.unit}){" "}
+                {adjMode === "wastage" ? "wasted" : "change (+/-)"}
+              </Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={adjQty}
+                onChange={(e) => setAdjQty(e.target.value)}
+                required
+                className="h-8 text-xs tabular-nums"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Reason / Note</Label>
+              <Input
+                value={adjNote}
+                onChange={(e) => setAdjNote(e.target.value)}
+                placeholder="Spoilage, physical audit, spillage..."
+                className="h-8 text-xs"
+              />
+            </div>
+
+            {adjError && (
+              <p className="rounded bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                {adjError}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAdjTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={busy}>
+                Record Movement
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dish Recipe BOM Dialog */}
+      <Dialog
+        open={recipeProduct !== null}
+        onOpenChange={(open) => !open && setRecipeProduct(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Recipe BOM · {recipeProduct?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Specify ingredient quantities per 1 sold portion. Stock is deducted automatically when orders complete.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveRecipe} className="space-y-3">
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {recipeDrafts.map((row, idx) => {
+                const mat = materialById.get(row.materialId);
+                return (
+                  <div
+                    key={idx}
+                    className="grid grid-cols-[1fr_90px_80px_32px] items-end gap-2"
+                  >
+                    <div className="space-y-1">
+                      <Label className="text-[11px]">Raw Material</Label>
+                      <Select
+                        value={row.materialId}
+                        onValueChange={(v) => {
+                          if (!v) return;
+                          setRecipeDrafts((prev) =>
+                            prev.map((d, i) =>
+                              i === idx ? { ...d, materialId: v } : d,
+                            ),
+                          );
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Choose ingredient" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {materials.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              {m.name} ({m.unit})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px]">
+                        Qty ({mat?.unit ?? "unit"})
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        min={0}
+                        value={row.quantityPerUnit}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRecipeDrafts((prev) =>
+                            prev.map((d, i) =>
+                              i === idx ? { ...d, quantityPerUnit: v } : d,
+                            ),
+                          );
+                        }}
+                        className="h-8 text-xs tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px]">Waste %</Label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min={0}
+                        max={100}
+                        value={row.wastagePct}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRecipeDrafts((prev) =>
+                            prev.map((d, i) =>
+                              i === idx ? { ...d, wastagePct: v } : d,
+                            ),
+                          );
+                        }}
+                        className="h-8 text-xs tabular-nums"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() =>
+                        setRecipeDrafts((prev) =>
+                          prev.filter((_, i) => i !== idx),
+                        )
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={materials.length === 0}
+              onClick={() =>
+                setRecipeDrafts((prev) => [
+                  ...prev,
+                  {
+                    materialId: materials[0]?.id ?? "",
+                    quantityPerUnit: "0.10",
+                    wastagePct: "5",
+                  },
+                ])
+              }
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              Add Ingredient Line
+            </Button>
+
+            {recipeError && (
+              <p className="rounded bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                {recipeError}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRecipeProduct(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={busy}>
+                {busy ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Saving BOM…
+                  </>
+                ) : (
+                  "Save Recipe BOM"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

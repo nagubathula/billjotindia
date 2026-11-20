@@ -1,100 +1,65 @@
 # Billjot India
 
-Next.js 14 (App Router) + TypeScript + Tailwind + Supabase storefront for the schema in your Supabase project.
+Multi-tenant F&B **POS, Kitchen Display System (KDS), Table Bookings & Waitlist Host Desk, Storefront Ordering, and Back-Office Operations** suite built on **Next.js 16 (App Router + Turbopack)**, **React 19**, **Tailwind CSS v4**, **@base-ui/react / Shadcn UI**, and **Supabase (PostgreSQL + Realtime + Auth)**.
 
-## Setup
+---
+
+## Core Capabilities
+
+- **Multi-Tenant Workspaces & Franchise Brands:** Role-scoped restaurant switcher (`/dashboard`), multi-restaurant brand analytics (`/brands/[slug]`), custom domain routing (`proxy.ts`), and 4-tier RBAC (`admin`, `manager`, `user`/Cashier, `captain`/Waiter).
+- **Counter POS & Running Table KOTs (`/r/[slug]/pos`):** Keyboard-fast billing, mobile Captain mode, Customization v2 `ModifierDialog` (`min/max` rules, free allowances, `max_qty`, variant prices, quick kitchen tags), multi-KOT running table orders, item splitting & table merging, manager-audited item voids, Customer Khata tabs, **multi-tender Split Payments (Cash + UPI + Card)**, and 80mm ESC/POS + thermal browser receipts.
+- **Kitchen Display System (`/r/[slug]/kitchen` & `/r/[slug]/admin/kitchen`):** Real-time ticket board with chime alerts, later-KOT item highlighting, mandatory structured cancellation reasons with 1-click out-of-stock menu toggling.
+- **Floor Board, Table Bookings & Live Waitlist (`/r/[slug]/admin/tables`, `/r/[slug]/admin/bookings`, `/r/[slug]/book`):** Spatial floor board, QR sheet generator, scheduled table reservations (`opening_hours` + tightest-fit table + unassigned capacity pool), live walk-in queue with ETA tokens, WhatsApp guest notifications, POS Host Desk 1-tap seating with deposit credit, and Razorpay/Stripe refundable cover deposits.
+- **DB-Backed Inventory & Recipe BOM (`/r/[slug]/admin/inventory`):** Raw material SKUs, par-level low-stock alerts, dish recipe BOM food-cost & margin computation, Vendor PO GRN auto-restocking (with weighted average cost), and automatic BOM stock deduction when orders complete.
+- **Back-Office Operations:** Staff HR & Monthly Payroll (`/admin/hr`), Vendors, GST POs & Payables (`/admin/vendors`), People's Khata Credit Tabs, Corporate B2B CGST/SGST/IGST Tax Invoices & Petty Cash Vouchers (`/admin/accounts`), Promo Coupons (`/admin/customers`), and **Persisted Day-End Cash Drawer & Audited Z-Register Shifts** (`/admin/register`).
+- **Progressive Web App (PWA):** Installable web app manifest (`app/manifest.ts`), high-resolution icons (`public/icons/*`), POS-safe Service Worker (`public/sw.js`) with `/offline` fallback, and install prompts across sign-in, workspace, admin, and POS headers.
+
+---
+
+## Local Setup
 
 ```powershell
 npm install
 Copy-Item .env.example .env.local
-# edit .env.local with your Supabase project URL + keys
+# Add Supabase credentials and optional gateway/webhook env vars in .env.local
 npm run dev
 ```
 
-Then open http://localhost:3000.
+App runs at `http://localhost:3000`.
 
-## Environment variables
+### Environment Variables
 
-| Key | Where to find |
+| Key | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Same screen, `service_role` key. Server-only — never expose to the browser. |
-| `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | **UUID** of the outlet to use when a client doesn't specify one (`select id from outlets where slug = 'main'`). All ids are uuids since the `20260719000000_uuid_refactor` migration. |
-| `STOREFRONT_ALLOWED_ORIGINS` | Optional fallback comma-separated list of websites allowed to call public endpoints from a browser when a per-key website allowlist is not set. |
-| `CHANNEL_ORDER_TOKEN` | Optional secret for delivery-platform adapters. It is the only way to store an order at prices the server didn't compute; while unset, platform orders are refused. |
-| `ERROR_ALERT_WEBHOOK_URL` / `SENTRY_DSN` | Optional 5xx server error alert webhook or Sentry DSN. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase `anon` public key (governed by RLS) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key (never expose to browsers) |
+| `NEXT_PUBLIC_DEFAULT_OUTLET_ID` | Optional fallback outlet UUID |
+| `STOREFRONT_ALLOWED_ORIGINS` | Optional fallback comma-separated allowed browser origins |
+| `CHANNEL_ORDER_TOKEN` / `CHANNEL_BRIDGE_WEBHOOK_URL` | Optional delivery-platform channel bridge configuration |
+| `ERROR_ALERT_WEBHOOK_URL` / `SENTRY_DSN` | Optional 5xx server error alert webhook / Sentry DSN |
 
-## Database migrations
+---
 
-Migrations live in `supabase/migrations/` and are applied with the Supabase CLI (v3+) against the linked project (`lyudibtywwsvzpqsfmjb`):
+## Database Migrations & Types
 
-```bash
-supabase migration list --remote        # what's applied vs. local
-supabase db push --remote --dry-run     # preview
-supabase db push --remote               # apply new migrations
-```
-
-After any schema change, regenerate the types the app compiles against:
+Migrations live in `supabase/migrations/` and target the linked Supabase project using CLI v3+:
 
 ```bash
-supabase gen types typescript --remote --schema public > lib/database.types.ts
+npx supabase migration list --remote
+npx supabase db push --remote --yes
+npx supabase gen types typescript --linked --schema public
 ```
 
-> On Windows, run that from Git Bash (or `| Out-File -Encoding utf8` in PowerShell) — a plain PowerShell `>` writes UTF-16, which is how a broken `types.ts` once ended up in the repo.
+See [docs/](docs/) for architecture, schema, RLS, server actions, workflows, and release notes (`docs/API.md` explains why external REST specs remain local in git-ignored `private-docs/`).
 
-`lib/types.ts` derives every row type from `lib/database.types.ts` and adds the narrowed unions (`OrderStatus`, `OrderSource`, …) on top. Ids are **uuid strings** everywhere — validate route params with `isUuid()` from `lib/utils.ts`, never `Number()`.
+---
 
-See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for what each recent migration does.
+## Quality Checks & Build
 
-## Supabase row-level security
-
-The schema you ran does not enable RLS. For the public storefront pages to read from `products`, `categories`, and `promotional_banners`, either:
-
-1. Leave RLS off for those tables (fine for a demo), or
-2. Enable RLS and add a `SELECT` policy:
-
-```sql
-alter table public.products enable row level security;
-create policy "Public can read active products" on public.products
-  for select using (status = 'active');
+```powershell
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build
 ```
-
-Repeat for `categories` and `promotional_banners`. For `orders` / `order_items`, allow inserts from anon if you want guest checkout, or call the route handler with a service-role client.
-
-## Project layout
-
-```
-app/
-  page.tsx                    # menu (server component, reads from Supabase)
-  cart/page.tsx               # client cart, localStorage-backed
-  checkout/page.tsx           # sends the order to the order API
-  orders/[id]/page.tsx        # confirmation
-  admin/orders/page.tsx       # recent orders table
-  api/orders/route.ts         # insert order + order_items
-components/
-  CartProvider.tsx            # cart context
-  Navbar.tsx, ProductCard.tsx
-lib/
-  types.ts                    # Database type (matches the SQL schema)
-  supabase/{client,server,middleware}.ts
-proxy.ts                      # refreshes auth session (Next 16's renamed middleware)
-```
-
-## Next steps you'll likely want
-
-- Sign-in flow (`@supabase/ssr` makes this easy)
-- Guard `/admin/*` by checking `user_roles.role = 'admin'`
-- Wire customizations (`customization_groups` / `customization_options`) into the product modal
-- Razorpay integration on the checkout step (you already have `razorpay_order_id` in the schema)
-
-## Roadmap (where this is heading)
-
-The goal is a Petpooja-class POS + kiosk for Indian F&B. Phase order:
-
-1. **Foundation (this migration)** — multi-outlet, GST fields, KOT tables, aggregator-ready order schema. No visible UI change.
-2. **Counter POS** — fast keyboard billing, modifiers, tender (cash/UPI/card), GST invoice print, day-end Z-report.
-3. **KOT / KDS** — thermal printer (ESC/POS) for kitchen tickets; KDS screen for stations.
-4. **Inventory + recipes** — raw materials, recipe ingredients, stock deduction on order.
-5. **Multi-outlet + captain app** — central menu, consolidated reports, tablet ordering.
-6. **Aggregator integrations** — Zomato, Swiggy, Magicpin, ONDC. Each has its own webhook handler, writes to `orders` with `source='zomato'` etc., dedupes on `(outlet_id, source, external_order_id)`, and logs every callback to `external_order_events`. Zomato and Swiggy both require approved POS-partner status — apply early (partners@zomato.com, Swiggy POS team) since onboarding takes weeks.

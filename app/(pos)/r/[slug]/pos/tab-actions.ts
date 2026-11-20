@@ -26,11 +26,17 @@ import {
   moveTabOrder,
   sendKotForTab,
   settleTab,
+  splitTabItems,
   voidSentItemForTab,
   type PosLine,
   type SettleInput,
   type TabRow,
 } from "@/lib/running-orders";
+import { deductOrderRecipeStock } from "@/lib/inventory";
+import {
+  validateSplitAllocations,
+  type SplitAllocationInput,
+} from "@/lib/register";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
 
@@ -569,6 +575,7 @@ export async function chargePosToCustomerTabAction(
         customer_name: `${tableShort} · ${custTab.customer_name}`,
         customer_email: "pos+tab@billjot.local",
         customer_phone: custTab.phone,
+        payment_mode: "tab",
         payment_status: "pending",
         payment_provider: "customer_tab",
         ...(note ? { instructions: note } : {}),
@@ -607,6 +614,7 @@ export async function chargePosToCustomerTabAction(
         customer_name: customerLabel,
         customer_email: "pos+tab@billjot.local",
         customer_phone: custTab.phone,
+        payment_mode: "tab",
         order_type: resolvedOrderType,
         subtotal: priced.totals.subtotal,
         cgst_amount: priced.totals.cgst,
@@ -700,9 +708,392 @@ export async function chargePosToCustomerTabAction(
     .eq("id", custTab.id)
     .eq("restaurant_id", restaurant.id);
 
+  if (chargedTotal > 0) {
+    await admin.from("order_payments").insert({
+      restaurant_id: restaurant.id,
+      outlet_id: input.outletId,
+      order_id: orderId,
+      payment_mode: "tab",
+      amount: chargedTotal,
+    });
+  }
+  void deductOrderRecipeStock({ orderId, outletId: input.outletId });
+
   revalidateFloorAndKitchen(slug);
   revalidatePath(`/r/${slug}/pos`);
   revalidatePath(`/r/${slug}/admin/accounts`);
   revalidatePath(`/r/${slug}/admin/register`);
   return { ok: true, orderId, nextBalance };
+}
+
+export async function splitTabItemsAction(
+  slug: string,
+  input: {
+    outletId: string;
+    sourceTabId: string;
+    sourceClientLines?: TabLine[];
+    targetTabId?: string | null;
+    newTabName?: string | null;
+    moveQuantities: Record<string, number>;
+  },
+): Promise<
+  | {
+      ok: true;
+      sourceLines: PosLine[];
+      sourceOrderId: string | null;
+      targetTab: PosTab;
+      createdNewTab: boolean;
+    }
+  | { ok: false; error: string }
+> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Not allowed" };
+  await requireRole(BILLING_ROLES, { restaurantId: restaurant.id });
+  if (!isUuid(input.outletId) || !isUuid(input.sourceTabId)) {
+    return { ok: false, error: "Select a saved floor table or hold tab to split." };
+  }
+
+  const db = rawAdmin();
+  if (!(await outletInRestaurant(db, input.outletId, restaurant.id))) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const srcLoaded = await loadTab(db, input.sourceTabId, restaurant.id);
+  if (!srcLoaded.ok) return srcLoaded;
+
+  const srcLines = Array.isArray(input.sourceClientLines)
+    ? (input.sourceClientLines as PosLine[])
+    : srcLoaded.lines;
+
+  let targetTabRow: TabRow;
+  let targetLines: PosLine[] = [];
+  let createdNewTab = false;
+  let targetCreatedAt = Date.now();
+
+  if (input.targetTabId && isUuid(input.targetTabId)) {
+    const dstLoaded = await loadTab(db, input.targetTabId, restaurant.id);
+    if (!dstLoaded.ok) return dstLoaded;
+    targetTabRow = dstLoaded.tab;
+    targetLines = dstLoaded.lines;
+  } else {
+    const shortSource = srcLoaded.tab.name.split("·")[0].trim() || "Table";
+    const tabLabel =
+      input.newTabName?.trim().slice(0, 60) || `${shortSource} (Split)`;
+    const { data: created, error: createErr } = await db
+      .from("pos_tabs")
+      .insert({ outlet_id: input.outletId, name: tabLabel, lines: [] })
+      .select("id, outlet_id, name, lines, created_at, order_id")
+      .single();
+    if (createErr || !created) {
+      return {
+        ok: false,
+        error: createErr?.message ?? "Could not create split tab.",
+      };
+    }
+    targetTabRow = {
+      id: created.id,
+      outlet_id: created.outlet_id,
+      name: created.name,
+      order_id: created.order_id ?? null,
+    };
+    targetCreatedAt = new Date(created.created_at).getTime();
+    createdNewTab = true;
+  }
+
+  const res = await splitTabItems(
+    { ...srcLoaded.tab, lines: srcLines },
+    { ...targetTabRow, lines: targetLines },
+    input.moveQuantities ?? {},
+  );
+  if (!res.ok) {
+    if (createdNewTab) {
+      await db.from("pos_tabs").delete().eq("id", targetTabRow.id);
+    }
+    return res;
+  }
+
+  revalidateFloorAndKitchen(slug);
+  revalidatePath(`/r/${slug}/pos`);
+  return {
+    ok: true,
+    sourceLines: res.sourceLines,
+    sourceOrderId: res.sourceOrderId,
+    targetTab: {
+      id: targetTabRow.id,
+      name: targetTabRow.name,
+      lines: res.targetLines,
+      createdAt: targetCreatedAt,
+      orderId: res.targetOrderId,
+    },
+    createdNewTab,
+  };
+}
+
+export async function settlePosSplitPaymentAction(
+  slug: string,
+  input: {
+    outletId: string;
+    posTabId?: string | null;
+    hasRunningOrder?: boolean;
+    orderType: string;
+    customerName?: string | null;
+    customerPhone?: string | null;
+    customerEmail?: string | null;
+    note?: string | null;
+    packingCharge?: number;
+    discountPct?: number;
+    discountFlat?: number;
+    lines: PosLine[];
+    pricingItems: OrderItemInput[];
+    allocations: SplitAllocationInput[];
+  },
+): Promise<{ ok: true; orderId: string } | { ok: false; error: string }> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Not allowed" };
+  await requireRole(BILLING_ROLES, { restaurantId: restaurant.id });
+
+  if (!isUuid(input.outletId)) return { ok: false, error: "Invalid outlet." };
+  const db = rawAdmin();
+  if (!(await outletInRestaurant(db, input.outletId, restaurant.id))) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const admin = createAdminClient();
+  const packing =
+    input.orderType === "dine-in"
+      ? 0
+      : Math.max(0, round2(Number(input.packingCharge ?? 0)));
+
+  const pct = Math.min(100, Math.max(0, Number(input.discountPct ?? 0) || 0));
+  const flat = Math.max(0, Number(input.discountFlat ?? 0) || 0);
+  const note = cleanNote(input.note, ORDER_NOTE_MAX);
+  const cleanPhone = input.customerPhone?.trim().slice(0, 30) || null;
+  const cleanGuestEmail =
+    input.customerEmail?.trim().includes("@")
+      ? input.customerEmail.trim().slice(0, 120)
+      : null;
+
+  if (input.hasRunningOrder && input.posTabId && isUuid(input.posTabId)) {
+    const loaded = await loadTab(db, input.posTabId, restaurant.id);
+    if (!loaded.ok) return loaded;
+
+    const kot = await sendKotForTab(
+      loaded.tab,
+      Array.isArray(input.lines) ? input.lines : [],
+      input.customerName?.trim() || undefined,
+    );
+    if (!kot.ok) return kot;
+
+    const runningOrderId = kot.orderId ?? loaded.tab.order_id;
+    if (!runningOrderId) {
+      return { ok: false, error: "This table has nothing to bill." };
+    }
+
+    const { data: orderItems } = await admin
+      .from("order_items")
+      .select("total_price")
+      .eq("order_id", runningOrderId);
+    const actualGross = round2(
+      (orderItems ?? []).reduce((s, it) => s + Number(it.total_price || 0), 0),
+    );
+    const actualDisc = Math.min(
+      actualGross,
+      round2(pct > 0 ? (actualGross * pct) / 100 : flat),
+    );
+    const actualNet = Math.max(0, actualGross - actualDisc);
+    const chargedTotal = Math.round(actualNet);
+    const actualRounding = round2(chargedTotal - actualNet);
+
+    const splitCheck = validateSplitAllocations(chargedTotal, input.allocations);
+    if (!splitCheck.ok) return splitCheck;
+
+    const legs = splitCheck.normalized;
+    const summaryMode = legs.length > 1 ? "split" : legs[0].mode;
+    const fallbackEmail = `pos+${summaryMode}@billjot.local`;
+    const tableShort = loaded.tab.name.split("·")[0].trim();
+    const displayName = input.customerName?.trim()
+      ? `${tableShort} · ${input.customerName.trim()}`
+      : tableShort;
+
+    const { error: updErr } = await admin
+      .from("orders")
+      .update({
+        table_id: loaded.tab.id,
+        discount_amount: actualDisc,
+        rounding_amount: actualRounding,
+        total_amount: chargedTotal,
+        customer_name: displayName,
+        customer_email: cleanGuestEmail ?? fallbackEmail,
+        ...(cleanPhone ? { customer_phone: cleanPhone } : {}),
+        payment_mode: summaryMode,
+        payment_status: "paid",
+        ...(note ? { instructions: note } : {}),
+      })
+      .eq("id", runningOrderId);
+    if (updErr) return { ok: false, error: updErr.message };
+
+    await admin.from("order_payments").insert(
+      legs.map((l) => ({
+        restaurant_id: restaurant.id,
+        outlet_id: input.outletId,
+        order_id: runningOrderId,
+        payment_mode: l.mode,
+        amount: l.amount,
+        reference_no: l.referenceNo,
+      })),
+    );
+
+    await db
+      .from("pos_tabs")
+      .update({ lines: [], order_id: null, updated_at: new Date().toISOString() })
+      .eq("id", loaded.tab.id);
+
+    void deductOrderRecipeStock({
+      orderId: runningOrderId,
+      outletId: input.outletId,
+    });
+    void dispatchOrderStatusWebhooks(runningOrderId, "order.updated");
+    revalidateFloorAndKitchen(slug);
+    revalidatePath(`/r/${slug}/pos`);
+    revalidatePath(`/r/${slug}/admin/register`);
+    return { ok: true, orderId: runningOrderId };
+  }
+
+  const priced = await recomputeFirstParty(
+    admin,
+    input.outletId,
+    Array.isArray(input.pricingItems) ? input.pricingItems : [],
+    packing,
+    0,
+    0,
+    null,
+  );
+  if (!priced.ok) return { ok: false, error: priced.error };
+
+  const grossItemsTotal = round2(
+    priced.totals.items.reduce((s, it) => s + Number(it.total_price || 0), 0),
+  );
+  const discount = Math.min(
+    grossItemsTotal,
+    round2(pct > 0 ? (grossItemsTotal * pct) / 100 : flat),
+  );
+  const netBeforeRound = Math.max(0, grossItemsTotal + packing - discount);
+  const chargedTotal = Math.round(netBeforeRound);
+  const rounding = round2(chargedTotal - netBeforeRound);
+
+  const splitCheck = validateSplitAllocations(chargedTotal, input.allocations);
+  if (!splitCheck.ok) return splitCheck;
+
+  const legs = splitCheck.normalized;
+  const summaryMode = legs.length > 1 ? "split" : legs[0].mode;
+  const fallbackEmail = `pos+${summaryMode}@billjot.local`;
+  const resolvedOrderType = isOrderType(input.orderType)
+    ? input.orderType
+    : "dine-in";
+  const resolvedTableId =
+    resolvedOrderType === "dine-in" &&
+    input.posTabId &&
+    isUuid(input.posTabId)
+      ? input.posTabId
+      : null;
+  const tokenNumber = randomInt(101, 999);
+
+  const { data: order, error: orderErr } = await admin
+    .from("orders")
+    .insert({
+      outlet_id: input.outletId,
+      table_id: resolvedTableId,
+      source: "pos",
+      customer_name: input.customerName?.trim() || "Walk-in",
+      customer_email: cleanGuestEmail ?? fallbackEmail,
+      ...(cleanPhone ? { customer_phone: cleanPhone } : {}),
+      payment_mode: summaryMode,
+      order_type: resolvedOrderType,
+      subtotal: priced.totals.subtotal,
+      cgst_amount: priced.totals.cgst,
+      sgst_amount: priced.totals.sgst,
+      gst_paid_by_operator: false,
+      takeaway_charges: packing,
+      discount_amount: discount,
+      rounding_amount: rounding,
+      total_amount: chargedTotal,
+      token_number: tokenNumber,
+      status: "pending",
+      payment_status: "paid",
+      unique_order_id: newOrderNumber(),
+      ...(note ? { instructions: note } : {}),
+    })
+    .select("id")
+    .single();
+
+  if (orderErr || !order) {
+    return {
+      ok: false,
+      error: orderErr?.message ?? "Failed to create split payment order.",
+    };
+  }
+
+  const anyItemNote = priced.totals.items.some((it) => it.instructions);
+  const { data: insertedItems, error: itemsErr } = await admin
+    .from("order_items")
+    .insert(
+      priced.totals.items.map((it) => ({
+        order_id: order.id,
+        product_config: it.product_config as Json,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        total_price: it.total_price,
+        ...(anyItemNote ? { instructions: it.instructions } : {}),
+      })),
+    )
+    .select("id, quantity, instructions");
+
+  if (itemsErr) {
+    await admin.from("orders").delete().eq("id", order.id);
+    return { ok: false, error: itemsErr.message };
+  }
+
+  if (insertedItems && insertedItems.length > 0) {
+    const { data: ticket } = await admin
+      .from("kot_tickets")
+      .insert({
+        outlet_id: input.outletId,
+        order_id: order.id,
+        ticket_number: tokenNumber,
+        status: "printed",
+        notes: note,
+        printed_at: new Date().toISOString(),
+      })
+      .select("id")
+      .maybeSingle();
+
+    if (ticket) {
+      await admin.from("kot_ticket_items").insert(
+        insertedItems.map((oi) => ({
+          kot_ticket_id: ticket.id,
+          order_item_id: oi.id,
+          quantity: oi.quantity,
+          notes: oi.instructions,
+        })),
+      );
+    }
+  }
+
+  await admin.from("order_payments").insert(
+    legs.map((l) => ({
+      restaurant_id: restaurant.id,
+      outlet_id: input.outletId,
+      order_id: order.id,
+      payment_mode: l.mode,
+      amount: l.amount,
+      reference_no: l.referenceNo,
+    })),
+  );
+
+  void deductOrderRecipeStock({ orderId: order.id, outletId: input.outletId });
+  void dispatchOrderStatusWebhooks(order.id, "order.created");
+  revalidateFloorAndKitchen(slug);
+  revalidatePath(`/r/${slug}/pos`);
+  revalidatePath(`/r/${slug}/admin/register`);
+  return { ok: true, orderId: order.id };
 }

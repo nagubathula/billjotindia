@@ -12,7 +12,6 @@
 // below — so editing this file and re-running always reflects the latest set.
 
 import { createClient } from "@supabase/supabase-js";
-import { randomBytes } from "node:crypto";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

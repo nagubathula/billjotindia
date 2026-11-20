@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   SlidersHorizontal,
   Smartphone,
+  Split,
   Tag,
   Trash2,
   Users,
@@ -96,7 +97,10 @@ import {
   settleTabAction,
   voidSentItemAction,
   chargePosToCustomerTabAction,
+  settlePosSplitPaymentAction,
+  splitTabItemsAction,
 } from "./tab-actions";
+import { validateSplitAllocations } from "@/lib/register";
 
 const VOID_REASONS = [
   { code: "customer_changed_mind", label: "Customer changed mind" },
@@ -302,6 +306,25 @@ export function PosBilling({
   const [khataBusy, setKhataBusy] = useState(false);
   const [khataError, setKhataError] = useState<string | null>(null);
 
+  // Split Multi-Tender Payment dialog state
+  const [splitPayOpen, setSplitPayOpen] = useState(false);
+  const [splitCash, setSplitCash] = useState("0");
+  const [splitUpi, setSplitUpi] = useState("0");
+  const [splitCard, setSplitCard] = useState("0");
+  const [splitPhone, setSplitPhone] = useState("");
+  const [splitEmail, setSplitEmail] = useState("");
+  const [splitPayBusy, setSplitPayBusy] = useState(false);
+  const [splitPayError, setSplitPayError] = useState<string | null>(null);
+
+  // Split by Item / Merge Table dialog state
+  const [splitBillOpen, setSplitBillOpen] = useState(false);
+  const [splitBillTab, setSplitBillTab] = useState<"split" | "merge">("split");
+  const [splitMoveQty, setSplitMoveQty] = useState<Record<string, number>>({});
+  const [splitTargetId, setSplitTargetId] = useState<string>("__new__");
+  const [splitNewName, setSplitNewName] = useState("");
+  const [splitBillBusy, setSplitBillBusy] = useState(false);
+  const [splitBillError, setSplitBillError] = useState<string | null>(null);
+
   // Host desk (bookings & waitlist) state
   const [hostDeskOpen, setHostDeskOpen] = useState(false);
   const [bookings, setBookings] = useState<TableBooking[]>(initialBookings);
@@ -314,7 +337,7 @@ export function PosBilling({
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-  const lines = activeTab?.lines ?? [];
+  const lines = useMemo(() => activeTab?.lines ?? [], [activeTab]);
   const orderType: OrderType = canTakeNonTableOrders
     ? (activeTab?.orderType ?? "dine-in")
     : "dine-in";
@@ -370,19 +393,22 @@ export function PosBilling({
     };
   }, [restaurantSlug, outletId, requestedTable, canTakeNonTableOrders]);
 
-  const scheduleSave = (tab: Tab) => {
-    if (!tab.persisted) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    const snapshot = { id: tab.id, name: tab.name, lines: tab.lines };
-    saveTimer.current = setTimeout(() => {
-      saveTabAction(
-        restaurantSlug,
-        snapshot.id,
-        snapshot.name,
-        snapshot.lines,
-      ).catch(() => {});
-    }, 700);
-  };
+  const scheduleSave = useCallback(
+    (tab: Tab) => {
+      if (!tab.persisted) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const snapshot = { id: tab.id, name: tab.name, lines: tab.lines };
+      saveTimer.current = setTimeout(() => {
+        saveTabAction(
+          restaurantSlug,
+          snapshot.id,
+          snapshot.name,
+          snapshot.lines,
+        ).catch(() => {});
+      }, 700);
+    },
+    [restaurantSlug],
+  );
 
   const updateActiveTab = useCallback(
     (updater: (prev: Tab) => Tab) => {
@@ -393,7 +419,7 @@ export function PosBilling({
         return next;
       });
     },
-    [activeTabId, restaurantSlug],
+    [activeTabId, scheduleSave],
   );
 
   const updateActiveLines = useCallback(
@@ -828,6 +854,30 @@ export function PosBilling({
     }
   }, [activeTab, sendingKot, restaurantSlug, outletId, customerName, tabs.length]);
 
+  const clearSettledActiveTab = useCallback(() => {
+    const settledId = activeTabId;
+    const wasPersisted = activeTab?.persisted;
+    const isFloorTable = Boolean(activeTab?.name.includes("·"));
+    if (isFloorTable && activeTab) {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === settledId ? { ...t, lines: [], orderId: null } : t)),
+      );
+      if (wasPersisted) {
+        saveTabAction(restaurantSlug, settledId, activeTab.name, []).catch(
+          () => {},
+        );
+      }
+    } else {
+      const remaining = tabs.filter((t) => t.id !== settledId);
+      const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
+      setTabs(next);
+      setActiveTabId(next[0].id);
+      if (wasPersisted) {
+        deleteTabAction(restaurantSlug, settledId).catch(() => {});
+      }
+    }
+  }, [activeTab, activeTabId, restaurantSlug, tabs]);
+
   const tender = useCallback(
     async (mode: Tender) => {
       if (!canTakePayment || lines.length === 0 || posting) return;
@@ -879,6 +929,7 @@ export function PosBilling({
             source: "pos",
             customer_name: resolvedCustomer,
             customer_email: `pos+${mode}@billjot.local`,
+            payment_mode: mode,
             order_type: orderType,
             subtotal: Number(totals.taxable.toFixed(2)),
             takeaway_charges: Number(totals.packing.toFixed(2)),
@@ -928,32 +979,9 @@ export function PosBilling({
       canTakePayment,
       discountPct,
       discountFlat,
+      clearSettledActiveTab,
     ],
   );
-
-  function clearSettledActiveTab() {
-    const settledId = activeTabId;
-    const wasPersisted = activeTab?.persisted;
-    const isFloorTable = Boolean(activeTab?.name.includes("·"));
-    if (isFloorTable && activeTab) {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === settledId ? { ...t, lines: [], orderId: null } : t)),
-      );
-      if (wasPersisted) {
-        saveTabAction(restaurantSlug, settledId, activeTab.name, []).catch(
-          () => {},
-        );
-      }
-    } else {
-      const remaining = tabs.filter((t) => t.id !== settledId);
-      const next = remaining.length > 0 ? remaining : [makeDefaultTab()];
-      setTabs(next);
-      setActiveTabId(next[0].id);
-      if (wasPersisted) {
-        deleteTabAction(restaurantSlug, settledId).catch(() => {});
-      }
-    }
-  }
 
   function buildGatewayItemsPayload() {
     return lines.map((l) => ({
@@ -1028,6 +1056,159 @@ export function PosBilling({
       router.push(`/r/${restaurantSlug}/pos/receipt/${res.orderId}`);
     } finally {
       setKhataBusy(false);
+    }
+  }
+
+  function openSplitPayModal() {
+    if (!canTakePayment || lines.length === 0) return;
+    const halfCash = Math.floor(totals.total / 2);
+    const remUpi = Math.max(0, totals.total - halfCash);
+    setSplitCash(String(halfCash));
+    setSplitUpi(String(remUpi));
+    setSplitCard("0");
+    setSplitPhone("");
+    setSplitEmail("");
+    setSplitPayError(null);
+    setSplitPayOpen(true);
+  }
+
+  async function handleConfirmSplitPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canTakePayment || lines.length === 0 || splitPayBusy) return;
+    const allocations = [
+      { mode: "cash" as const, amount: Number(splitCash) || 0 },
+      { mode: "upi" as const, amount: Number(splitUpi) || 0 },
+      { mode: "card" as const, amount: Number(splitCard) || 0 },
+    ].filter((a) => a.amount > 0);
+
+    const check = validateSplitAllocations(totals.total, allocations);
+    if (!check.ok) {
+      setSplitPayError(check.error);
+      return;
+    }
+
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSplitPayBusy(true);
+    setSplitPayError(null);
+    try {
+      const res = await settlePosSplitPaymentAction(restaurantSlug, {
+        outletId,
+        posTabId: activeTab?.persisted ? activeTab.id : null,
+        hasRunningOrder: Boolean(activeTab?.persisted && activeTab.orderId),
+        orderType,
+        customerName: resolvePosCustomerDisplay(),
+        customerPhone: splitPhone.trim() || null,
+        customerEmail: splitEmail.trim() || null,
+        note: orderNote.trim() || null,
+        packingCharge,
+        discountPct,
+        discountFlat,
+        lines: activeTab?.lines ?? [],
+        pricingItems: lines.map((l) => ({
+          quantity: l.qty,
+          unit_price: l.unitPrice,
+          total_price: Number((l.unitPrice * l.qty).toFixed(2)),
+          instructions: l.instructions?.trim() || undefined,
+          product_config: {
+            product_id: l.product.id,
+            name: l.product.name,
+            base_price: Number(l.product.price),
+            selected_options: l.selectedOptions,
+            gst_rate: Number(l.product.gst_rate ?? 5),
+            hsn_code: l.product.hsn_code,
+          },
+        })),
+        allocations,
+      });
+      if (!res.ok) {
+        setSplitPayError(res.error);
+        return;
+      }
+      setSplitPayOpen(false);
+      clearSettledActiveTab();
+      router.push(`/r/${restaurantSlug}/pos/receipt/${res.orderId}`);
+    } finally {
+      setSplitPayBusy(false);
+    }
+  }
+
+  function openSplitBillModal(initialTab: "split" | "merge" = "split") {
+    setSplitBillTab(initialTab);
+    setSplitMoveQty({});
+    setSplitTargetId("__new__");
+    const baseShort = activeTab?.name.split("·")[0].trim() || "Table";
+    setSplitNewName(`${baseShort} (Split)`);
+    setSplitBillError(null);
+    setSplitBillOpen(true);
+  }
+
+  async function handleConfirmSplitItems(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activeTab?.persisted || splitBillBusy) return;
+    const totalSelected = Object.values(splitMoveQty).reduce(
+      (s, q) => s + Math.max(0, Math.floor(Number(q) || 0)),
+      0,
+    );
+    if (totalSelected <= 0) {
+      setSplitBillError("Pick at least 1 item quantity to split out.");
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSplitBillBusy(true);
+    setSplitBillError(null);
+    try {
+      const res = await splitTabItemsAction(restaurantSlug, {
+        outletId,
+        sourceTabId: activeTab.id,
+        sourceClientLines: activeTab.lines,
+        targetTabId: splitTargetId === "__new__" ? null : splitTargetId,
+        newTabName: splitNewName,
+        moveQuantities: splitMoveQty,
+      });
+      if (!res.ok) {
+        setSplitBillError(res.error);
+        return;
+      }
+      setTabs((prev) => {
+        const updated = prev.map((t) => {
+          if (t.id === activeTab.id) {
+            return {
+              ...t,
+              lines: res.sourceLines as Line[],
+              orderId: res.sourceOrderId,
+            };
+          }
+          if (t.id === res.targetTab.id) {
+            return {
+              ...t,
+              lines: res.targetTab.lines as Line[],
+              orderId: res.targetTab.orderId,
+            };
+          }
+          return t;
+        });
+        if (res.createdNewTab) {
+          return [
+            ...updated,
+            {
+              id: res.targetTab.id,
+              name: res.targetTab.name,
+              lines: res.targetTab.lines as Line[],
+              orderType: "dine-in",
+              createdAt: res.targetTab.createdAt,
+              persisted: true,
+              orderId: res.targetTab.orderId,
+            },
+          ];
+        }
+        return updated;
+      });
+      setActiveTabId(res.targetTab.id);
+      setSplitBillOpen(false);
+      setKotSavedMsg(`Split items onto ${res.targetTab.name}`);
+      setTimeout(() => setKotSavedMsg(null), 3500);
+    } finally {
+      setSplitBillBusy(false);
     }
   }
 
@@ -2189,6 +2370,19 @@ export function PosBilling({
                 <LayoutGrid className="mr-1 h-3.5 w-3.5" />
                 Tables
               </Button>
+              {canTakePayment && activeTab?.persisted && lines.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openSplitBillModal("split")}
+                  className="text-xs font-medium"
+                  title="Split bill by items or merge table"
+                >
+                  <Split className="mr-1 h-3.5 w-3.5" />
+                  Split / Merge
+                </Button>
+              )}
             </div>
 
             {canTakePayment ? (
@@ -2241,6 +2435,23 @@ export function PosBilling({
               </span>
               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
                 F11
+              </span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={lines.length === 0 || posting !== null}
+              onClick={openSplitPayModal}
+              className="mt-1.5 w-full justify-between text-xs font-medium"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Split className="h-3.5 w-3.5 shrink-0" />
+                <span>Split Payment (Cash + UPI + Card)</span>
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                Multi
               </span>
             </Button>
 
@@ -3228,6 +3439,392 @@ export function PosBilling({
                 </Button>
               </DialogFooter>
             </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Split Multi-Tender Payment Dialog */}
+      <Dialog
+        open={splitPayOpen}
+        onOpenChange={(open) => {
+          if (!open && !splitPayBusy) setSplitPayOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Split Payment · ₹{totals.total.toFixed(0)}</DialogTitle>
+            <DialogDescription>
+              Combine Cash, UPI, and Card on a single bill and optionally save the guest&apos;s contact for CRM/e-bill.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmSplitPayment} className="space-y-3.5">
+            {(() => {
+              const c = Number(splitCash) || 0;
+              const u = Number(splitUpi) || 0;
+              const cr = Number(splitCard) || 0;
+              const allocated = Math.round((c + u + cr) * 100) / 100;
+              const remaining = Math.round((totals.total - allocated) * 100) / 100;
+              return (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
+                    <span>
+                      Bill Total:{" "}
+                      <strong className="tabular-nums">₹{totals.total.toFixed(2)}</strong>
+                    </span>
+                    <span
+                      className={cn(
+                        "font-semibold tabular-nums",
+                        Math.abs(remaining) < 0.05
+                          ? "text-emerald-700"
+                          : "text-amber-700",
+                      )}
+                    >
+                      {Math.abs(remaining) < 0.05
+                        ? "Balanced"
+                        : remaining > 0
+                          ? `₹${remaining.toFixed(2)} left`
+                          : `₹${Math.abs(remaining).toFixed(2)} over`}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_1fr_auto] items-center gap-2">
+                    <Label className="text-xs">Cash (₹)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={splitCash}
+                      onChange={(e) => setSplitCash(e.target.value)}
+                      className="h-8 text-right text-xs tabular-nums"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() =>
+                        setSplitCash(
+                          String(Math.max(0, Math.round(totals.total - u - cr))),
+                        )
+                      }
+                    >
+                      Fill
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_1fr_auto] items-center gap-2">
+                    <Label className="text-xs">UPI (₹)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={splitUpi}
+                      onChange={(e) => setSplitUpi(e.target.value)}
+                      className="h-8 text-right text-xs tabular-nums"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() =>
+                        setSplitUpi(
+                          String(Math.max(0, Math.round(totals.total - c - cr))),
+                        )
+                      }
+                    >
+                      Fill
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_1fr_auto] items-center gap-2">
+                    <Label className="text-xs">Card (₹)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={splitCard}
+                      onChange={(e) => setSplitCard(e.target.value)}
+                      className="h-8 text-right text-xs tabular-nums"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() =>
+                        setSplitCard(
+                          String(Math.max(0, Math.round(totals.total - c - u))),
+                        )
+                      }
+                    >
+                      Fill
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="grid grid-cols-2 gap-2 border-t border-border pt-2.5">
+              <div className="space-y-1">
+                <Label className="text-[11px]">Guest Phone (optional)</Label>
+                <Input
+                  value={splitPhone}
+                  onChange={(e) => setSplitPhone(e.target.value)}
+                  placeholder="+91 98..."
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Guest Email (optional)</Label>
+                <Input
+                  type="email"
+                  value={splitEmail}
+                  onChange={(e) => setSplitEmail(e.target.value)}
+                  placeholder="guest@example.com"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            {splitPayError && (
+              <p className="rounded bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {splitPayError}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={splitPayBusy}
+                onClick={() => setSplitPayOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={splitPayBusy}>
+                {splitPayBusy ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Settling…
+                  </>
+                ) : (
+                  "Complete Split Settlement"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Split by Items / Merge Table Dialog */}
+      <Dialog
+        open={splitBillOpen}
+        onOpenChange={(open) => {
+          if (!open && !splitBillBusy) setSplitBillOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Split / Merge Bill · {activeTab?.name.split("·")[0].trim() || "Table"}
+            </DialogTitle>
+            <DialogDescription>
+              Split selected items onto a separate bill tab, or merge this table onto another occupied/free floor table.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
+            <button
+              type="button"
+              onClick={() => setSplitBillTab("split")}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                splitBillTab === "split"
+                  ? "bg-card text-foreground shadow-2xs"
+                  : "text-muted-foreground",
+              )}
+            >
+              Split by Items
+            </button>
+            <button
+              type="button"
+              onClick={() => setSplitBillTab("merge")}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                splitBillTab === "merge"
+                  ? "bg-card text-foreground shadow-2xs"
+                  : "text-muted-foreground",
+              )}
+            >
+              Merge / Transfer Table
+            </button>
+          </div>
+
+          {splitBillTab === "split" ? (
+            <form onSubmit={handleConfirmSplitItems} className="space-y-3">
+              <div className="max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+                {lines.map((l) => {
+                  const selQty = splitMoveQty[l.configKey] ?? 0;
+                  return (
+                    <div
+                      key={l.configKey}
+                      className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">
+                          {l.product.name}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          On bill: {l.qty} × ₹{l.unitPrice.toFixed(0)}
+                          {(l.sentQty ?? 0) > 0 ? " (KOT sent)" : ""}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-xs"
+                          disabled={selQty <= 0 || splitBillBusy}
+                          onClick={() =>
+                            setSplitMoveQty((prev) => ({
+                              ...prev,
+                              [l.configKey]: Math.max(0, selQty - 1),
+                            }))
+                          }
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-6 text-center font-semibold tabular-nums">
+                          {selQty}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-xs"
+                          disabled={selQty >= l.qty || splitBillBusy}
+                          onClick={() =>
+                            setSplitMoveQty((prev) => ({
+                              ...prev,
+                              [l.configKey]: Math.min(l.qty, selQty + 1),
+                            }))
+                          }
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Move Selected Items To</Label>
+                  <Select
+                    value={splitTargetId}
+                    onValueChange={(v) => v && setSplitTargetId(v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__new__">+ New Split Tab</SelectItem>
+                      {tabs
+                        .filter((t) => t.persisted && t.id !== activeTabId)
+                        .map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name.split("·")[0].trim()} (
+                            {t.lines.reduce((s, x) => s + x.qty, 0)} items)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {splitTargetId === "__new__" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Split Tab Name</Label>
+                    <Input
+                      value={splitNewName}
+                      onChange={(e) => setSplitNewName(e.target.value)}
+                      placeholder="e.g. T-04 (Split)"
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {splitBillError && (
+                <p className="rounded bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {splitBillError}
+                </p>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={splitBillBusy}
+                  onClick={() => setSplitBillOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm" disabled={splitBillBusy}>
+                  {splitBillBusy ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Splitting…
+                    </>
+                  ) : (
+                    "Split Items & Open Tab"
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <div className="space-y-2">
+              <div className="max-h-64 grid grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+                {tabs
+                  .filter((t) => t.persisted && t.id !== activeTabId)
+                  .map((t) => {
+                    const qty = t.lines.reduce((s, x) => s + x.qty, 0);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={movingTable}
+                        onClick={async () => {
+                          setSplitBillOpen(false);
+                          await transferCurrentBillTo(t.id);
+                        }}
+                        className={cn(
+                          "rounded-lg border p-2.5 text-left text-xs transition hover:border-primary",
+                          qty > 0
+                            ? "border-amber-400/50 bg-amber-500/5"
+                            : "border-border bg-card",
+                        )}
+                      >
+                        <div className="font-semibold">
+                          {t.name.split("·")[0].trim()}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {qty > 0 ? `Merge (${qty} items)` : "Transfer (Free)"}
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSplitBillOpen(false)}
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </div>
           )}
         </DialogContent>
       </Dialog>

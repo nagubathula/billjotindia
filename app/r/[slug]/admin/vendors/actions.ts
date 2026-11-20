@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getRestaurantBySlug, requireRole } from "@/lib/auth";
 import { isValidIsoDate } from "@/lib/hr";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { applyPurchaseOrderGrnToInventory } from "@/lib/inventory";
 import type { Json } from "@/lib/database.types";
 import { isUuid } from "@/lib/utils";
 import {
@@ -285,30 +286,47 @@ export async function createPurchaseOrderAction(
     input.poNumber?.trim().toUpperCase().slice(0, 32) ||
     (await nextPoNumber(admin, ctx.restaurant.id, input.orderDate));
 
-  const { error } = await admin.from("vendor_purchase_orders").insert({
-    restaurant_id: ctx.restaurant.id,
-    outlet_id: outletId,
-    vendor_id: vendor.id,
-    po_number: poNum,
-    order_date: input.orderDate,
-    expected_date: input.expectedDate?.trim() || null,
-    received_at: poStatus === "received" ? new Date().toISOString() : null,
-    invoice_number: input.invoiceNumber?.trim().slice(0, 64) || null,
-    status: poStatus,
-    items: totals.items as unknown as Json,
-    subtotal: totals.subtotal,
-    gst_amount: totals.gstAmount,
-    total_amount: totals.totalAmount,
-    amount_paid: 0,
-    payment_status: "unpaid",
-    notes: input.notes?.trim().slice(0, 300) || null,
-  });
+  const { data: createdPo, error } = await admin
+    .from("vendor_purchase_orders")
+    .insert({
+      restaurant_id: ctx.restaurant.id,
+      outlet_id: outletId,
+      vendor_id: vendor.id,
+      po_number: poNum,
+      order_date: input.orderDate,
+      expected_date: input.expectedDate?.trim() || null,
+      received_at: poStatus === "received" ? new Date().toISOString() : null,
+      invoice_number: input.invoiceNumber?.trim().slice(0, 64) || null,
+      status: poStatus,
+      items: totals.items as unknown as Json,
+      subtotal: totals.subtotal,
+      gst_amount: totals.gstAmount,
+      total_amount: totals.totalAmount,
+      amount_paid: 0,
+      payment_status: "unpaid",
+      notes: input.notes?.trim().slice(0, 300) || null,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
-    if (error.code === "23505") {
+  if (error || !createdPo) {
+    if (error?.code === "23505") {
       return { ok: false, error: `PO number "${poNum}" already exists.` };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: error?.message ?? "Failed to create PO." };
+  }
+
+  if (poStatus === "received") {
+    await applyPurchaseOrderGrnToInventory({
+      restaurantId: ctx.restaurant.id,
+      outletId,
+      vendorId: vendor.id,
+      poId: createdPo.id,
+      poNumber: poNum,
+      items: totals.items,
+      createdBy: ctx.user.email ?? ctx.role,
+    });
+    revalidatePath(`/r/${slug}/admin/inventory`);
   }
 
   revalidatePath(`/r/${slug}/admin/vendors`);
@@ -330,7 +348,7 @@ export async function updatePurchaseOrderStatusAction(
   const admin = createAdminClient();
   const { data: po } = await admin
     .from("vendor_purchase_orders")
-    .select("id, status, amount_paid")
+    .select("id, status, amount_paid, outlet_id, vendor_id, po_number, items")
     .eq("id", input.poId)
     .eq("restaurant_id", ctx.restaurant.id)
     .maybeSingle();
@@ -363,6 +381,32 @@ export async function updatePurchaseOrderStatusAction(
     .eq("id", po.id)
     .eq("restaurant_id", ctx.restaurant.id);
   if (error) return { ok: false, error: error.message };
+
+  if (input.status === "received" && po.status !== "received") {
+    const rawItems = Array.isArray(po.items)
+      ? (po.items as Array<{
+          name?: string;
+          unit?: string;
+          qty?: number;
+          unit_cost?: number;
+        }>)
+      : [];
+    await applyPurchaseOrderGrnToInventory({
+      restaurantId: ctx.restaurant.id,
+      outletId: po.outlet_id,
+      vendorId: po.vendor_id,
+      poId: po.id,
+      poNumber: po.po_number,
+      items: rawItems.map((it) => ({
+        name: String(it.name ?? ""),
+        unit: String(it.unit ?? "kg"),
+        qty: Number(it.qty ?? 0),
+        unit_cost: Number(it.unit_cost ?? 0),
+      })),
+      createdBy: ctx.user.email ?? ctx.role,
+    });
+    revalidatePath(`/r/${slug}/admin/inventory`);
+  }
 
   revalidatePath(`/r/${slug}/admin/vendors`);
   return { ok: true };

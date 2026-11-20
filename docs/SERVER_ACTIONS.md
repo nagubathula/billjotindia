@@ -19,8 +19,10 @@ Billjot executes UI mutations through **Next.js Server Actions** guarded by `req
   - `listTabsAction`, `createTabAction`, `saveTabAction`, `deleteTabAction`
   - `sendKotAction` — Creates/appends items to the table's running kitchen order (`pos_tabs.order_id`)
   - `voidSentItemAction` — Manager-only voiding of sent KOT items with audit logging
-  - `moveTabAction` — Transfers open table tabs and linked running orders across floor tables
-  - `settleTabAction` — Finalizes and closes a running table bill
+  - `moveTabAction` — Transfers or merges open table tabs and linked running orders across floor tables
+  - `splitTabItemsAction` — Splits selected item quantities from an active table/tab onto a new split tab or another floor table (rebalancing running kitchen `order_items`)
+  - `settleTabAction` — Finalizes and closes a running table bill with single tender + `order_payments` + inventory deduction
+  - `settlePosSplitPaymentAction` — Multi-tender settlement (`cash` + `upi` + `card`) with `order_payments` legs and inventory BOM deduction
   - `chargePosToCustomerTabAction` — Charges POS bills onto a customer's Khata ledger (enforcing credit limits & Cashier/Manager/Admin access)
 
 ---
@@ -46,7 +48,9 @@ Billjot executes UI mutations through **Next.js Server Actions** guarded by `req
 ## 5. Back-Office Operations, Settings & Security
 
 - **`app/r/[slug]/admin/hr/actions.ts`**: `saveEmployeeAction`, `deleteEmployeeAction`, `markAttendanceAction`, `markBulkAttendanceAction`, `recordAdvanceAction`, `deleteAdvanceAction`, `generateMonthlyPayrollAction`, `updatePayrollAdjustmentsAction`, `markPayrollPaidAction`
-- **`app/r/[slug]/admin/vendors/actions.ts`**: `saveVendorAction`, `deleteVendorAction`, `createPurchaseOrderAction`, `updatePurchaseOrderStatusAction`, `recordVendorPaymentAction`
+- **`app/r/[slug]/admin/vendors/actions.ts`**: `saveVendorAction`, `deleteVendorAction`, `createPurchaseOrderAction`, `updatePurchaseOrderStatusAction` (auto-syncs received POs into `inventory_materials`), `recordVendorPaymentAction`
+- **`app/r/[slug]/admin/inventory/actions.ts`**: `saveMaterialAction`, `adjustMaterialStockAction`, `deleteMaterialAction`, `saveProductRecipeAction`
+- **`app/r/[slug]/admin/register/actions.ts`**: `saveShiftFloatAction`, `closeRegisterShiftAction`, `reopenRegisterShiftAction`
 - **`app/r/[slug]/admin/accounts/actions.ts`**: `saveCustomerTabAction`, `recordTabTransactionAction`, `setCustomerTabStatusAction`, `saveCorporateClientAction`, `createCorporateInvoiceAction`, `recordCorporateInvoicePaymentAction`, `cancelCorporateInvoiceAction`, `createOutletExpenseAction`, `deleteOutletExpenseAction`
 - **`app/r/[slug]/admin/customers/actions.ts`**: `createCouponAction`, `toggleCouponActiveAction`, `deleteCouponAction`
 - **`app/r/[slug]/admin/channels/actions.ts`**: `saveChannelOutletAction`, `setChannelOnlineAction`

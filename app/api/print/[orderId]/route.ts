@@ -24,8 +24,9 @@ import { NextResponse } from "next/server";
 import { isUuid } from "@/lib/utils";
 import { getCurrentUser, getRoleInRestaurant } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatOrderTenderLabel } from "@/lib/register";
 import { resolveTimeZone } from "@/lib/time";
-import type { Order, OrderItem, Outlet, ProductConfig } from "@/lib/types";
+import type { Order, OrderItem, OrderPayment, Outlet, ProductConfig } from "@/lib/types";
 
 // ESC/POS control codes. https://reference.epson-biz.com/modules/ref_escpos/
 const ESC = 0x1b;
@@ -118,14 +119,16 @@ export async function GET(
   const role = outlet ? await getRoleInRestaurant(outlet.restaurant_id) : null;
   if (!role) return new NextResponse("Not found", { status: 404 });
 
-  const { data: items } = await admin
-    .from("order_items")
-    .select("*")
-    .eq("order_id", id);
+  const [{ data: items }, { data: paymentsData }] = await Promise.all([
+    admin.from("order_items").select("*").eq("order_id", id),
+    admin.from("order_payments").select("*").eq("order_id", id),
+  ]);
 
   const o = order as Order;
   const out = (outlet ?? null) as Outlet | null;
   const its = (items ?? []) as OrderItem[];
+  const payments = (paymentsData ?? []) as OrderPayment[];
+  const tenderText = formatOrderTenderLabel(o, payments);
 
   const placedAt = o.placed_at ?? o.created_at;
   const placedStr = placedAt
@@ -158,6 +161,7 @@ export async function GET(
   }
   buf.push(placedStr + LF);
   buf.push(`Type: ${o.order_type}` + LF);
+  if (tenderText) buf.push(`Paid: ${tenderText}` + LF);
   buf.push(divider());
 
   // Items

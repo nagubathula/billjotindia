@@ -24,7 +24,8 @@ All tables enforce PostgreSQL Row Level Security using tenant-scoped helper func
 
 ## 3. Orders, Floor Tabs, KDS & Bookings
 
-- **`orders` & `order_items`**: Staff read/update within their restaurant (`user_has_restaurant_access`); storefront/API/webhook inserts run server-side via service-role (`lib/supabase/admin.ts`) after server-side price recalculation.
+- **`orders`, `order_items` & `order_payments`**: Staff read/update within their restaurant (`user_has_restaurant_access`, billing staff for `order_payments`); storefront/API/webhook inserts run server-side via service-role (`lib/supabase/admin.ts`) after server-side price recalculation.
+- **`register_shifts`**: Managed by `admin` and `manager` (`user_has_restaurant_role(..., array['admin', 'manager'])`); readable (`SELECT`) by `user` (Cashier).
 - **`pos_tabs`**: Staff read within restaurant; tab mutations and `order_id` KOT linkage execute through role-checked server actions (`tab-actions.ts`).
 - **`kitchen_stations`, `printers`, `kot_tickets`, `kot_ticket_items`**: Hardware/station setup limited to `admin`/`manager`; all restaurant staff (including `user` and `captain`) can read `kitchen_stations` and manage KOT workflows on KDS.
 - **`table_bookings`**: All staff roles (`admin`, `manager`, `user`, `captain`) can manage bookings/waitlist inside their restaurant (`user_has_restaurant_role(..., array['admin', 'manager', 'user', 'captain'])`). Public storefront bookings and deposit callbacks execute via backend service-role handlers with rate limits & phone/code checks.
@@ -33,7 +34,7 @@ All tables enforce PostgreSQL Row Level Security using tenant-scoped helper func
 
 ## 4. Operations Suite (HR, Vendors, Accounts & Expenses)
 
-- **HR & Vendors (`hr_employees`, `hr_attendance`, `hr_advances`, `hr_payroll_entries`, `vendors`, `vendor_purchase_orders`, `vendor_payments`)**: Strict `admin` and `manager` access only (`user_has_restaurant_role(restaurant_id, array['admin', 'manager'])`).
+- **HR, Vendors & Inventory (`hr_employees`, `hr_attendance`, `hr_advances`, `hr_payroll_entries`, `vendors`, `vendor_purchase_orders`, `vendor_payments`, `inventory_materials`, `product_recipes`, `inventory_stock_movements`)**: Strict `admin` and `manager` access only (`user_has_restaurant_role(restaurant_id, array['admin', 'manager'])`).
 - **Coupons & People's Tabs (`coupons`, `customer_tabs`)**: Managed by `admin` and `manager`; readable (`SELECT`) by `user` (Cashier) for POS discount chips and Khata settlement.
 - **Khata Ledger, Corporate B2B & Expenses (`customer_tab_transactions`, `corporate_clients`, `corporate_invoices`, `outlet_expenses`)**: Managed by `admin` and `manager`; POS Khata charges verify cashier/manager/admin role via server action before writing service-role ledger entries.
 
