@@ -95,6 +95,7 @@ export type Database = {
           name: string
           outlet_id: string
           sort_order: number | null
+          station_id: string | null
           status: string | null
           updated_at: string | null
         }
@@ -105,6 +106,7 @@ export type Database = {
           name: string
           outlet_id: string
           sort_order?: number | null
+          station_id?: string | null
           status?: string | null
           updated_at?: string | null
         }
@@ -115,6 +117,7 @@ export type Database = {
           name?: string
           outlet_id?: string
           sort_order?: number | null
+          station_id?: string | null
           status?: string | null
           updated_at?: string | null
         }
@@ -124,6 +127,13 @@ export type Database = {
             columns: ["outlet_id"]
             isOneToOne: false
             referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "categories_station_id_fkey"
+            columns: ["station_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_stations"
             referencedColumns: ["id"]
           },
         ]
@@ -1430,6 +1440,183 @@ export type Database = {
           },
         ]
       }
+      loyalty_settings: {
+        Row: {
+          created_at: string
+          is_enabled: boolean
+          max_redeem_pct: number
+          min_order_for_earn: number
+          min_points_to_redeem: number
+          point_value: number
+          points_per_100: number
+          restaurant_id: string
+          updated_at: string
+          welcome_bonus_points: number
+        }
+        Insert: {
+          created_at?: string
+          is_enabled?: boolean
+          max_redeem_pct?: number
+          min_order_for_earn?: number
+          min_points_to_redeem?: number
+          point_value?: number
+          points_per_100?: number
+          restaurant_id: string
+          updated_at?: string
+          welcome_bonus_points?: number
+        }
+        Update: {
+          created_at?: string
+          is_enabled?: boolean
+          max_redeem_pct?: number
+          min_order_for_earn?: number
+          min_points_to_redeem?: number
+          point_value?: number
+          points_per_100?: number
+          restaurant_id?: string
+          updated_at?: string
+          welcome_bonus_points?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_settings_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_transactions: {
+        Row: {
+          balance_after: number
+          created_at: string
+          created_by: string | null
+          id: string
+          note: string | null
+          order_id: string | null
+          outlet_id: string | null
+          points_delta: number
+          restaurant_id: string
+          rupee_value: number
+          txn_type: string
+          wallet_id: string
+        }
+        Insert: {
+          balance_after: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          outlet_id?: string | null
+          points_delta: number
+          restaurant_id: string
+          rupee_value?: number
+          txn_type: string
+          wallet_id: string
+        }
+        Update: {
+          balance_after?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          outlet_id?: string | null
+          points_delta?: number
+          restaurant_id?: string
+          rupee_value?: number
+          txn_type?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_transactions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_wallets: {
+        Row: {
+          created_at: string
+          customer_email: string | null
+          customer_name: string | null
+          id: string
+          last_visit_at: string | null
+          lifetime_earned: number
+          lifetime_redeemed: number
+          phone_normalized: string
+          points_balance: number
+          restaurant_id: string
+          total_spent: number
+          updated_at: string
+          visits_count: number
+        }
+        Insert: {
+          created_at?: string
+          customer_email?: string | null
+          customer_name?: string | null
+          id?: string
+          last_visit_at?: string | null
+          lifetime_earned?: number
+          lifetime_redeemed?: number
+          phone_normalized: string
+          points_balance?: number
+          restaurant_id: string
+          total_spent?: number
+          updated_at?: string
+          visits_count?: number
+        }
+        Update: {
+          created_at?: string
+          customer_email?: string | null
+          customer_name?: string | null
+          id?: string
+          last_visit_at?: string | null
+          lifetime_earned?: number
+          lifetime_redeemed?: number
+          phone_normalized?: string
+          points_balance?: number
+          restaurant_id?: string
+          total_spent?: number
+          updated_at?: string
+          visits_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_wallets_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string
@@ -1552,7 +1739,12 @@ export type Database = {
           id: string
           igst_amount: number
           instructions: string | null
+          loyalty_discount_amount: number
+          loyalty_points_earned: number
+          loyalty_points_redeemed: number
           net_payout: number | null
+          offline_id: string | null
+          offline_synced_at: string | null
           order_type: string | null
           outlet_id: string
           payment_mode: string | null
@@ -1600,7 +1792,12 @@ export type Database = {
           id?: string
           igst_amount?: number
           instructions?: string | null
+          loyalty_discount_amount?: number
+          loyalty_points_earned?: number
+          loyalty_points_redeemed?: number
           net_payout?: number | null
+          offline_id?: string | null
+          offline_synced_at?: string | null
           order_type?: string | null
           outlet_id: string
           payment_mode?: string | null
@@ -1648,7 +1845,12 @@ export type Database = {
           id?: string
           igst_amount?: number
           instructions?: string | null
+          loyalty_discount_amount?: number
+          loyalty_points_earned?: number
+          loyalty_points_redeemed?: number
           net_payout?: number | null
+          offline_id?: string | null
+          offline_synced_at?: string | null
           order_type?: string | null
           outlet_id?: string
           payment_mode?: string | null
@@ -1973,6 +2175,7 @@ export type Database = {
           created_at: string
           id: string
           interface: string
+          kick_cash_drawer: boolean
           name: string
           outlet_id: string
           paper_width: number
@@ -1985,6 +2188,7 @@ export type Database = {
           created_at?: string
           id?: string
           interface?: string
+          kick_cash_drawer?: boolean
           name: string
           outlet_id: string
           paper_width?: number
@@ -1997,6 +2201,7 @@ export type Database = {
           created_at?: string
           id?: string
           interface?: string
+          kick_cash_drawer?: boolean
           name?: string
           outlet_id?: string
           paper_width?: number

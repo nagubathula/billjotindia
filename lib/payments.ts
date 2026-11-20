@@ -13,6 +13,8 @@ import {
 } from "@/lib/customizations";
 import { isOutletOpen } from "@/lib/opening-hours";
 import { deductOrderRecipeStock } from "@/lib/inventory";
+import { insertRoutedKotTickets } from "@/lib/kot-routing";
+import { applyOrderLoyaltyOnSettlement } from "@/lib/loyalty";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
@@ -842,6 +844,26 @@ export async function finalizePaidOrderFromSession(params: {
         .eq("id", draft.pos_tab_id);
     }
 
+    if (settledOrder.customer_phone) {
+      const { data: outletRow } = await admin
+        .from("outlets")
+        .select("restaurant_id")
+        .eq("id", settledOrder.outlet_id)
+        .maybeSingle();
+      if (outletRow) {
+        await applyOrderLoyaltyOnSettlement(admin, {
+          restaurantId: outletRow.restaurant_id,
+          outletId: settledOrder.outlet_id,
+          orderId: settledOrder.id,
+          customerPhone: settledOrder.customer_phone,
+          customerName: settledOrder.customer_name,
+          customerEmail: settledOrder.customer_email,
+          orderSubtotal: Number(settledOrder.subtotal ?? settledOrder.total_amount ?? 0),
+          netPaidAmount: Number(settledOrder.total_amount ?? 0),
+        });
+      }
+    }
+
     void dispatchOrderStatusWebhooks(settledOrder.id, "order.updated");
     void deductOrderRecipeStock({
       orderId: settledOrder.id,
@@ -910,42 +932,45 @@ export async function finalizePaidOrderFromSession(params: {
         ...(anyItemNote ? { instructions: it.instructions } : {}),
       })),
     )
-    .select("id, quantity, instructions");
+    .select("id, quantity, instructions, product_config");
 
   if (itemsErr) {
     await admin.from("orders").delete().eq("id", order.id);
     return { ok: false, error: itemsErr.message };
   }
 
-  // Create live KOT ticket in KDS
+  // Create station-routed KOT tickets in KDS
   if (insertedItems && insertedItems.length > 0) {
-    const { data: ticket } = await admin
-      .from("kot_tickets")
-      .insert({
-        outlet_id: draft.outlet_id,
-        order_id: order.id,
-        ticket_number: tokenNumber,
-        status: "printed",
-        notes: draft.instructions,
-        printed_at: new Date().toISOString(),
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (ticket) {
-      await admin.from("kot_ticket_items").insert(
-        insertedItems.map((oi) => ({
-          kot_ticket_id: ticket.id,
-          order_item_id: oi.id,
-          quantity: oi.quantity,
-          notes: oi.instructions,
-        })),
-      );
-    }
+    await insertRoutedKotTickets(admin, {
+      outletId: draft.outlet_id,
+      orderId: order.id,
+      tokenNumber,
+      notes: draft.instructions,
+      insertedItems,
+    });
   }
 
   if (draft.coupon_code && draft.discount_amount > 0) {
     void recordCouponRedemption(admin, draft.outlet_id, draft.coupon_code);
+  }
+  if (draft.customer_phone) {
+    const { data: outletRow } = await admin
+      .from("outlets")
+      .select("restaurant_id")
+      .eq("id", draft.outlet_id)
+      .maybeSingle();
+    if (outletRow) {
+      await applyOrderLoyaltyOnSettlement(admin, {
+        restaurantId: outletRow.restaurant_id,
+        outletId: draft.outlet_id,
+        orderId: order.id,
+        customerPhone: draft.customer_phone,
+        customerName: draft.customer_name,
+        customerEmail: draft.customer_email,
+        orderSubtotal: Number(draft.subtotal ?? draft.total_amount ?? 0),
+        netPaidAmount: Number(draft.total_amount ?? 0),
+      });
+    }
   }
   void deductOrderRecipeStock({ orderId: order.id, outletId: draft.outlet_id });
   void dispatchOrderStatusWebhooks(order.id, "order.created");

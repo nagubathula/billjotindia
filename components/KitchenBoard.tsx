@@ -353,6 +353,9 @@ export function KitchenBoard({
               const itemRound = it.kotRound ?? 1;
               const isLaterKot = itemRound > 1;
               const isNewestBatch = isLaterKot && itemRound === maxRound;
+              const itemStation = cfg?.product_id
+                ? productStationMap[cfg.product_id]
+                : undefined;
 
               return (
                 <li
@@ -369,6 +372,11 @@ export function KitchenBoard({
                         {it.quantity}×
                       </span>
                       <span className="leading-snug">{cfg?.name ?? "Item"}</span>
+                      {stationFilter === "all" && itemStation && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {itemStation}
+                        </span>
+                      )}
                     </div>
                     {isLaterKot && (
                       <span
@@ -411,9 +419,17 @@ export function KitchenBoard({
             {stage.ctaLabel}
           </Button>
           <Link
-            href={`/r/${slug}/pos/receipt/${o.id}?mode=kot`}
+            href={
+              stationFilter !== "all"
+                ? `/r/${slug}/pos/receipt/${o.id}?mode=kot&station=${encodeURIComponent(stationFilter)}`
+                : `/r/${slug}/pos/receipt/${o.id}?mode=kot`
+            }
             target="_blank"
-            title="Print KOT"
+            title={
+              stationFilter !== "all"
+                ? `Print ${stationFilter} KOT`
+                : "Print KOT"
+            }
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <Printer className="h-3.5 w-3.5" />
@@ -474,27 +490,6 @@ export function KitchenBoard({
         </div>
 
         <div className="flex items-center gap-2">
-          {stationNames.length > 0 && (
-            <Select
-              value={stationFilter}
-              onValueChange={(v) => v && setStationFilter(v)}
-            >
-              <SelectTrigger size="sm" className="w-44 text-xs">
-                <SelectValue>
-                  {stationFilter === "all" ? "All stations" : stationFilter}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All stations</SelectItem>
-                {stationNames.map((st) => (
-                  <SelectItem key={st} value={st}>
-                    {st}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-
           {outlets.length > 1 && (
             <Select
               value={outletFilter}
@@ -542,6 +537,53 @@ export function KitchenBoard({
           </Button>
         </div>
       </div>
+
+      {/* 1-Tap Station Routing Filter Pills */}
+      {stationNames.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-medium text-muted-foreground">
+            Station:
+          </span>
+          <button
+            type="button"
+            onClick={() => setStationFilter("all")}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              stationFilter === "all"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-muted-foreground hover:text-foreground",
+            )}
+          >
+            All Stations ({orders.length})
+          </button>
+          {stationNames.map((st) => {
+            const countForStation = orders.filter((o) => {
+              if (outletFilter !== "all" && String(o.outlet_id) !== outletFilter) {
+                return false;
+              }
+              return o.items.some((it) => {
+                const pid = configOf(it)?.product_id;
+                return pid ? productStationMap[pid] === st : false;
+              });
+            }).length;
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStationFilter(st)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  stationFilter === st
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {st} ({countForStation})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Empty State */}
       {filtered.length === 0 ? (

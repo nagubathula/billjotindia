@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-11-21 (Part 2) — Station KOT Routing, Silent Printing, CA GSTR-1/Tally Pack, POS Offline Mode & Phone Loyalty
+
+### Migration (`20261121020000_stations_loyalty_offline_and_ca_pack`)
+- Added `categories.station_id` and `printers.kick_cash_drawer`, plus staff `SELECT` RLS on `printers` and `kitchen_stations`.
+- Added `orders.offline_id`, `orders.offline_synced_at`, `orders.loyalty_points_redeemed`, `orders.loyalty_discount_amount`, and `orders.loyalty_points_earned` (with unique index `(outlet_id, offline_id)` for idempotent offline sync).
+- Added `public.loyalty_settings`, `public.loyalty_wallets`, and `public.loyalty_transactions` with idempotent order credit/redeem deduplication indexes and role-scoped RLS.
+
+### What changed
+- **Multi-Station KOT Routing & Silent WebUSB / LAN Thermal Printing (`lib/escpos.ts`, `lib/kot-routing.ts`, `lib/pos-printer-client.ts`):** Added Printers & Kitchen Stations setup in `/r/[slug]/admin/settings`, station assignment (`station_id`) and `is_kot_required` toggle in `/r/[slug]/admin/menu`, station-routed KOT ticket splitting across POS and online orders, `?mode=kot` browser/ESC-POS KOT slips, 1-tap station filter pills on KDS (`KitchenBoard`), and zero-dialog WebUSB/LAN receipt, KOT, and RJ11 cash drawer kick support (`PosPrinterDialog`).
+- **CA Accounting Pack (`/r/[slug]/admin/reports`, `lib/ca-exports.ts`):** Added `This month` / `Last month` filters, Table 4A B2B Invoices, Table 7 B2CS slabs (deduplicated against Corporate B2B invoices), Table 12 HSN/SAC summary (`996331`), Table 13 document series, Sec 9(5) ECO separation, GSTR-1 CSV & Portal JSON exports, and zero-balanced Tally Prime Sales Voucher XML exports.
+- **POS Offline Mode (`lib/pos-offline.ts`, `public/sw.js`, `PosOfflineOutboxDialog`):** Added POS navigation shell caching in the service worker, `IndexedDB` catalog snapshots and offline bill outbox, offline 80mm receipt printing, and idempotent auto-sync on reconnect.
+- **Phone-Number Loyalty Points & Cashback (`lib/loyalty.ts`):** Added Loyalty Rules, Wallets, and Points Ledger tabs in `/r/[slug]/admin/customers`, 10-digit phone lookup & 1-tap point redemption in POS, and earn previews at Checkout (excluding WhatsApp integrations).
+- **Seed & Tests:** Added `scripts/seed-petpooja-wave.mjs` and `tests/stations-loyalty-ca-offline.test.ts`.
+
+---
+
 ## 2026-11-21 — DB Inventory & Recipe BOM, Register Shifts, POS Split-Bills & Repo Polish
 
 ### Migration (`20261121010000_inventory_shifts_and_split_payments`)

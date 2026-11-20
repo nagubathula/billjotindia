@@ -33,10 +33,19 @@ import {
   type TabRow,
 } from "@/lib/running-orders";
 import { deductOrderRecipeStock } from "@/lib/inventory";
+import { insertRoutedKotTickets } from "@/lib/kot-routing";
+import {
+  applyOrderLoyaltyOnSettlement,
+  computeMaxRedeemablePoints,
+  getLoyaltySettings,
+  lookupLoyaltyWalletByPhone,
+  normalizeLoyaltyPhone,
+} from "@/lib/loyalty";
 import {
   validateSplitAllocations,
   type SplitAllocationInput,
 } from "@/lib/register";
+import type { LoyaltySettings, LoyaltyWallet } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid } from "@/lib/utils";
 
@@ -651,7 +660,7 @@ export async function chargePosToCustomerTabAction(
           ...(anyItemNote ? { instructions: it.instructions } : {}),
         })),
       )
-      .select("id, quantity, instructions");
+      .select("id, quantity, instructions, product_config");
 
     if (itemsErr) {
       await admin.from("orders").delete().eq("id", order.id);
@@ -659,29 +668,13 @@ export async function chargePosToCustomerTabAction(
     }
 
     if (insertedItems && insertedItems.length > 0) {
-      const { data: ticket } = await admin
-        .from("kot_tickets")
-        .insert({
-          outlet_id: input.outletId,
-          order_id: order.id,
-          ticket_number: tokenNumber,
-          status: "printed",
-          notes: note,
-          printed_at: new Date().toISOString(),
-        })
-        .select("id")
-        .maybeSingle();
-
-      if (ticket) {
-        await admin.from("kot_ticket_items").insert(
-          insertedItems.map((oi) => ({
-            kot_ticket_id: ticket.id,
-            order_item_id: oi.id,
-            quantity: oi.quantity,
-            notes: oi.instructions,
-          })),
-        );
-      }
+      await insertRoutedKotTickets(admin, {
+        outletId: input.outletId,
+        orderId: order.id,
+        tokenNumber,
+        notes: note,
+        insertedItems,
+      });
     }
 
     orderId = order.id;
@@ -715,6 +708,18 @@ export async function chargePosToCustomerTabAction(
       order_id: orderId,
       payment_mode: "tab",
       amount: chargedTotal,
+    });
+  }
+  if (custTab.phone) {
+    await applyOrderLoyaltyOnSettlement(admin, {
+      restaurantId: restaurant.id,
+      outletId: input.outletId,
+      orderId,
+      customerPhone: custTab.phone,
+      customerName: custTab.customer_name,
+      customerEmail: custTab.email,
+      orderSubtotal: chargedTotal,
+      netPaidAmount: chargedTotal,
     });
   }
   void deductOrderRecipeStock({ orderId, outletId: input.outletId });
@@ -829,6 +834,33 @@ export async function splitTabItemsAction(
   };
 }
 
+export async function lookupPosLoyaltyWalletAction(
+  slug: string,
+  rawPhone: string,
+): Promise<
+  | {
+      ok: true;
+      phoneNormalized: string | null;
+      wallet: LoyaltyWallet | null;
+      settings: LoyaltySettings;
+    }
+  | { ok: false; error: string }
+> {
+  const ctx = await authRestaurant(slug);
+  if (!ctx) return { ok: false, error: "Not allowed" };
+  const admin = createAdminClient();
+  const [settings, lookup] = await Promise.all([
+    getLoyaltySettings(admin, ctx.restaurant.id),
+    lookupLoyaltyWalletByPhone(admin, ctx.restaurant.id, rawPhone),
+  ]);
+  return {
+    ok: true,
+    phoneNormalized: lookup.phoneNormalized,
+    wallet: lookup.wallet,
+    settings,
+  };
+}
+
 export async function settlePosSplitPaymentAction(
   slug: string,
   input: {
@@ -843,6 +875,7 @@ export async function settlePosSplitPaymentAction(
     packingCharge?: number;
     discountPct?: number;
     discountFlat?: number;
+    redeemLoyaltyPoints?: number;
     lines: PosLine[];
     pricingItems: OrderItemInput[];
     allocations: SplitAllocationInput[];
@@ -867,11 +900,37 @@ export async function settlePosSplitPaymentAction(
   const pct = Math.min(100, Math.max(0, Number(input.discountPct ?? 0) || 0));
   const flat = Math.max(0, Number(input.discountFlat ?? 0) || 0);
   const note = cleanNote(input.note, ORDER_NOTE_MAX);
-  const cleanPhone = input.customerPhone?.trim().slice(0, 30) || null;
+  const normalizedPhone = normalizeLoyaltyPhone(input.customerPhone);
+  const cleanPhone = normalizedPhone ?? (input.customerPhone?.trim().slice(0, 30) || null);
   const cleanGuestEmail =
     input.customerEmail?.trim().includes("@")
       ? input.customerEmail.trim().slice(0, 120)
       : null;
+
+  const resolveLoyaltyRedeem = async (subtotalAfterDisc: number) => {
+    const reqPts = Math.max(0, Math.floor(Number(input.redeemLoyaltyPoints ?? 0) || 0));
+    if (!normalizedPhone || reqPts <= 0) return { points: 0, discount: 0 };
+    const [settings, { wallet }] = await Promise.all([
+      getLoyaltySettings(admin, restaurant.id),
+      lookupLoyaltyWalletByPhone(admin, restaurant.id, normalizedPhone),
+    ]);
+    const cap = computeMaxRedeemablePoints({
+      balance: wallet?.points_balance ?? 0,
+      orderSubtotal: subtotalAfterDisc,
+      settings,
+    });
+    const actualPts = Math.min(reqPts, cap.maxPoints);
+    if (actualPts < settings.min_points_to_redeem || actualPts <= 0) {
+      return { points: 0, discount: 0 };
+    }
+    return {
+      points: actualPts,
+      discount: Math.min(
+        subtotalAfterDisc,
+        round2(actualPts * Number(settings.point_value)),
+      ),
+    };
+  };
 
   if (input.hasRunningOrder && input.posTabId && isUuid(input.posTabId)) {
     const loaded = await loadTab(db, input.posTabId, restaurant.id);
@@ -900,7 +959,8 @@ export async function settlePosSplitPaymentAction(
       actualGross,
       round2(pct > 0 ? (actualGross * pct) / 100 : flat),
     );
-    const actualNet = Math.max(0, actualGross - actualDisc);
+    const loyalty = await resolveLoyaltyRedeem(Math.max(0, actualGross - actualDisc));
+    const actualNet = Math.max(0, actualGross - actualDisc - loyalty.discount);
     const chargedTotal = Math.round(actualNet);
     const actualRounding = round2(chargedTotal - actualNet);
 
@@ -920,6 +980,8 @@ export async function settlePosSplitPaymentAction(
       .update({
         table_id: loaded.tab.id,
         discount_amount: actualDisc,
+        loyalty_points_redeemed: loyalty.points,
+        loyalty_discount_amount: loyalty.discount,
         rounding_amount: actualRounding,
         total_amount: chargedTotal,
         customer_name: displayName,
@@ -942,6 +1004,20 @@ export async function settlePosSplitPaymentAction(
         reference_no: l.referenceNo,
       })),
     );
+
+    if (normalizedPhone) {
+      await applyOrderLoyaltyOnSettlement(admin, {
+        restaurantId: restaurant.id,
+        outletId: input.outletId,
+        orderId: runningOrderId,
+        customerPhone: normalizedPhone,
+        customerName: displayName,
+        customerEmail: cleanGuestEmail,
+        orderSubtotal: Math.max(0, actualGross - actualDisc),
+        netPaidAmount: chargedTotal,
+        requestedRedeemPoints: loyalty.points,
+      });
+    }
 
     await db
       .from("pos_tabs")
@@ -977,7 +1053,13 @@ export async function settlePosSplitPaymentAction(
     grossItemsTotal,
     round2(pct > 0 ? (grossItemsTotal * pct) / 100 : flat),
   );
-  const netBeforeRound = Math.max(0, grossItemsTotal + packing - discount);
+  const loyalty = await resolveLoyaltyRedeem(
+    Math.max(0, grossItemsTotal + packing - discount),
+  );
+  const netBeforeRound = Math.max(
+    0,
+    grossItemsTotal + packing - discount - loyalty.discount,
+  );
   const chargedTotal = Math.round(netBeforeRound);
   const rounding = round2(chargedTotal - netBeforeRound);
 
@@ -1015,6 +1097,8 @@ export async function settlePosSplitPaymentAction(
       gst_paid_by_operator: false,
       takeaway_charges: packing,
       discount_amount: discount,
+      loyalty_points_redeemed: loyalty.points,
+      loyalty_discount_amount: loyalty.discount,
       rounding_amount: rounding,
       total_amount: chargedTotal,
       token_number: tokenNumber,
@@ -1046,7 +1130,7 @@ export async function settlePosSplitPaymentAction(
         ...(anyItemNote ? { instructions: it.instructions } : {}),
       })),
     )
-    .select("id, quantity, instructions");
+    .select("id, quantity, instructions, product_config");
 
   if (itemsErr) {
     await admin.from("orders").delete().eq("id", order.id);
@@ -1054,29 +1138,13 @@ export async function settlePosSplitPaymentAction(
   }
 
   if (insertedItems && insertedItems.length > 0) {
-    const { data: ticket } = await admin
-      .from("kot_tickets")
-      .insert({
-        outlet_id: input.outletId,
-        order_id: order.id,
-        ticket_number: tokenNumber,
-        status: "printed",
-        notes: note,
-        printed_at: new Date().toISOString(),
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (ticket) {
-      await admin.from("kot_ticket_items").insert(
-        insertedItems.map((oi) => ({
-          kot_ticket_id: ticket.id,
-          order_item_id: oi.id,
-          quantity: oi.quantity,
-          notes: oi.instructions,
-        })),
-      );
-    }
+    await insertRoutedKotTickets(admin, {
+      outletId: input.outletId,
+      orderId: order.id,
+      tokenNumber,
+      notes: note,
+      insertedItems,
+    });
   }
 
   await admin.from("order_payments").insert(
@@ -1089,6 +1157,20 @@ export async function settlePosSplitPaymentAction(
       reference_no: l.referenceNo,
     })),
   );
+
+  if (normalizedPhone) {
+    await applyOrderLoyaltyOnSettlement(admin, {
+      restaurantId: restaurant.id,
+      outletId: input.outletId,
+      orderId: order.id,
+      customerPhone: normalizedPhone,
+      customerName: input.customerName?.trim() || "Walk-in",
+      customerEmail: cleanGuestEmail,
+      orderSubtotal: Math.max(0, grossItemsTotal + packing - discount),
+      netPaidAmount: chargedTotal,
+      requestedRedeemPoints: loyalty.points,
+    });
+  }
 
   void deductOrderRecipeStock({ orderId: order.id, outletId: input.outletId });
   void dispatchOrderStatusWebhooks(order.id, "order.created");

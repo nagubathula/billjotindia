@@ -34,19 +34,36 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
+import { buildCaAccountingReport } from "@/lib/ca-exports";
 import { resolveOrderPaymentMode } from "@/lib/register";
 import { cn } from "@/lib/utils";
-import type { Order, OrderItem, ProductConfig } from "@/lib/types";
+import type {
+  CorporateClient,
+  CorporateInvoice,
+  Order,
+  OrderItem,
+  OrderPayment,
+  ProductConfig,
+} from "@/lib/types";
+import { CaAccountingPack } from "./CaAccountingPack";
 
 export const dynamic = "force-dynamic";
 
-type Range = "today" | "yesterday" | "7d" | "30d";
+type Range =
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "30d"
+  | "this_month"
+  | "last_month";
 
 const RANGE_LABEL: Record<Range, string> = {
   today: "Today",
   yesterday: "Yesterday",
   "7d": "Last 7 days",
   "30d": "Last 30 days",
+  this_month: "This month",
+  last_month: "Last month",
 };
 
 const PREV_LABEL: Record<Range, string> = {
@@ -54,6 +71,8 @@ const PREV_LABEL: Record<Range, string> = {
   yesterday: "vs prev day",
   "7d": "vs prev 7 days",
   "30d": "vs prev 30 days",
+  this_month: "vs prev period",
+  last_month: "vs prev period",
 };
 
 function rangeBounds(r: Range, timeZone: string): { start: Date; end: Date } {
@@ -71,6 +90,20 @@ function rangeBounds(r: Range, timeZone: string): { start: Date; end: Date } {
       return { start: dayStart(-6), end: dayEnd(0) };
     case "30d":
       return { start: dayStart(-29), end: dayEnd(0) };
+    case "this_month": {
+      const todayKey = dayKey(now, timeZone);
+      const dayOfMonth = Number(todayKey.slice(8, 10)) || 1;
+      return { start: dayStart(-(dayOfMonth - 1)), end: dayEnd(0) };
+    }
+    case "last_month": {
+      const todayKey = dayKey(now, timeZone);
+      const dayOfMonth = Number(todayKey.slice(8, 10)) || 1;
+      const prevMonthEnd = dayEnd(-dayOfMonth);
+      const prevMonthKey = dayKey(prevMonthEnd, timeZone);
+      const daysInPrev = Number(prevMonthKey.slice(8, 10)) || 30;
+      const prevMonthStart = dayStart(-(dayOfMonth + daysInPrev - 1));
+      return { start: prevMonthStart, end: prevMonthEnd };
+    }
   }
 }
 
@@ -109,13 +142,23 @@ export default async function ReportsPage(props: Props) {
   if (!restaurant) notFound();
 
   const range = ((searchParams.range as Range) ?? "today") as Range;
-  const validRange: Range = ["today", "yesterday", "7d", "30d"].includes(range)
+  const validRange: Range = [
+    "today",
+    "yesterday",
+    "7d",
+    "30d",
+    "this_month",
+    "last_month",
+  ].includes(range)
     ? range
     : "today";
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
   const timeZone = resolveTimeZone(outlets[0]?.timezone);
   const { start, end } = rangeBounds(validRange, timeZone);
+  const startDateKey = dayKey(start, timeZone);
+  const endDateKey = dayKey(end, timeZone);
+  const filingPeriodMmYyyy = `${startDateKey.slice(5, 7)}${startDateKey.slice(0, 4)}`;
   const outletIds = outlets.map((o) => o.id);
   const scoped =
     outletIds.length > 0
@@ -128,25 +171,49 @@ export default async function ReportsPage(props: Props) {
   const prevEnd = new Date(start.getTime() - 1);
   const prevStart = new Date(prevEnd.getTime() - periodMs);
 
-  const [{ data: ordersData }, { data: prevData }, { data: prods }] =
-    await Promise.all([
-      supabase
-        .from("orders")
-        .select("*, order_items(*)")
-        .in("outlet_id", scoped)
-        .gte("placed_at", start.toISOString())
-        .lte("placed_at", end.toISOString())
-        .neq("status", "cancelled")
-        .order("placed_at", { ascending: true }),
-      supabase
-        .from("orders")
-        .select("total_amount")
-        .in("outlet_id", scoped)
-        .gte("placed_at", prevStart.toISOString())
-        .lte("placed_at", prevEnd.toISOString())
-        .neq("status", "cancelled"),
-      supabase.from("products").select("id, category").in("outlet_id", scoped),
-    ]);
+  const [
+    { data: ordersData },
+    { data: prevData },
+    { data: prods },
+    { count: cancelledCount },
+    { data: corpInvoicesData },
+    { data: corpClientsData },
+  ] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("*, order_items(*)")
+      .in("outlet_id", scoped)
+      .gte("placed_at", start.toISOString())
+      .lte("placed_at", end.toISOString())
+      .neq("status", "cancelled")
+      .order("placed_at", { ascending: true }),
+    supabase
+      .from("orders")
+      .select("total_amount")
+      .in("outlet_id", scoped)
+      .gte("placed_at", prevStart.toISOString())
+      .lte("placed_at", prevEnd.toISOString())
+      .neq("status", "cancelled"),
+    supabase.from("products").select("id, category").in("outlet_id", scoped),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .in("outlet_id", scoped)
+      .gte("placed_at", start.toISOString())
+      .lte("placed_at", end.toISOString())
+      .eq("status", "cancelled"),
+    supabase
+      .from("corporate_invoices")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .gte("invoice_date", startDateKey)
+      .lte("invoice_date", endDateKey)
+      .order("invoice_date", { ascending: true }),
+    supabase
+      .from("corporate_clients")
+      .select("*")
+      .eq("restaurant_id", restaurant.id),
+  ]);
 
   const orders: Order[] = [];
   const items: OrderItem[] = [];
@@ -223,12 +290,14 @@ export default async function ReportsPage(props: Props) {
     }
     series.push(...map.values());
   }
-  const seriesMax = Math.max(...series.map((s) => s.value), 1);
-  const peak = series.reduce(
+  const visibleSeries =
+    series.length > 32 ? series.slice(series.length - 31) : series;
+  const seriesMax = Math.max(...visibleSeries.map((s) => s.value), 1);
+  const peak = visibleSeries.reduce(
     (best, s) => (s.value > best.value ? s : best),
-    series[0] ?? { label: "—", value: 0 },
+    visibleSeries[0] ?? { label: "—", value: 0 },
   );
-  const labelEvery = Math.ceil(series.length / 8);
+  const labelEvery = Math.ceil(visibleSeries.length / 8);
 
   // ---- Top products ----
   const productTotals = new Map<
@@ -261,24 +330,31 @@ export default async function ReportsPage(props: Props) {
   );
 
   const orderIds = orders.map((o) => o.id);
-  const paymentsByOrderId = new Map<
-    string,
-    Array<{ payment_mode: string; amount: number }>
-  >();
+  const paymentsByOrderId = new Map<string, OrderPayment[]>();
   if (orderIds.length > 0) {
     const { data: legs } = await supabase
       .from("order_payments")
-      .select("order_id, payment_mode, amount")
+      .select("*")
       .in("order_id", orderIds);
-    for (const l of legs ?? []) {
+    for (const l of (legs ?? []) as OrderPayment[]) {
       const list = paymentsByOrderId.get(l.order_id) ?? [];
-      list.push({
-        payment_mode: l.payment_mode,
-        amount: Number(l.amount ?? 0),
-      });
+      list.push(l);
       paymentsByOrderId.set(l.order_id, list);
     }
   }
+
+  const caReport = buildCaAccountingReport({
+    restaurantName: restaurant.name,
+    outletGstin: outlets.find((o) => o.gstin)?.gstin ?? null,
+    timeZone,
+    periodLabel: RANGE_LABEL[validRange],
+    orders,
+    orderItems: items,
+    cancelledOrdersCount: cancelledCount ?? 0,
+    corporateInvoices: (corpInvoicesData ?? []) as CorporateInvoice[],
+    corporateClients: (corpClientsData ?? []) as CorporateClient[],
+    paymentsByOrderId,
+  });
 
   // ---- Payment / Tender mode split (for cash drawer reconciliation) ----
   const TENDER_META: Record<
@@ -369,8 +445,17 @@ export default async function ReportsPage(props: Props) {
         title="Reports & GST"
         description={`${RANGE_LABEL[validRange]} performance and tax summary. Cancelled orders excluded.`}
         actions={
-          <nav className="inline-flex items-center rounded-[10px] bg-muted p-0.5">
-            {(["today", "yesterday", "7d", "30d"] as const).map((r) => (
+          <nav className="inline-flex flex-wrap items-center rounded-[10px] bg-muted p-0.5">
+            {(
+              [
+                "today",
+                "yesterday",
+                "7d",
+                "30d",
+                "this_month",
+                "last_month",
+              ] as const
+            ).map((r) => (
               <Link
                 key={r}
                 href={`/r/${params.slug}/admin/reports?range=${r}`}
@@ -451,7 +536,7 @@ export default async function ReportsPage(props: Props) {
           ) : (
             <div>
               <div className="flex h-40 items-end gap-1">
-                {series.map((s, i) => (
+                {visibleSeries.map((s, i) => (
                   <div
                     key={i}
                     className="group relative flex h-full flex-1 items-end"
@@ -468,7 +553,7 @@ export default async function ReportsPage(props: Props) {
                 ))}
               </div>
               <div className="mt-2 flex gap-1">
-                {series.map((s, i) => (
+                {visibleSeries.map((s, i) => (
                   <div
                     key={i}
                     className="flex-1 truncate text-center tabular-nums text-[11px] text-muted-foreground"
@@ -806,6 +891,12 @@ export default async function ReportsPage(props: Props) {
           </Card>
         </div>
       )}
+
+      {/* CA Accounting Pack: GSTR-1 Tables + Tally Prime XML */}
+      <CaAccountingPack
+        report={caReport}
+        filingPeriodMmYyyy={filingPeriodMmYyyy}
+      />
     </div>
   );
 }

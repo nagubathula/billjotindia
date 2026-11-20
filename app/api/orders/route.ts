@@ -21,7 +21,15 @@ import {
 import { isOutletOpen } from "@/lib/opening-hours";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { deductOrderRecipeStock } from "@/lib/inventory";
-import { resolveOrderPaymentMode } from "@/lib/register";
+import { insertRoutedKotTickets } from "@/lib/kot-routing";
+import {
+  applyOrderLoyaltyOnSettlement,
+  computeMaxRedeemablePoints,
+  getLoyaltySettings,
+  lookupLoyaltyWalletByPhone,
+  normalizeLoyaltyPhone,
+} from "@/lib/loyalty";
+import { resolveOrderPaymentMode, validateSplitAllocations } from "@/lib/register";
 import { resolveOptionalCustomerIdForOrder } from "@/lib/storefront-customers";
 import {
   ITEM_NOTE_MAX,
@@ -52,6 +60,14 @@ type OrderBody = {
   customer_email: string;
   customer_phone?: string | null;
   payment_mode?: string | null;
+  offline_id?: string | null;
+  placed_at?: string | null;
+  loyalty_points_redeemed?: number;
+  split_allocations?: Array<{
+    mode: "cash" | "upi" | "card";
+    amount: number;
+    referenceNo?: string;
+  }>;
   order_type?: string;
   table_id?: string | null;
   table_code?: string | null;
@@ -316,16 +332,34 @@ export async function POST(request: Request) {
     }
   }
 
+  const offlineId =
+    source === "pos" &&
+    typeof body.offline_id === "string" &&
+    body.offline_id.trim()
+      ? body.offline_id.trim().slice(0, 120)
+      : null;
+
   const findExisting = async () => {
-    if (!externalOrderId) return null;
-    const { data } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("outlet_id", outletId)
-      .eq("source", source)
-      .eq("external_order_id", externalOrderId)
-      .maybeSingle();
-    return data;
+    if (externalOrderId) {
+      const { data } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("outlet_id", outletId)
+        .eq("source", source)
+        .eq("external_order_id", externalOrderId)
+        .maybeSingle();
+      if (data) return data;
+    }
+    if (offlineId) {
+      const { data } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("outlet_id", outletId)
+        .eq("offline_id", offlineId)
+        .maybeSingle();
+      if (data) return data;
+    }
+    return null;
   };
   const existing = await findExisting();
   if (existing) {
@@ -371,6 +405,85 @@ export async function POST(request: Request) {
     customer_email: body.customer_email,
   });
 
+  // Loyalty redemption (for POS settlements with valid phone)
+  const cleanPhone = normalizeLoyaltyPhone(body.customer_phone);
+  let loyaltyPointsRedeemed = 0;
+  let loyaltyDiscountAmount = 0;
+  let finalTotalAmount = totals.total_amount;
+  let finalRoundingAmount = totals.rounding_amount;
+
+  if (
+    source === "pos" &&
+    cleanPhone &&
+    Number(body.loyalty_points_redeemed ?? 0) > 0
+  ) {
+    const [lSettings, { wallet }] = await Promise.all([
+      getLoyaltySettings(supabase, outletRow.restaurant_id),
+      lookupLoyaltyWalletByPhone(supabase, outletRow.restaurant_id, cleanPhone),
+    ]);
+    const cap = computeMaxRedeemablePoints({
+      balance: wallet?.points_balance ?? 0,
+      orderSubtotal: Math.max(
+        0,
+        totals.total_amount + totals.rounding_amount,
+      ),
+      settings: lSettings,
+    });
+    const reqPts = Math.min(
+      Math.floor(Number(body.loyalty_points_redeemed) || 0),
+      cap.maxPoints,
+    );
+    if (reqPts >= lSettings.min_points_to_redeem && reqPts > 0) {
+      loyaltyPointsRedeemed = reqPts;
+      loyaltyDiscountAmount = Math.min(
+        Math.max(0, totals.total_amount - totals.rounding_amount),
+        round2(reqPts * Number(lSettings.point_value)),
+      );
+      const netAfterLoyalty = Math.max(
+        0,
+        totals.total_amount - totals.rounding_amount - loyaltyDiscountAmount,
+      );
+      finalTotalAmount = Math.round(netAfterLoyalty);
+      finalRoundingAmount = round2(finalTotalAmount - netAfterLoyalty);
+    }
+  }
+
+  let validatedSplits: Array<{
+    mode: "cash" | "upi" | "card";
+    amount: number;
+    referenceNo?: string | null;
+  }> = [];
+  if (
+    source === "pos" &&
+    resolvedPaymentMode === "split" &&
+    Array.isArray(body.split_allocations)
+  ) {
+    const splitCheck = validateSplitAllocations(
+      finalTotalAmount,
+      body.split_allocations,
+    );
+    if (!splitCheck.ok) return fail(400, splitCheck.error);
+    validatedSplits = splitCheck.normalized;
+  }
+
+  // Offline queued bill timestamps (within last 7 days and <= 5m in the future)
+  const nowMs = Date.now();
+  let customPlacedAt: string | null = null;
+  let initialStatus: "pending" | "completed" = "pending";
+  if (source === "pos" && typeof body.placed_at === "string" && body.placed_at.trim()) {
+    const parsedMs = Date.parse(body.placed_at);
+    if (
+      Number.isFinite(parsedMs) &&
+      parsedMs >= nowMs - 7 * 24 * 60 * 60_000 &&
+      parsedMs <= nowMs + 5 * 60_000
+    ) {
+      customPlacedAt = new Date(parsedMs).toISOString();
+      if (offlineId && nowMs - parsedMs > 30 * 60_000) {
+        initialStatus = "completed";
+      }
+    }
+  }
+
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .insert({
@@ -380,10 +493,13 @@ export async function POST(request: Request) {
       source,
       customer_name: body.customer_name,
       customer_email: body.customer_email,
-      ...(body.customer_phone?.trim()
-        ? { customer_phone: body.customer_phone.trim().slice(0, 30) }
-        : {}),
+      ...(cleanPhone
+        ? { customer_phone: cleanPhone }
+        : body.customer_phone?.trim()
+          ? { customer_phone: body.customer_phone.trim().slice(0, 30) }
+          : {}),
       payment_mode: resolvedPaymentMode,
+      ...(resolvedPaymentMode !== "open" ? { payment_status: "paid" } : {}),
       order_type: resolvedOrderType,
       subtotal: totals.subtotal,
       cgst_amount: totals.cgst,
@@ -391,13 +507,22 @@ export async function POST(request: Request) {
       gst_paid_by_operator: totals.gst_paid_by_operator,
       takeaway_charges: totals.takeaway_charges,
       discount_amount: totals.discount_amount,
-      rounding_amount: totals.rounding_amount,
-      total_amount: totals.total_amount,
+      loyalty_points_redeemed: loyaltyPointsRedeemed,
+      loyalty_discount_amount: loyaltyDiscountAmount,
+      rounding_amount: finalRoundingAmount,
+      total_amount: finalTotalAmount,
       token_number: tokenNumber,
-      status: "pending",
+      status: initialStatus,
       unique_order_id: newOrderNumber(),
       external_order_id: externalOrderId,
       external_payload: externalPayload,
+      ...(offlineId
+        ? {
+            offline_id: offlineId,
+            offline_synced_at: new Date().toISOString(),
+          }
+        : {}),
+      ...(customPlacedAt ? { placed_at: customPlacedAt } : {}),
       ...(orderNote ? { instructions: orderNote } : {}),
     })
     .select()
@@ -425,7 +550,7 @@ export async function POST(request: Request) {
         ...(anyItemNote ? { instructions: it.instructions } : {}),
       })),
     )
-    .select("id, quantity, instructions");
+    .select("id, quantity, instructions, product_config");
 
   if (itemsErr) {
     const { error: undoErr } = await supabase
@@ -441,49 +566,57 @@ export async function POST(request: Request) {
   }
 
   if (insertedItems && insertedItems.length > 0) {
-    const { data: ticket } = await supabase
-      .from("kot_tickets")
-      .insert({
-        outlet_id: outletId,
-        order_id: order.id,
-        ticket_number: tokenNumber,
-        status: "printed",
-        notes: orderNote,
-        printed_at: new Date().toISOString(),
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (ticket) {
-      await supabase.from("kot_ticket_items").insert(
-        insertedItems.map((oi) => ({
-          kot_ticket_id: ticket.id,
-          order_item_id: oi.id,
-          quantity: oi.quantity,
-          notes: oi.instructions,
-        })),
-      );
-    }
+    await insertRoutedKotTickets(supabase, {
+      outletId,
+      orderId: order.id,
+      tokenNumber,
+      notes: orderNote,
+      insertedItems,
+    });
   }
 
-  if (
-    source === "pos" &&
-    totals.total_amount > 0 &&
-    (resolvedPaymentMode === "cash" ||
+  if (source === "pos" && finalTotalAmount > 0) {
+    if (resolvedPaymentMode === "split" && validatedSplits.length > 0) {
+      await supabase.from("order_payments").insert(
+        validatedSplits.map((leg) => ({
+          restaurant_id: outletRow.restaurant_id,
+          outlet_id: outletId,
+          order_id: order.id,
+          payment_mode: leg.mode,
+          amount: leg.amount,
+          reference_no: leg.referenceNo ?? null,
+        })),
+      );
+    } else if (
+      resolvedPaymentMode === "cash" ||
       resolvedPaymentMode === "upi" ||
-      resolvedPaymentMode === "card")
-  ) {
-    await supabase.from("order_payments").insert({
-      restaurant_id: outletRow.restaurant_id,
-      outlet_id: outletId,
-      order_id: order.id,
-      payment_mode: resolvedPaymentMode,
-      amount: totals.total_amount,
-    });
+      resolvedPaymentMode === "card"
+    ) {
+      await supabase.from("order_payments").insert({
+        restaurant_id: outletRow.restaurant_id,
+        outlet_id: outletId,
+        order_id: order.id,
+        payment_mode: resolvedPaymentMode,
+        amount: finalTotalAmount,
+      });
+    }
   }
 
   if (resolvedPaymentMode !== "open") {
     void deductOrderRecipeStock({ orderId: order.id, outletId });
+    if (firstParty && (cleanPhone || body.customer_phone)) {
+      await applyOrderLoyaltyOnSettlement(supabase, {
+        restaurantId: outletRow.restaurant_id,
+        outletId,
+        orderId: order.id,
+        customerPhone: cleanPhone ?? body.customer_phone,
+        customerName: body.customer_name,
+        customerEmail: body.customer_email,
+        orderSubtotal: Math.max(0, totals.total_amount),
+        netPaidAmount: finalTotalAmount,
+        requestedRedeemPoints: loyaltyPointsRedeemed,
+      });
+    }
   }
 
   if (firstParty && source !== "pos" && body.coupon_code && totals.discount_amount > 0) {
@@ -491,5 +624,10 @@ export async function POST(request: Request) {
   }
 
   void dispatchOrderStatusWebhooks(order.id, "order.created");
-  return NextResponse.json({ order, deduped: false }, { headers: cors });
+  const { data: freshOrder } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", order.id)
+    .maybeSingle();
+  return NextResponse.json({ order: freshOrder ?? order, deduped: false }, { headers: cors });
 }

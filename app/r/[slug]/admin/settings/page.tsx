@@ -5,7 +5,8 @@ import {
   getAdminGatewaySettingsView,
   type AdminGatewaySettingsView,
 } from "@/lib/payments";
-import type { Outlet } from "@/lib/types";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { KitchenStation, Outlet, Printer } from "@/lib/types";
 import { SettingsWorkbench } from "./SettingsWorkbench";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,37 @@ export default async function SettingsPage(props: Props) {
   });
 
   const outlets = await getOutletsForRestaurant(restaurant.id);
-  const gatewayViews: Record<string, AdminGatewaySettingsView> = {};
+  const outletIds = outlets.map((o) => o.id);
+  const admin = createAdminClient();
 
+  const [printersRes, stationsRes] =
+    outletIds.length > 0
+      ? await Promise.all([
+          admin
+            .from("printers")
+            .select("*")
+            .in("outlet_id", outletIds)
+            .order("name"),
+          admin
+            .from("kitchen_stations")
+            .select("*")
+            .in("outlet_id", outletIds)
+            .order("sort_order")
+            .order("name"),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+  const printersByOutlet: Record<string, Printer[]> = {};
+  for (const p of (printersRes.data ?? []) as Printer[]) {
+    (printersByOutlet[p.outlet_id] ??= []).push(p);
+  }
+
+  const stationsByOutlet: Record<string, KitchenStation[]> = {};
+  for (const s of (stationsRes.data ?? []) as KitchenStation[]) {
+    (stationsByOutlet[s.outlet_id] ??= []).push(s);
+  }
+
+  const gatewayViews: Record<string, AdminGatewaySettingsView> = {};
   if (role === "admin") {
     const entries = await Promise.all(
       outlets.map(async (o) => ({
@@ -43,6 +73,8 @@ export default async function SettingsPage(props: Props) {
       role={role}
       outlets={outlets as Outlet[]}
       gatewayViews={gatewayViews}
+      printersByOutlet={printersByOutlet}
+      stationsByOutlet={stationsByOutlet}
       currentDomain={restaurant.custom_domain}
       subdomainHost={ROOT_DOMAIN ? `${restaurant.slug}.${ROOT_DOMAIN}` : null}
     />

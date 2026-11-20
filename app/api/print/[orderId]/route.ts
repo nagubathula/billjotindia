@@ -1,95 +1,19 @@
-// ESC/POS print stub for thermal printers.
-//
-// Generates raw ESC/POS bytes for an order's receipt. Today this is only
-// useful for download / inspection — production setups should either:
-//   (a) Run a small local "print agent" on the POS terminal that polls this
-//       endpoint (or listens to a queue) and forwards bytes to the
-//       USB/Bluetooth/network printer attached to the counter.
-//   (b) Use a cloud-printer service (Star CloudPRNT, Epson Connect) that
-//       pulls jobs from a queue. We'd push the byte stream into a job and
-//       the cloud printer fetches it.
-//   (c) Use Web USB/Bluetooth from the browser if the POS device supports it
-//       (Chrome desktop / Android). The browser code calls this endpoint
-//       and writes the bytes to the printer endpoint directly.
-//
-// This v0 returns the bytes as `application/octet-stream` so any of the
-// above can wire to it without further server changes.
-//
-// A receipt carries the customer's name and what they ordered, so only staff
-// of the order's restaurant may fetch one. The POS opens this in the cashier's
-// own browser, which sends their session. A print agent (a) or cloud printer
-// (b) has no session and will need its own credential when one is built.
-
 import { NextResponse } from "next/server";
 import { isUuid } from "@/lib/utils";
 import { getCurrentUser, getRoleInRestaurant } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatSelectedOptionLabel } from "@/lib/customizations";
+import {
+  buildEscPosKotBytes,
+  buildEscPosReceiptBytes,
+} from "@/lib/escpos";
+import { resolveEffectiveStationId } from "@/lib/kot-routing";
 import { formatOrderTenderLabel } from "@/lib/register";
 import { resolveTimeZone } from "@/lib/time";
 import type { Order, OrderItem, OrderPayment, Outlet, ProductConfig } from "@/lib/types";
 
-// ESC/POS control codes. https://reference.epson-biz.com/modules/ref_escpos/
-const ESC = 0x1b;
-const GS = 0x1d;
-
-function bytes(...parts: Array<number | number[] | string>): Buffer {
-  const arr: number[] = [];
-  for (const p of parts) {
-    if (typeof p === "number") arr.push(p);
-    else if (typeof p === "string") {
-      for (let i = 0; i < p.length; i++) arr.push(p.charCodeAt(i) & 0xff);
-    } else arr.push(...p);
-  }
-  return Buffer.from(arr);
-}
-
-const INIT = [ESC, 0x40]; // ESC @
-const CUT = [GS, 0x56, 0x00]; // GS V 0 (full cut)
-const ALIGN_LEFT = [ESC, 0x61, 0x00];
-const ALIGN_CENTER = [ESC, 0x61, 0x01];
-const BOLD_ON = [ESC, 0x45, 0x01];
-const BOLD_OFF = [ESC, 0x45, 0x00];
-const SIZE_DOUBLE = [GS, 0x21, 0x11]; // double width + height
-const SIZE_NORMAL = [GS, 0x21, 0x00];
-const LF = "\n";
-const FEED_3 = "\n\n\n";
-
-/** 80mm thermal paper at standard font fits 32 chars per line. */
-const WIDTH = 32;
-
-function padLine(left: string, right: string): string {
-  const cap = WIDTH;
-  const space = Math.max(1, cap - left.length - right.length);
-  return left + " ".repeat(space) + right;
-}
-
-function divider(char = "-"): string {
-  return char.repeat(WIDTH) + LF;
-}
-
-/** Word-wraps free text (customer instructions) to the paper width. */
-function wrap(text: string, indent = ""): string {
-  const cap = WIDTH - indent.length;
-  const out: string[] = [];
-  let line = "";
-  for (const word of text.replace(/\s+/g, " ").trim().split(" ")) {
-    if (line && line.length + 1 + word.length > cap) {
-      out.push(line);
-      line = word;
-    } else {
-      line = line ? line + " " + word : word;
-    }
-    while (line.length > cap) {
-      out.push(line.slice(0, cap));
-      line = line.slice(cap);
-    }
-  }
-  if (line) out.push(line);
-  return out.map((l) => indent + l + LF).join("");
-}
-
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ orderId: string }> },
 ) {
   const id = (await params).orderId;
@@ -114,15 +38,33 @@ export async function GET(
     .eq("id", order.outlet_id)
     .maybeSingle();
 
-  // Same answer as a missing order, so the id of another restaurant's order
-  // can't be confirmed by asking for its receipt.
   const role = outlet ? await getRoleInRestaurant(outlet.restaurant_id) : null;
   if (!role) return new NextResponse("Not found", { status: 404 });
 
-  const [{ data: items }, { data: paymentsData }] = await Promise.all([
-    admin.from("order_items").select("*").eq("order_id", id),
-    admin.from("order_payments").select("*").eq("order_id", id),
-  ]);
+  const url = new URL(req.url);
+  const mode = url.searchParams.get("mode") === "kot" ? "kot" : "receipt";
+  const paperWidth: 58 | 80 = url.searchParams.get("width") === "58" ? 58 : 80;
+  const stationFilter = url.searchParams.get("station")?.trim() || null;
+  const stationIdFilter = url.searchParams.get("station_id")?.trim() || null;
+  const forceKick = url.searchParams.get("kick") === "1";
+
+  const [{ data: items }, { data: paymentsData }, { data: stationsData }, { data: categoriesData }, { data: productsData }] =
+    await Promise.all([
+      admin.from("order_items").select("*").eq("order_id", id).order("id"),
+      admin.from("order_payments").select("*").eq("order_id", id),
+      admin
+        .from("kitchen_stations")
+        .select("id, name")
+        .eq("outlet_id", order.outlet_id),
+      admin
+        .from("categories")
+        .select("name, station_id")
+        .eq("outlet_id", order.outlet_id),
+      admin
+        .from("products")
+        .select("id, category, station_id, is_kot_required")
+        .eq("outlet_id", order.outlet_id),
+    ]);
 
   const o = order as Order;
   const out = (outlet ?? null) as Outlet | null;
@@ -137,80 +79,126 @@ export async function GET(
       })
     : "";
 
-  // Build the receipt as text + control bytes
-  const buf: Array<number | number[] | string> = [
-    INIT,
-    ALIGN_CENTER,
-    BOLD_ON,
-    SIZE_DOUBLE,
-    (out?.name ?? "OUTLET") + LF,
-    SIZE_NORMAL,
-    BOLD_OFF,
-  ];
-  if (out?.address) buf.push(out.address + LF);
-  if (out?.gstin) buf.push("GSTIN: " + out.gstin + LF);
-  if (out?.phone) buf.push("Ph: " + out.phone + LF);
-  buf.push(divider("="));
-  buf.push(ALIGN_LEFT);
-  buf.push(`Bill: ${o.unique_order_id ?? "#" + o.id}` + LF);
-  buf.push(`Source: ${(o.source ?? "").toUpperCase()}` + LF);
-  if (o.token_number != null) {
-    buf.push(ALIGN_CENTER, BOLD_ON, SIZE_DOUBLE);
-    buf.push(`TOKEN ${o.token_number}` + LF);
-    buf.push(SIZE_NORMAL, BOLD_OFF, ALIGN_LEFT);
+  let bytes: Uint8Array;
+  let filename = `receipt-${o.id}.bin`;
+
+  if (mode === "kot") {
+    const stationNameById = new Map(
+      (stationsData ?? []).map((s) => [s.id, s.name]),
+    );
+    const catStationMap = new Map(
+      (categoriesData ?? []).map((c) => [
+        c.name.trim().toLowerCase(),
+        c.station_id ?? null,
+      ]),
+    );
+    const prodMap = new Map((productsData ?? []).map((p) => [p.id, p]));
+
+    const kotItems = its
+      .filter((line) => {
+        const cfg = line.product_config as unknown as ProductConfig | null;
+        const pid = cfg?.product_id;
+        const prod = pid ? prodMap.get(pid) : undefined;
+        if (prod && prod.is_kot_required === false) return false;
+        if (!stationIdFilter && !stationFilter) return true;
+        const stId = resolveEffectiveStationId(prod, catStationMap);
+        if (stationIdFilter) return stId === stationIdFilter;
+        const stName = stId ? stationNameById.get(stId) ?? "" : "";
+        return stName.toLowerCase() === (stationFilter ?? "").toLowerCase();
+      })
+      .map((line) => {
+        const cfg = line.product_config as unknown as ProductConfig | null;
+        return {
+          name: cfg?.name ?? "Item",
+          quantity: line.quantity,
+          modifiers: (cfg?.selected_options ?? []).map((m) =>
+            formatSelectedOptionLabel(m),
+          ),
+          instructions: line.instructions,
+        };
+      });
+
+    const resolvedStationTitle = stationIdFilter
+      ? stationNameById.get(stationIdFilter) ?? stationFilter
+      : stationFilter;
+
+    bytes = buildEscPosKotBytes({
+      outletName: out?.name ?? "OUTLET",
+      stationName: resolvedStationTitle,
+      billNumber: o.unique_order_id ?? `#${o.id.slice(0, 8)}`,
+      tokenNumber: o.token_number,
+      tableLabel: o.customer_name && o.customer_name !== "Walk-in" ? o.customer_name : null,
+      orderType: o.order_type ?? "dine-in",
+      placedAtLabel: placedStr,
+      orderNote: o.instructions,
+      items: kotItems,
+      paperWidth,
+    });
+    filename = `kot-${o.id}.bin`;
+  } else {
+    const hasCashPayment =
+      payments.some((p) => p.payment_mode === "cash") ||
+      o.payment_mode === "cash";
+    let kickDrawer = forceKick;
+    if (!kickDrawer && hasCashPayment) {
+      const { data: kickPrinter } = await admin
+        .from("printers")
+        .select("id")
+        .eq("outlet_id", order.outlet_id)
+        .eq("status", "active")
+        .eq("kick_cash_drawer", true)
+        .limit(1)
+        .maybeSingle();
+      kickDrawer = Boolean(kickPrinter);
+    }
+
+    bytes = buildEscPosReceiptBytes({
+      outletName: out?.name ?? "OUTLET",
+      address: out?.address,
+      gstin: out?.gstin,
+      fssai: out?.fssai_license,
+      phone: out?.phone,
+      billNumber: o.unique_order_id ?? `#${o.id.slice(0, 8)}`,
+      source: o.source ?? "pos",
+      tokenNumber: o.token_number,
+      placedAtLabel: placedStr,
+      orderType: o.order_type ?? "dine-in",
+      customerName: o.customer_name,
+      tenderLabel: tenderText,
+      items: its.map((line) => {
+        const cfg = line.product_config as unknown as ProductConfig | null;
+        return {
+          name: cfg?.name ?? "Item",
+          quantity: line.quantity,
+          totalPrice: Number(line.total_price),
+          modifiers: (cfg?.selected_options ?? []).map((m) =>
+            formatSelectedOptionLabel(m),
+          ),
+          instructions: line.instructions,
+        };
+      }),
+      orderNote: o.instructions,
+      subtotal: Number(o.subtotal ?? 0),
+      cgst: Number(o.cgst_amount ?? 0),
+      sgst: Number(o.sgst_amount ?? 0),
+      packingCharge: Number(o.takeaway_charges ?? 0),
+      discountAmount: Number(o.discount_amount ?? 0),
+      loyaltyPointsRedeemed: Number(o.loyalty_points_redeemed ?? 0),
+      loyaltyDiscountAmount: Number(o.loyalty_discount_amount ?? 0),
+      loyaltyPointsEarned: Number(o.loyalty_points_earned ?? 0),
+      roundingAmount: Number(o.rounding_amount ?? 0),
+      totalAmount: Number(o.total_amount),
+      paperWidth,
+      kickDrawer,
+    });
   }
-  buf.push(placedStr + LF);
-  buf.push(`Type: ${o.order_type}` + LF);
-  if (tenderText) buf.push(`Paid: ${tenderText}` + LF);
-  buf.push(divider());
 
-  // Items
-  buf.push(BOLD_ON, padLine("Item", "Qty   Rs") + LF, BOLD_OFF);
-  buf.push(divider());
-  for (const line of its) {
-    const cfg = line.product_config as unknown as ProductConfig | null;
-    const name = (cfg?.name ?? "Item").slice(0, 18);
-    const qty = String(line.quantity);
-    const total = Number(line.total_price).toFixed(0);
-    buf.push(padLine(name, `${qty.padStart(3)}  ${total.padStart(5)}`) + LF);
-    if (line.instructions) buf.push(wrap("* " + line.instructions, "  "));
-  }
-  buf.push(divider());
-  if (o.instructions) {
-    buf.push(BOLD_ON, "NOTE" + LF, BOLD_OFF);
-    buf.push(wrap(o.instructions));
-    buf.push(divider());
-  }
-
-  // Totals
-  buf.push(padLine("Subtotal", "Rs " + Number(o.subtotal ?? 0).toFixed(0)) + LF);
-  if (Number(o.cgst_amount ?? 0) > 0)
-    buf.push(padLine("CGST", "Rs " + Number(o.cgst_amount).toFixed(0)) + LF);
-  if (Number(o.sgst_amount ?? 0) > 0)
-    buf.push(padLine("SGST", "Rs " + Number(o.sgst_amount).toFixed(0)) + LF);
-  if (Number(o.takeaway_charges ?? 0) > 0)
-    buf.push(padLine("Packing", "Rs " + Number(o.takeaway_charges).toFixed(0)) + LF);
-  buf.push(divider());
-  buf.push(BOLD_ON, SIZE_DOUBLE);
-  buf.push(padLine("TOTAL", "Rs " + Number(o.total_amount).toFixed(0)) + LF);
-  buf.push(SIZE_NORMAL, BOLD_OFF);
-  buf.push(divider("="));
-
-  buf.push(ALIGN_CENTER);
-  buf.push("Thank you. Visit again." + LF);
-  buf.push(FEED_3);
-  buf.push(CUT);
-
-  const data = bytes(...buf);
-
-  // Cast: Buffer is a valid BodyInit at runtime, but the TS lib types in
-  // this Next/Node combination don't accept it without coercion.
-  return new NextResponse(data as unknown as BodyInit, {
+  return new NextResponse(Buffer.from(bytes) as unknown as BodyInit, {
     status: 200,
     headers: {
       "Content-Type": "application/octet-stream",
-      "Content-Disposition": `inline; filename="receipt-${o.id}.bin"`,
-      "X-Print-Width-Mm": "80",
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "X-Print-Width-Mm": String(paperWidth),
     },
   });
 }

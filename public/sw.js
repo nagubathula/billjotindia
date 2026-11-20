@@ -1,6 +1,7 @@
 const SHELL_CACHE = "billjot-shell-v1";
 const STATIC_CACHE = "billjot-static-v1";
-const ACTIVE_CACHES = new Set([SHELL_CACHE, STATIC_CACHE]);
+const POS_NAV_CACHE = "billjot-pos-nav-v1";
+const ACTIVE_CACHES = new Set([SHELL_CACHE, STATIC_CACHE, POS_NAV_CACHE]);
 
 const PRECACHE_URLS = [
   "/offline",
@@ -125,11 +126,24 @@ self.addEventListener("fetch", (event) => {
   if (isRscRequest(request, url)) return;
 
   if (request.mode === "navigate") {
+    const isPosRoute = /^\/r\/[^/]+\/pos\/?$/.test(url.pathname);
     event.respondWith(
-      fetch(request).catch(async () => {
-        const offlineFallback = await caches.match("/offline");
-        return offlineFallback || Response.error();
-      }),
+      fetch(request)
+        .then(async (response) => {
+          if (isPosRoute && response && response.ok && response.type === "basic") {
+            const cache = await caches.open(POS_NAV_CACHE);
+            await cache.put(url.pathname, response.clone());
+          }
+          return response;
+        })
+        .catch(async () => {
+          if (isPosRoute) {
+            const cachedPos = await caches.match(url.pathname);
+            if (cachedPos) return cachedPos;
+          }
+          const offlineFallback = await caches.match("/offline");
+          return offlineFallback || Response.error();
+        }),
     );
     return;
   }

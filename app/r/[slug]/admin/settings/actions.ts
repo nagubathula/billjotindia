@@ -160,3 +160,219 @@ export async function updatePaymentGatewaysAction(
   revalidatePath(`/r/${slug}/pos`);
   return { ok: true };
 }
+
+function revalidateHardwarePaths(slug: string) {
+  revalidatePath(`/r/${slug}/admin/settings`);
+  revalidatePath(`/r/${slug}/admin/menu`);
+  revalidatePath(`/r/${slug}/admin/kitchen`);
+  revalidatePath(`/r/${slug}/kitchen`);
+  revalidatePath(`/r/${slug}/pos`);
+}
+
+export async function savePrinterAction(
+  slug: string,
+  outletId: string,
+  input: {
+    id?: string;
+    name: string;
+    purpose: "kot" | "bill" | "label" | "customer_display";
+    interfaceType: "network" | "usb" | "bluetooth" | "cloud";
+    address?: string;
+    paperWidth: 58 | 80 | 110;
+    kickCashDrawer: boolean;
+  },
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: outlet } = await admin
+    .from("outlets")
+    .select("id, restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outlet || outlet.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "Enter a printer name." };
+
+  const payload = {
+    outlet_id: outletId,
+    name: name.slice(0, 80),
+    purpose: input.purpose,
+    interface: input.interfaceType,
+    address: input.address?.trim() || null,
+    paper_width: input.paperWidth === 58 ? 58 : input.paperWidth === 110 ? 110 : 80,
+    kick_cash_drawer: Boolean(input.kickCashDrawer),
+    status: "active",
+  };
+
+  const { error } = input.id
+    ? await admin
+        .from("printers")
+        .update(payload)
+        .eq("id", input.id)
+        .eq("outlet_id", outletId)
+    : await admin.from("printers").insert(payload);
+
+  if (error) return { ok: false, error: error.message };
+  revalidateHardwarePaths(slug);
+  return { ok: true };
+}
+
+export async function deletePrinterAction(
+  slug: string,
+  outletId: string,
+  printerId: string,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: outlet } = await admin
+    .from("outlets")
+    .select("restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outlet || outlet.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const { error } = await admin
+    .from("printers")
+    .delete()
+    .eq("id", printerId)
+    .eq("outlet_id", outletId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateHardwarePaths(slug);
+  return { ok: true };
+}
+
+export async function saveKitchenStationAction(
+  slug: string,
+  outletId: string,
+  input: {
+    id?: string;
+    name: string;
+    printerId?: string | null;
+    sortOrder?: number;
+  },
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: outlet } = await admin
+    .from("outlets")
+    .select("id, restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outlet || outlet.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "Enter a station name." };
+
+  const payload = {
+    outlet_id: outletId,
+    name: name.slice(0, 60),
+    printer_id: input.printerId?.trim() || null,
+    sort_order: Math.max(0, Math.floor(Number(input.sortOrder ?? 0) || 0)),
+    status: "active",
+  };
+
+  const { error } = input.id
+    ? await admin
+        .from("kitchen_stations")
+        .update(payload)
+        .eq("id", input.id)
+        .eq("outlet_id", outletId)
+    : await admin.from("kitchen_stations").insert(payload);
+
+  if (error) {
+    if (error.code === "23505") {
+      return { ok: false, error: `Station "${name}" already exists in this outlet.` };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  revalidateHardwarePaths(slug);
+  return { ok: true };
+}
+
+export async function deleteKitchenStationAction(
+  slug: string,
+  outletId: string,
+  stationId: string,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: outlet } = await admin
+    .from("outlets")
+    .select("restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outlet || outlet.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const { error } = await admin
+    .from("kitchen_stations")
+    .delete()
+    .eq("id", stationId)
+    .eq("outlet_id", outletId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateHardwarePaths(slug);
+  return { ok: true };
+}
+
+export async function seedDefaultStationsAction(
+  slug: string,
+  outletId: string,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const admin = createAdminClient();
+  const { data: outlet } = await admin
+    .from("outlets")
+    .select("restaurant_id")
+    .eq("id", outletId)
+    .maybeSingle();
+  if (!outlet || outlet.restaurant_id !== restaurant.id) {
+    return { ok: false, error: "Outlet does not belong to this restaurant." };
+  }
+
+  const defaults = [
+    { name: "Main Kitchen", sort_order: 10 },
+    { name: "Tandoor & Grill", sort_order: 20 },
+    { name: "Beverage & Bar", sort_order: 30 },
+    { name: "Desserts", sort_order: 40 },
+  ];
+
+  const { error } = await admin.from("kitchen_stations").upsert(
+    defaults.map((d) => ({
+      outlet_id: outletId,
+      name: d.name,
+      sort_order: d.sort_order,
+      status: "active",
+    })),
+    { onConflict: "outlet_id,name" },
+  );
+
+  if (error) return { ok: false, error: error.message };
+  revalidateHardwarePaths(slug);
+  return { ok: true };
+}

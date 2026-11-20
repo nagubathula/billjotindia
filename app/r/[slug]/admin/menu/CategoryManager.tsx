@@ -14,6 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -25,23 +32,28 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
-import type { Category } from "@/lib/types";
+import type { Category, KitchenStation } from "@/lib/types";
 import {
   createCategoryAction,
   toggleCategoryStatusAction,
+  updateCategoryStationAction,
 } from "./actions";
 
 export function CategoryManager({
   slug,
   categories,
+  stations = [],
 }: {
   slug: string;
   categories: Category[];
+  stations?: KitchenStation[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
+  const [newStationId, setNewStationId] = useState("__none__");
   const [err, setErr] = useState<string | null>(null);
+  const stationById = new Map(stations.map((s) => [s.id, s]));
 
   return (
     <div className="space-y-4">
@@ -70,11 +82,13 @@ export function CategoryManager({
             </DialogHeader>
             <form
               action={(fd) => {
+                fd.set("station_id", newStationId);
                 setErr(null);
                 start(async () => {
                   const res = await createCategoryAction(slug, fd);
                   if (res.ok) {
                     setOpen(false);
+                    setNewStationId("__none__");
                     router.refresh();
                   } else {
                     setErr(res.error);
@@ -93,6 +107,33 @@ export function CategoryManager({
                   autoFocus
                 />
               </div>
+              {stations.length > 0 && (
+                <div className="grid gap-1.5">
+                  <Label>Default Kitchen Station</Label>
+                  <Select
+                    value={newStationId}
+                    onValueChange={(v) => v && setNewStationId(v)}
+                  >
+                    <SelectTrigger className="w-full text-xs">
+                      <SelectValue>
+                        {(v: string) =>
+                          v === "__none__"
+                            ? "General / Unassigned"
+                            : (stationById.get(v)?.name ?? "Select station")
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">General / Unassigned</SelectItem>
+                      {stations.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {err && (
                 <p className="text-xs text-destructive" role="alert">
                   {err}
@@ -128,12 +169,14 @@ export function CategoryManager({
               <TableRow className="bg-muted/30">
                 <TableHead className="w-20 pl-3">Order</TableHead>
                 <TableHead>Category</TableHead>
+                <TableHead className="w-52">Default Station</TableHead>
                 <TableHead className="w-36 pr-3 text-right">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {categories.map((c) => {
                 const isActive = c.status === "active";
+                const stationVal = c.station_id ?? "__none__";
                 return (
                   <TableRow key={c.id}>
                     <TableCell className="pl-3 text-xs text-muted-foreground tabular-nums">
@@ -141,6 +184,48 @@ export function CategoryManager({
                     </TableCell>
                     <TableCell className="text-xs font-medium">
                       {c.name}
+                    </TableCell>
+                    <TableCell>
+                      {stations.length === 0 ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          No stations configured
+                        </span>
+                      ) : (
+                        <Select
+                          value={stationVal}
+                          disabled={pending}
+                          onValueChange={(v) => {
+                            if (!v) return;
+                            start(async () => {
+                              const res = await updateCategoryStationAction(
+                                slug,
+                                c.id,
+                                v === "__none__" ? null : v,
+                              );
+                              if (!res.ok) alert(res.error);
+                              else router.refresh();
+                            });
+                          }}
+                        >
+                          <SelectTrigger size="sm" className="h-7 w-44 text-[11px]">
+                            <SelectValue>
+                              {(v: string) =>
+                                v === "__none__"
+                                  ? "General / Unassigned"
+                                  : (stationById.get(v)?.name ?? "Station")
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">General / Unassigned</SelectItem>
+                            {stations.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </TableCell>
                     <TableCell className="pr-3">
                       <div className="flex items-center justify-end gap-2">

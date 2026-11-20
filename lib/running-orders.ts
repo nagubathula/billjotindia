@@ -4,6 +4,14 @@ import { buildModifierConfigKey } from "@/lib/customizations";
 import { dispatchOrderStatusWebhooks } from "@/lib/order-webhooks";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deductOrderRecipeStock } from "@/lib/inventory";
+import { insertRoutedKotTickets } from "@/lib/kot-routing";
+import {
+  applyOrderLoyaltyOnSettlement,
+  computeMaxRedeemablePoints,
+  getLoyaltySettings,
+  lookupLoyaltyWalletByPhone,
+  normalizeLoyaltyPhone,
+} from "@/lib/loyalty";
 import {
   ORDER_NOTE_MAX,
   cleanNote,
@@ -65,6 +73,7 @@ export type SendKotResult =
       tokenNumber: number | null;
       sentItems: number;
       lines: PosLine[];
+      stationsSent?: string[];
     }
   | { ok: false; error: string };
 
@@ -244,7 +253,7 @@ export async function sendKotForTab(
         ...(anyNote ? { instructions: it.instructions } : {}),
       })),
     )
-    .select("id, quantity, instructions");
+    .select("id, quantity, instructions, product_config");
   if (itemsErr || !inserted) {
     if (created) await db.from("orders").delete().eq("id", order.id);
     return { ok: false, error: itemsErr?.message ?? "Couldn't send the items" };
@@ -269,28 +278,14 @@ export async function sendKotForTab(
     }
   }
 
-  // A kitchen ticket for this round, like the order API makes for each order.
-  const { data: ticket } = await db
-    .from("kot_tickets")
-    .insert({
-      outlet_id: tab.outlet_id,
-      order_id: order.id,
-      ticket_number: order.token_number,
-      status: "printed",
-      printed_at: new Date().toISOString(),
-    })
-    .select("id")
-    .maybeSingle();
-  if (ticket) {
-    await db.from("kot_ticket_items").insert(
-      inserted.map((oi) => ({
-        kot_ticket_id: ticket.id,
-        order_item_id: oi.id,
-        quantity: oi.quantity,
-        notes: oi.instructions,
-      })),
-    );
-  }
+  // Station-routed KOT tickets for this round (grouped by product/category station).
+  const createdKots = await insertRoutedKotTickets(db, {
+    outletId: tab.outlet_id,
+    orderId: order.id,
+    tokenNumber: order.token_number,
+    notes: null,
+    insertedItems: inserted,
+  });
 
   const sentLines = lines.map((l) => ({ ...l, sentQty: whole(l.qty) }));
   await db
@@ -308,6 +303,7 @@ export async function sendKotForTab(
     tokenNumber: order.token_number,
     sentItems: pending.reduce((s, p) => s + p.qty, 0),
     lines: sentLines,
+    stationsSent: [...new Set(createdKots.map((k) => k.stationName))],
   };
 }
 
@@ -699,14 +695,17 @@ export type SettleInput = {
   mode: "cash" | "upi" | "card";
   lines: PosLine[];
   customerName?: string;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
   note?: string;
   discountPct?: number;
   discountFlat?: number;
+  redeemLoyaltyPoints?: number;
 };
 
 /**
- * Settles a table: sends anything still unsent, applies the discount and
- * rounding to the running order, records the payment mode, and clears the tab.
+ * Settles a table: sends anything still unsent, applies the discount, loyalty
+ * redemption, and rounding to the running order, records payment and clears the tab.
  */
 export async function settleTab(
   tab: TabRow,
@@ -721,31 +720,66 @@ export async function settleTab(
   const order = await openOrderFor(db, orderId);
   if (!order) return { ok: false, error: "This table's order is already settled or cancelled." };
 
-  const { data: items, error: itemsErr } = await db
-    .from("order_items")
-    .select("total_price")
-    .eq("order_id", orderId);
+  const [{ data: items, error: itemsErr }, { data: outlet }] = await Promise.all([
+    db.from("order_items").select("total_price").eq("order_id", orderId),
+    db.from("outlets").select("restaurant_id").eq("id", tab.outlet_id).maybeSingle(),
+  ]);
   if (itemsErr) return { ok: false, error: itemsErr.message };
   const gross = round2((items ?? []).reduce((s, it) => s + Number(it.total_price || 0), 0));
 
   const pct = Math.min(100, Math.max(0, Number(input.discountPct) || 0));
   const raw = pct > 0 ? (gross * pct) / 100 : Math.max(0, Number(input.discountFlat) || 0);
   const discount = Math.min(gross, round2(raw));
-  const net = Math.max(0, gross - discount);
+
+  const cleanPhone = normalizeLoyaltyPhone(input.customerPhone);
+  let requestedRedeemPts = Math.max(0, Math.floor(Number(input.redeemLoyaltyPoints) || 0));
+  let loyaltyDiscount = 0;
+
+  if (outlet && cleanPhone && requestedRedeemPts > 0) {
+    const [settings, { wallet }] = await Promise.all([
+      getLoyaltySettings(db, outlet.restaurant_id),
+      lookupLoyaltyWalletByPhone(db, outlet.restaurant_id, cleanPhone),
+    ]);
+    const cap = computeMaxRedeemablePoints({
+      balance: wallet?.points_balance ?? 0,
+      orderSubtotal: Math.max(0, gross - discount),
+      settings,
+    });
+    requestedRedeemPts = Math.min(requestedRedeemPts, cap.maxPoints);
+    if (requestedRedeemPts >= settings.min_points_to_redeem && requestedRedeemPts > 0) {
+      loyaltyDiscount = Math.min(
+        Math.max(0, gross - discount),
+        round2(requestedRedeemPts * Number(settings.point_value)),
+      );
+    } else {
+      requestedRedeemPts = 0;
+    }
+  } else {
+    requestedRedeemPts = 0;
+  }
+
+  const net = Math.max(0, gross - discount - loyaltyDiscount);
   const total = Math.round(net);
   const rounding = round2(total - net);
 
   const code = tableCode(tab.name);
   const name = input.customerName?.trim();
   const note = cleanNote(input.note, ORDER_NOTE_MAX);
+  const cleanEmail =
+    input.customerEmail?.trim().includes("@")
+      ? input.customerEmail.trim().slice(0, 120)
+      : null;
   const { error } = await db
     .from("orders")
     .update({
       table_id: tab.id,
       discount_amount: discount,
+      loyalty_points_redeemed: requestedRedeemPts,
+      loyalty_discount_amount: loyaltyDiscount,
       rounding_amount: rounding,
       total_amount: total,
-      customer_email: `pos+${input.mode}@billjot.local`,
+      customer_email: cleanEmail ?? `pos+${input.mode}@billjot.local`,
+      ...(cleanPhone ? { customer_phone: cleanPhone } : {}),
       payment_mode: input.mode,
       payment_status: "paid",
       ...(name ? { customer_name: `${code} · ${name}` } : {}),
@@ -754,12 +788,6 @@ export async function settleTab(
     .eq("id", orderId);
   if (error) return { ok: false, error: error.message };
 
-  const { data: outlet } = await db
-    .from("outlets")
-    .select("restaurant_id")
-    .eq("id", tab.outlet_id)
-    .maybeSingle();
-
   if (outlet && total > 0) {
     await db.from("order_payments").insert({
       restaurant_id: outlet.restaurant_id,
@@ -767,6 +795,20 @@ export async function settleTab(
       order_id: orderId,
       payment_mode: input.mode,
       amount: total,
+    });
+  }
+
+  if (outlet && cleanPhone) {
+    await applyOrderLoyaltyOnSettlement(db, {
+      restaurantId: outlet.restaurant_id,
+      outletId: tab.outlet_id,
+      orderId,
+      customerPhone: cleanPhone,
+      customerName: name ?? code,
+      customerEmail: cleanEmail,
+      orderSubtotal: Math.max(0, gross - discount),
+      netPaidAmount: total,
+      requestedRedeemPoints: requestedRedeemPts,
     });
   }
 

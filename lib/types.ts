@@ -54,6 +54,10 @@ export type ProductRecipe        = Row<"product_recipes">;
 export type InventoryStockMovement = Row<"inventory_stock_movements">;
 export type RegisterShift        = Row<"register_shifts">;
 export type OrderPayment         = Row<"order_payments">;
+export type LoyaltySettings      = Row<"loyalty_settings">;
+export type LoyaltyWallet        = Row<"loyalty_wallets">;
+export type LoyaltyTransaction   = Row<"loyalty_transactions">;
+export type PrinterInterface     = "network" | "usb" | "bluetooth" | "cloud";
 
 // ---------- Narrowed unions (the DB columns are plain text/check-constrained) ----------
 export type OrderPaymentMode =

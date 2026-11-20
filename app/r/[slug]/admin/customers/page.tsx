@@ -5,7 +5,13 @@ import { getOutletsForRestaurant } from "@/lib/outlet-context";
 import { CUSTOMER_LIST_SOURCES } from "@/lib/channels";
 import { DEFAULT_TIME_ZONE } from "@/lib/time";
 import { PageHeader } from "@/components/PageHeader";
-import type { Coupon, Order } from "@/lib/types";
+import { getLoyaltySettings } from "@/lib/loyalty";
+import type {
+  Coupon,
+  LoyaltyTransaction,
+  LoyaltyWallet,
+  Order,
+} from "@/lib/types";
 import { CrmWorkbench, type CustomerRow } from "./CrmWorkbench";
 
 export const dynamic = "force-dynamic";
@@ -30,24 +36,38 @@ export default async function CustomersPage(props: {
       : ["00000000-0000-0000-0000-000000000000"];
 
   const admin = createAdminClient();
-  const [ordersRes, couponsRes] = await Promise.all([
-    admin
-      .from("orders")
-      .select(
-        "customer_name, customer_email, customer_phone, total_amount, placed_at, source, status",
-      )
-      .in("outlet_id", scoped)
-      .in("source", CUSTOMER_LIST_SOURCES)
-      .neq("status", "cancelled")
-      .order("placed_at", { ascending: false })
-      .limit(5000),
-    admin
-      .from("coupons")
-      .select("*")
-      .eq("restaurant_id", restaurant.id)
-      .order("is_active", { ascending: false })
-      .order("created_at", { ascending: false }),
-  ]);
+  const [ordersRes, couponsRes, loyaltySettings, walletsRes, txnsRes] =
+    await Promise.all([
+      admin
+        .from("orders")
+        .select(
+          "customer_name, customer_email, customer_phone, total_amount, placed_at, source, status",
+        )
+        .in("outlet_id", scoped)
+        .in("source", CUSTOMER_LIST_SOURCES)
+        .neq("status", "cancelled")
+        .order("placed_at", { ascending: false })
+        .limit(5000),
+      admin
+        .from("coupons")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .order("is_active", { ascending: false })
+        .order("created_at", { ascending: false }),
+      getLoyaltySettings(admin, restaurant.id),
+      admin
+        .from("loyalty_wallets")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .order("updated_at", { ascending: false })
+        .limit(200),
+      admin
+        .from("loyalty_transactions")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
 
   const orders = (ordersRes.data ?? []) as Pick<
     Order,
@@ -60,6 +80,8 @@ export default async function CustomersPage(props: {
     | "status"
   >[];
   const coupons = (couponsRes.data ?? []) as Coupon[];
+  const loyaltyWallets = (walletsRes.data ?? []) as LoyaltyWallet[];
+  const loyaltyTransactions = (txnsRes.data ?? []) as LoyaltyTransaction[];
 
   const nowMs = Date.now();
   const map = new Map<
@@ -123,7 +145,7 @@ export default async function CustomersPage(props: {
     <div className="space-y-6">
       <PageHeader
         title="CRM, Loyalty & Coupons"
-        description="First-party customer segments, loyalty reward balances, WhatsApp re-engagement, and database-backed promotional coupons."
+        description="First-party customer segments, phone-number loyalty wallets, and database-backed promotional coupons."
       />
 
       <CrmWorkbench
@@ -131,6 +153,9 @@ export default async function CustomersPage(props: {
         restaurantName={restaurant.name}
         customers={customers}
         initialCoupons={coupons}
+        initialLoyaltySettings={loyaltySettings}
+        initialWallets={loyaltyWallets}
+        initialLoyaltyTransactions={loyaltyTransactions}
       />
     </div>
   );

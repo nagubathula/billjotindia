@@ -28,34 +28,60 @@ export async function loadKitchenBoardData(restaurantId: string): Promise<{
   }
 
   const admin = createAdminClient();
-  const [{ data: ordersData }, { data: stationsData }, { data: productsData }] =
-    await Promise.all([
-      admin
-        .from("orders")
-        .select("*")
-        .in("outlet_id", outletIds)
-        .in("status", ACTIVE_KDS_STATUSES)
-        .order("placed_at", { ascending: true }),
-      admin
-        .from("kitchen_stations")
-        .select("*")
-        .in("outlet_id", outletIds)
-        .eq("status", "active")
-        .order("sort_order"),
-      admin
-        .from("products")
-        .select("id, station_id")
-        .in("outlet_id", outletIds),
-    ]);
+  const [
+    { data: ordersData },
+    { data: stationsData },
+    { data: categoriesData },
+    { data: productsData },
+  ] = await Promise.all([
+    admin
+      .from("orders")
+      .select("*")
+      .in("outlet_id", outletIds)
+      .in("status", ACTIVE_KDS_STATUSES)
+      .order("placed_at", { ascending: true }),
+    admin
+      .from("kitchen_stations")
+      .select("*")
+      .in("outlet_id", outletIds)
+      .eq("status", "active")
+      .order("sort_order"),
+    admin
+      .from("categories")
+      .select("outlet_id, name, station_id")
+      .in("outlet_id", outletIds),
+    admin
+      .from("products")
+      .select("id, outlet_id, category, station_id")
+      .in("outlet_id", outletIds),
+  ]);
 
   const orders = (ordersData ?? []) as Order[];
   const stations = (stationsData ?? []) as KitchenStation[];
   const stationNameById = new Map(stations.map((s) => [s.id, s.name]));
+  const catStationByOutletAndName = new Map<string, string>();
+  for (const c of categoriesData ?? []) {
+    if (c.station_id) {
+      catStationByOutletAndName.set(
+        `${c.outlet_id}::${c.name.trim().toLowerCase()}`,
+        c.station_id,
+      );
+    }
+  }
 
   const productStationMap: Record<string, string> = {};
-  for (const p of (productsData ?? []) as Pick<Product, "id" | "station_id">[]) {
-    if (p.station_id && stationNameById.has(p.station_id)) {
-      productStationMap[p.id] = stationNameById.get(p.station_id)!;
+  for (const p of (productsData ?? []) as Pick<
+    Product,
+    "id" | "outlet_id" | "category" | "station_id"
+  >[]) {
+    const resolvedId =
+      p.station_id ??
+      catStationByOutletAndName.get(
+        `${p.outlet_id}::${(p.category ?? "").trim().toLowerCase()}`,
+      ) ??
+      null;
+    if (resolvedId && stationNameById.has(resolvedId)) {
+      productStationMap[p.id] = stationNameById.get(resolvedId)!;
     }
   }
 

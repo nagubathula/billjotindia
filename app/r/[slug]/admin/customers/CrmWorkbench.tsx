@@ -53,11 +53,18 @@ import {
   type CouponChannel,
   type CouponDiscountType,
 } from "@/lib/coupons";
-import type { Coupon } from "@/lib/types";
+import type {
+  Coupon,
+  LoyaltySettings,
+  LoyaltyTransaction,
+  LoyaltyWallet,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
+  adjustLoyaltyWalletPointsAction,
   createCouponAction,
   deleteCouponAction,
+  saveLoyaltySettingsAction,
   toggleCouponActiveAction,
 } from "./actions";
 
@@ -93,17 +100,54 @@ export function CrmWorkbench({
   restaurantName,
   customers,
   initialCoupons,
+  initialLoyaltySettings,
+  initialWallets,
+  initialLoyaltyTransactions,
 }: {
   restaurantSlug: string;
   restaurantName: string;
   customers: CustomerRow[];
   initialCoupons: Coupon[];
+  initialLoyaltySettings: LoyaltySettings;
+  initialWallets: LoyaltyWallet[];
+  initialLoyaltyTransactions: LoyaltyTransaction[];
 }) {
   const [segment, setSegment] = useState<
     "all" | "vip" | "repeat" | "onetime" | "atrisk"
   >("all");
   const [search, setSearch] = useState("");
   const [coupons, setCoupons] = useState<Coupon[]>(initialCoupons);
+  const [wallets, setWallets] = useState<LoyaltyWallet[]>(initialWallets);
+  const [loyaltyTxns, setLoyaltyTxns] = useState<LoyaltyTransaction[]>(
+    initialLoyaltyTransactions,
+  );
+  const [walletSearch, setWalletSearch] = useState("");
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(
+    initialLoyaltySettings.is_enabled,
+  );
+  const [pointsPer100, setPointsPer100] = useState(
+    String(initialLoyaltySettings.points_per_100),
+  );
+  const [pointValue, setPointValue] = useState(
+    String(initialLoyaltySettings.point_value),
+  );
+  const [minOrderEarn, setMinOrderEarn] = useState(
+    String(initialLoyaltySettings.min_order_for_earn),
+  );
+  const [minPointsRedeem, setMinPointsRedeem] = useState(
+    String(initialLoyaltySettings.min_points_to_redeem),
+  );
+  const [maxRedeemPct, setMaxRedeemPct] = useState(
+    String(initialLoyaltySettings.max_redeem_pct),
+  );
+  const [welcomeBonusPts, setWelcomeBonusPts] = useState(
+    String(initialLoyaltySettings.welcome_bonus_points),
+  );
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjPhone, setAdjPhone] = useState("");
+  const [adjName, setAdjName] = useState("");
+  const [adjDelta, setAdjDelta] = useState("50");
+  const [adjNote, setAdjNote] = useState("");
   const [addingCoupon, setAddingCoupon] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -124,7 +168,20 @@ export function CrmWorkbench({
   const atRiskCount = customers.filter((c) => c.daysSinceLast >= 14).length;
   const repeatRate = total ? Math.round((repeatCount / total) * 100) : 0;
   const totalSpent = customers.reduce((s, c) => s + c.spent, 0);
-  const totalPoints = customers.reduce((s, c) => s + c.points, 0);
+  const totalWalletPoints = wallets.reduce((s, w) => s + w.points_balance, 0);
+  const walletById = useMemo(
+    () => new Map(wallets.map((w) => [w.id, w])),
+    [wallets],
+  );
+  const filteredWallets = useMemo(() => {
+    const q = walletSearch.trim().toLowerCase();
+    if (!q) return wallets;
+    return wallets.filter(
+      (w) =>
+        w.phone_normalized.toLowerCase().includes(q) ||
+        (w.customer_name ?? "").toLowerCase().includes(q),
+    );
+  }, [wallets, walletSearch]);
 
   const filteredCustomers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -258,14 +315,14 @@ export function CrmWorkbench({
         <Card size="sm">
           <CardContent className="pt-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Loyalty Points Issued</span>
+              <span>Loyalty Wallets</span>
               <Gift className="h-3.5 w-3.5" />
             </div>
             <div className="mt-1.5 text-2xl font-semibold tabular-nums">
-              {totalPoints.toLocaleString("en-IN")} pts
+              {totalWalletPoints.toLocaleString("en-IN")} pts
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              1 pt per ₹20 spent (₹1 redemption value)
+              {wallets.length} active wallets · ₹{Number(pointValue || 1)}/pt value
             </div>
           </CardContent>
         </Card>
@@ -281,7 +338,10 @@ export function CrmWorkbench({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             <TabsTrigger value="customers">
-              Customer CRM &amp; Loyalty ({customers.length})
+              Customers ({customers.length})
+            </TabsTrigger>
+            <TabsTrigger value="loyalty">
+              Loyalty Wallets ({wallets.length})
             </TabsTrigger>
             <TabsTrigger value="coupons">
               Coupons &amp; Promo Offers ({coupons.length})
@@ -605,7 +665,382 @@ export function CrmWorkbench({
           )}
         </TabsContent>
 
-        {/* TAB 2: DB-backed Coupons & Promo Codes */}
+        {/* TAB 2: Phone-Number Loyalty Rules, Wallets & Ledger */}
+        <TabsContent value="loyalty" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Gift className="h-4 w-4 text-primary" />
+                  Loyalty Points &amp; Cashback Rules
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Customers earn and redeem points by 10-digit phone number across Counter POS and Checkout.
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {loyaltyEnabled ? "Program Active" : "Paused"}
+                </span>
+                <Switch
+                  checked={loyaltyEnabled}
+                  onCheckedChange={setLoyaltyEnabled}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setActionMsg(null);
+                  startTransition(async () => {
+                    const res = await saveLoyaltySettingsAction(restaurantSlug, {
+                      is_enabled: loyaltyEnabled,
+                      points_per_100: Number(pointsPer100),
+                      point_value: Number(pointValue),
+                      min_order_for_earn: Number(minOrderEarn),
+                      min_points_to_redeem: Number(minPointsRedeem),
+                      max_redeem_pct: Number(maxRedeemPct),
+                      welcome_bonus_points: Number(welcomeBonusPts),
+                    });
+                    if (!res.ok) setActionMsg(res.error);
+                    else setActionMsg("Saved loyalty program rules.");
+                  });
+                }}
+                className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6"
+              >
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Pts / ₹100</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={pointsPer100}
+                    onChange={(e) => setPointsPer100(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">1 Pt Value (₹)</Label>
+                  <Input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={pointValue}
+                    onChange={(e) => setPointValue(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Min Order Earn (₹)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="10"
+                    value={minOrderEarn}
+                    onChange={(e) => setMinOrderEarn(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Min Redeem Pts</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={minPointsRedeem}
+                    onChange={(e) => setMinPointsRedeem(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Max Bill Redeem %</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={maxRedeemPct}
+                    onChange={(e) => setMaxRedeemPct(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Welcome Bonus Pts</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={welcomeBonusPts}
+                    onChange={(e) => setWelcomeBonusPts(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                </div>
+                <div className="flex justify-end sm:col-span-3 lg:col-span-6">
+                  <Button type="submit" size="sm" disabled={pending}>
+                    {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Save Loyalty Rules
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <div>
+                <CardTitle className="text-sm">Phone Loyalty Wallets ({filteredWallets.length})</CardTitle>
+                <CardDescription className="text-xs">
+                  Search any 10-digit mobile number or grant manual goodwill bonus points.
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative w-56">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={walletSearch}
+                    onChange={(e) => setWalletSearch(e.target.value)}
+                    placeholder="Phone or guest name…"
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAdjPhone("");
+                    setAdjName("");
+                    setAdjDelta("50");
+                    setAdjNote("");
+                    setAdjustOpen(true);
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Adjust Points
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {filteredWallets.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  No loyalty wallets recorded yet. Points are credited automatically on settled POS &amp; checkout bills with a phone number.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Guest Name</TableHead>
+                      <TableHead className="text-right">Visits</TableHead>
+                      <TableHead className="text-right">Total Spend</TableHead>
+                      <TableHead className="text-right">Earned / Redeemed</TableHead>
+                      <TableHead className="text-right">Balance</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredWallets.map((w) => (
+                      <TableRow key={w.id}>
+                        <TableCell className="font-mono text-xs font-medium">
+                          {w.phone_normalized}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {w.customer_name || "Guest Member"}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {w.visits_count}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {inr(Number(w.total_spent))}
+                        </TableCell>
+                        <TableCell className="text-right text-[11px] tabular-nums text-muted-foreground">
+                          +{w.lifetime_earned} / -{w.lifetime_redeemed}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge className="bg-emerald-500/15 font-mono text-xs text-emerald-700">
+                            {w.points_balance} pts (₹
+                            {(w.points_balance * Number(pointValue || 1)).toFixed(0)})
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            onClick={() => {
+                              setAdjPhone(w.phone_normalized);
+                              setAdjName(w.customer_name ?? "");
+                              setAdjDelta("50");
+                              setAdjNote("Goodwill bonus");
+                              setAdjustOpen(true);
+                            }}
+                          >
+                            Adjust
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {loyaltyTxns.length > 0 && (
+            <Card>
+              <CardHeader className="border-b border-border/60 pb-3">
+                <CardTitle className="text-sm">Recent Points Ledger</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Delta</TableHead>
+                      <TableHead className="text-right">Balance After</TableHead>
+                      <TableHead>Note</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loyaltyTxns.slice(0, 25).map((t) => {
+                      const w = walletById.get(t.wallet_id);
+                      return (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-mono text-xs">
+                            {w?.phone_normalized ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {t.txn_type.replace("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className={cn(
+                              "text-right font-mono text-xs font-semibold tabular-nums",
+                              t.points_delta >= 0 ? "text-emerald-700" : "text-rose-600",
+                            )}
+                          >
+                            {t.points_delta >= 0 ? `+${t.points_delta}` : t.points_delta}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs tabular-nums">
+                            {t.balance_after}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {t.note ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Adjust Loyalty Points</DialogTitle>
+                <DialogDescription>
+                  Add bonus points (+50) or deduct points (-25) for any guest phone.
+                </DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setActionMsg(null);
+                  startTransition(async () => {
+                    const res = await adjustLoyaltyWalletPointsAction(restaurantSlug, {
+                      phone: adjPhone,
+                      customerName: adjName,
+                      pointsDelta: Number(adjDelta),
+                      note: adjNote,
+                    });
+                    if (!res.ok) {
+                      setActionMsg(res.error);
+                      return;
+                    }
+                    setWallets((prev) => {
+                      const idx = prev.findIndex((w) => w.id === res.wallet.id);
+                      if (idx === -1) return [res.wallet, ...prev];
+                      return prev.map((w) => (w.id === res.wallet.id ? res.wallet : w));
+                    });
+                    setLoyaltyTxns((prev) => [
+                      {
+                        id: `${Date.now()}`,
+                        restaurant_id: res.wallet.restaurant_id,
+                        wallet_id: res.wallet.id,
+                        outlet_id: null,
+                        order_id: null,
+                        txn_type: "adjustment",
+                        points_delta: Math.trunc(Number(adjDelta) || 0),
+                        rupee_value: 0,
+                        balance_after: res.wallet.points_balance,
+                        note: adjNote || "Manual adjustment",
+                        created_by: null,
+                        created_at: new Date().toISOString(),
+                      },
+                      ...prev,
+                    ]);
+                    setAdjustOpen(false);
+                    setActionMsg(
+                      `Updated ${res.wallet.phone_normalized} balance to ${res.wallet.points_balance} pts.`,
+                    );
+                  });
+                }}
+                className="grid gap-3"
+              >
+                <div className="grid gap-1">
+                  <Label className="text-xs">10-Digit Phone</Label>
+                  <Input
+                    required
+                    value={adjPhone}
+                    onChange={(e) => setAdjPhone(e.target.value)}
+                    placeholder="9876543210"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Guest Name (Optional)</Label>
+                  <Input
+                    value={adjName}
+                    onChange={(e) => setAdjName(e.target.value)}
+                    placeholder="Ravi Kumar"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Points Change (+ or -)</Label>
+                  <Input
+                    type="number"
+                    required
+                    value={adjDelta}
+                    onChange={(e) => setAdjDelta(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Reason Note</Label>
+                  <Input
+                    value={adjNote}
+                    onChange={(e) => setAdjNote(e.target.value)}
+                    placeholder="Service recovery / Birthday bonus"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setAdjustOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={pending}>
+                    {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Apply Points
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
+        {/* TAB 3: DB-backed Coupons & Promo Codes */}
         <TabsContent value="coupons" className="mt-4">
           {coupons.length === 0 ? (
             <Card>

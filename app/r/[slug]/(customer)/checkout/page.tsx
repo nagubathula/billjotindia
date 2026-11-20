@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getPublicOutlets, getPublicRestaurant } from "@/lib/auth";
 import { STOREFRONT_COUPONS, type CouponRuleShape } from "@/lib/coupons";
 import { getPublicPaymentConfig } from "@/lib/payments";
+import { getLoyaltySettings } from "@/lib/loyalty";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -62,22 +63,24 @@ export default async function CheckoutPage(props: Props) {
 
   const admin = createAdminClient();
   const nowMs = Date.now();
-  const [paymentConfig, dbCouponsRes, anyCouponCountRes] = await Promise.all([
-    getPublicPaymentConfig(outlet.id),
-    admin
-      .from("coupons")
-      .select(
-        "code, title, discount_type, discount_value, max_discount, min_order_amount, channel, usage_limit, used_count, expires_at, is_active",
-      )
-      .eq("restaurant_id", restaurant.id)
-      .eq("is_active", true)
-      .in("channel", ["all", "storefront", "dine_in"])
-      .order("min_order_amount", { ascending: true }),
-    admin
-      .from("coupons")
-      .select("id", { count: "exact", head: true })
-      .eq("restaurant_id", restaurant.id),
-  ]);
+  const [paymentConfig, dbCouponsRes, anyCouponCountRes, loyaltySettings] =
+    await Promise.all([
+      getPublicPaymentConfig(outlet.id),
+      admin
+        .from("coupons")
+        .select(
+          "code, title, discount_type, discount_value, max_discount, min_order_amount, channel, usage_limit, used_count, expires_at, is_active",
+        )
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .in("channel", ["all", "storefront", "dine_in"])
+        .order("min_order_amount", { ascending: true }),
+      admin
+        .from("coupons")
+        .select("id", { count: "exact", head: true })
+        .eq("restaurant_id", restaurant.id),
+      getLoyaltySettings(admin, restaurant.id),
+    ]);
 
   const dbCoupons = (dbCouponsRes.data ?? []).filter((c) => {
     if (c.expires_at && new Date(c.expires_at).getTime() <= nowMs) return false;
@@ -97,6 +100,12 @@ export default async function CheckoutPage(props: Props) {
       outletId={outlet.id}
       paymentConfig={paymentConfig}
       availableCoupons={availableCoupons}
+      loyaltySettings={{
+        isEnabled: loyaltySettings.is_enabled,
+        pointsPer100: Number(loyaltySettings.points_per_100),
+        minOrderForEarn: Number(loyaltySettings.min_order_for_earn),
+        welcomeBonusPoints: loyaltySettings.welcome_bonus_points,
+      }}
       wasCancelled={searchParams.cancelled === "1"}
     />
   );

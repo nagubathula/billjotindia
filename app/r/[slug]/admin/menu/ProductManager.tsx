@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
-import type { Category, Product } from "@/lib/types";
+import type { Category, KitchenStation, Product } from "@/lib/types";
 import {
   createProductAction,
   toggleProductStatusAction,
@@ -62,12 +62,14 @@ export function ProductManager({
   products,
   groups,
   productGroups,
+  stations = [],
 }: {
   slug: string;
   categories: Category[];
   products: Product[];
   groups: GroupOption[];
   productGroups: Record<string, AttachedGroupConfig[]>;
+  stations?: KitchenStation[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -79,6 +81,14 @@ export function ProductManager({
   const [statusFilter, setStatusFilter] = useState<string>(ALL_VALUE);
 
   const activeCategories = categories.filter((c) => c.status === "active");
+  const stationById = useMemo(
+    () => new Map(stations.map((s) => [s.id, s])),
+    [stations],
+  );
+  const catStationByName = useMemo(
+    () => new Map(categories.map((c) => [c.name.trim().toLowerCase(), c.station_id])),
+    [categories],
+  );
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -243,13 +253,29 @@ export function ProductManager({
                           />
                         </span>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 font-medium text-xs text-foreground">
+                          <div className="flex flex-wrap items-center gap-1.5 font-medium text-xs text-foreground">
                             <span>{p.name}</span>
                             {attachedCount > 0 && (
                               <Badge variant="secondary" className="h-4 px-1 text-[11px]">
                                 +{attachedCount} mod
                               </Badge>
                             )}
+                            {p.is_kot_required === false ? (
+                              <Badge variant="outline" className="h-4 px-1 text-[10px] text-muted-foreground">
+                                No KOT
+                              </Badge>
+                            ) : (() => {
+                              const stId =
+                                p.station_id ??
+                                catStationByName.get((p.category ?? "").trim().toLowerCase()) ??
+                                null;
+                              const stName = stId ? stationById.get(stId)?.name : null;
+                              return stName ? (
+                                <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                                  {stName}
+                                </Badge>
+                              ) : null;
+                            })()}
                           </div>
                           {p.description && (
                             <div className="max-w-xs truncate text-[11px] text-muted-foreground">
@@ -332,6 +358,7 @@ export function ProductManager({
         slug={slug}
         categories={activeCategories}
         groups={groups}
+        stations={stations}
         selectedProductGroups={[]}
         open={creating}
         onOpenChange={setCreating}
@@ -347,6 +374,7 @@ export function ProductManager({
         slug={slug}
         categories={activeCategories}
         groups={groups}
+        stations={stations}
         selectedProductGroups={editing ? (productGroups[editing.id] ?? []) : []}
         open={editing !== null}
         onOpenChange={(o) => {
@@ -368,6 +396,7 @@ function ProductDialog({
   slug,
   categories,
   groups,
+  stations,
   selectedProductGroups,
   open,
   onOpenChange,
@@ -379,6 +408,7 @@ function ProductDialog({
   slug: string;
   categories: Category[];
   groups: GroupOption[];
+  stations: KitchenStation[];
   selectedProductGroups: AttachedGroupConfig[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -404,6 +434,12 @@ function ProductDialog({
   );
   const [hsnCode, setHsnCode] = useState<string>(product?.hsn_code ?? "");
   const [imageUrl, setImageUrl] = useState<string>(product?.image_url ?? "");
+  const [stationId, setStationId] = useState<string>(
+    product?.station_id ?? "__inherit__",
+  );
+  const [isKotRequired, setIsKotRequired] = useState<boolean>(
+    product?.is_kot_required !== false,
+  );
   const [attachedGroups, setAttachedGroups] = useState<AttachedGroupConfig[]>(
     selectedProductGroups,
   );
@@ -422,8 +458,11 @@ function ProductDialog({
     setDescription(product?.description ?? "");
     setHsnCode(product?.hsn_code ?? "");
     setImageUrl(product?.image_url ?? "");
+    setStationId(product?.station_id ?? "__inherit__");
+    setIsKotRequired(product?.is_kot_required !== false);
     setAttachedGroups(selectedProductGroups);
   }
+  const stationById = new Map(stations.map((s) => [s.id, s]));
 
   const groupById = new Map(groups.map((g) => [g.id, g]));
   const attachedSet = new Set(attachedGroups.map((a) => a.group_id));
@@ -466,6 +505,8 @@ function ProductDialog({
             fd.set("category", category);
             fd.set("gst_rate", gstRate);
             fd.set("veg_status", vegStatus);
+            fd.set("station_id", stationId);
+            fd.set("is_kot_required", isKotRequired ? "true" : "false");
             fd.set("product_groups", JSON.stringify(attachedGroups));
             if (product) fd.set("id", String(product.id));
             setErr(null);
@@ -610,6 +651,48 @@ function ProductDialog({
               onChange={(e) => setImageUrl(e.target.value)}
               placeholder="https://images.unsplash.com/..."
             />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>Kitchen Station Routing</Label>
+              <Select
+                value={stationId}
+                onValueChange={(v) => v && setStationId(v)}
+                disabled={stations.length === 0 || !isKotRequired}
+              >
+                <SelectTrigger className="w-full text-xs">
+                  <SelectValue>
+                    {(v: string) =>
+                      v === "__inherit__"
+                        ? "Inherit category station"
+                        : (stationById.get(v)?.name ?? "Inherit category station")
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__inherit__">Inherit category station</SelectItem>
+                  {stations.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div>
+                <div className="text-xs font-medium">Print KOT to Kitchen</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Disable for retail/packaged counter items
+                </div>
+              </div>
+              <Switch
+                checked={isKotRequired}
+                onCheckedChange={setIsKotRequired}
+              />
+            </div>
           </div>
 
           <div className="grid gap-1.5">

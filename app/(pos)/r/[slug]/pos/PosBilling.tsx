@@ -9,9 +9,11 @@ import {
   CalendarClock,
   Check,
   ChefHat,
+  CloudOff,
   Copy,
   CreditCard,
   ExternalLink,
+  Gift,
   LayoutDashboard,
   LayoutGrid,
   Loader2,
@@ -19,6 +21,7 @@ import {
   Minus,
   Package,
   Plus,
+  Printer,
   QrCode,
   Receipt,
   Search,
@@ -60,6 +63,8 @@ import { ModifierDialog } from "@/components/ModifierDialog";
 import { PwaInstallButton } from "@/components/PwaInstallButton";
 import { QrCodeSvg } from "@/components/QrCodeSvg";
 import { PosHostDeskDialog } from "./PosHostDeskDialog";
+import { PosPrinterDialog } from "./PosPrinterDialog";
+import { PosOfflineOutboxDialog } from "./PosOfflineOutboxDialog";
 import type { SelectedOption } from "@/components/CartProvider";
 import {
   evaluateCouponDiscount,
@@ -69,6 +74,32 @@ import {
   formatShortClockTime,
   getUpcomingReservationForTable,
 } from "@/lib/bookings";
+import {
+  computeEarnedPoints,
+  computeMaxRedeemablePoints,
+  DEFAULT_LOYALTY_SETTINGS,
+  normalizeLoyaltyPhone,
+} from "@/lib/loyalty";
+import { buildEscPosKotBytes, buildEscPosReceiptBytes } from "@/lib/escpos";
+import {
+  DEFAULT_POS_PRINTER_CONFIG,
+  dispatchEscPosBytes,
+  loadPosPrinterConfig,
+  savePosPrinterConfig,
+  type PosPrinterTerminalConfig,
+} from "@/lib/pos-printer-client";
+import {
+  enqueueOfflinePosOrder,
+  isNetworkFailure,
+  listOfflinePosOrders,
+  makeLocalOfflineBillNumber,
+  makeOfflineOrderId,
+  removeOfflinePosOrder,
+  savePosCatalogSnapshot,
+  syncSingleOfflineOrder,
+  updateOfflinePosOrderStatus,
+  type OfflineQueuedOrder,
+} from "@/lib/pos-offline";
 import { resolveTimeZone } from "@/lib/time";
 import {
   buildModifierConfigKey,
@@ -80,6 +111,9 @@ import type {
   Category,
   Coupon,
   CustomerTab,
+  KitchenStation,
+  LoyaltySettings,
+  LoyaltyWallet,
   OrderType,
   Outlet,
   Product,
@@ -99,6 +133,7 @@ import {
   chargePosToCustomerTabAction,
   settlePosSplitPaymentAction,
   splitTabItemsAction,
+  lookupPosLoyaltyWalletAction,
 } from "./tab-actions";
 import { validateSplitAllocations } from "@/lib/register";
 
@@ -131,6 +166,8 @@ type Tab = {
   lines: Line[];
   orderType?: OrderType;
   customerName?: string;
+  customerPhone?: string;
+  redeemLoyalty?: boolean;
   orderNote?: string;
   packingCharge?: number;
   discountPct?: number;
@@ -149,6 +186,8 @@ function makeDefaultTab(): Tab {
     lines: [],
     orderType: "dine-in",
     customerName: "",
+    customerPhone: "",
+    redeemLoyalty: false,
     orderNote: "",
     packingCharge: 0,
     discountPct: 0,
@@ -168,6 +207,8 @@ type Props = {
   customerTabs?: CustomerTab[];
   posCoupons?: Coupon[];
   initialBookings?: TableBooking[];
+  loyaltySettings?: LoyaltySettings;
+  stations?: KitchenStation[];
   requestedTable?: string | null;
   restaurantSlug: string;
   restaurantName: string;
@@ -227,6 +268,8 @@ export function PosBilling({
   customerTabs = [],
   posCoupons = [],
   initialBookings = [],
+  loyaltySettings,
+  stations = [],
   requestedTable = null,
   restaurantSlug,
   restaurantName,
@@ -329,6 +372,25 @@ export function PosBilling({
   const [hostDeskOpen, setHostDeskOpen] = useState(false);
   const [bookings, setBookings] = useState<TableBooking[]>(initialBookings);
   const [posMounted, setPosMounted] = useState(false);
+
+  // Loyalty, Silent Thermal Printer, and Offline Mode state
+  const [printerModalOpen, setPrinterModalOpen] = useState(false);
+  const [printerCfg, setPrinterCfg] = useState<PosPrinterTerminalConfig>(
+    DEFAULT_POS_PRINTER_CONFIG,
+  );
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineQueue, setOfflineQueue] = useState<OfflineQueuedOrder[]>([]);
+  const [outboxModalOpen, setOutboxModalOpen] = useState(false);
+  const [outboxPreviewOrder, setOutboxPreviewOrder] =
+    useState<OfflineQueuedOrder | null>(null);
+  const [syncingOutbox, setSyncingOutbox] = useState(false);
+  const [loyaltyWalletState, setLoyaltyWalletState] = useState<{
+    phone: string;
+    wallet: LoyaltyWallet | null;
+    settings: LoyaltySettings;
+  } | null>(null);
+  const [loyaltyBusy, setLoyaltyBusy] = useState(false);
+
   useEffect(() => {
     setBookings(initialBookings);
   }, [initialBookings]);
@@ -336,12 +398,37 @@ export function PosBilling({
     setPosMounted(true);
   }, []);
 
+  useEffect(() => {
+    setPrinterCfg(loadPosPrinterConfig(outletId));
+    listOfflinePosOrders(outletId).then(setOfflineQueue).catch(() => {});
+    savePosCatalogSnapshot({
+      outletId,
+      savedAt: new Date().toISOString(),
+      outlet,
+      categories,
+      products,
+      modifiersByProduct,
+      posCoupons,
+      loyaltySettings: loyaltySettings ?? null,
+    }).catch(() => {});
+  }, [
+    outletId,
+    outlet,
+    categories,
+    products,
+    modifiersByProduct,
+    posCoupons,
+    loyaltySettings,
+  ]);
+
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const lines = useMemo(() => activeTab?.lines ?? [], [activeTab]);
   const orderType: OrderType = canTakeNonTableOrders
     ? (activeTab?.orderType ?? "dine-in")
     : "dine-in";
   const customerName = activeTab?.customerName ?? "";
+  const customerPhone = activeTab?.customerPhone ?? "";
+  const redeemLoyalty = Boolean(activeTab?.redeemLoyalty);
   const orderNote = activeTab?.orderNote ?? "";
   const packingCharge = Number(activeTab?.packingCharge ?? 0);
   const discountPct = Number(activeTab?.discountPct ?? 0);
@@ -634,6 +721,237 @@ export function PosBilling({
     );
   };
 
+  const walletSettingsOverride = loyaltyWalletState?.settings;
+  const effectiveLoyaltySettings: LoyaltySettings = useMemo(() => {
+    if (walletSettingsOverride) return walletSettingsOverride;
+    if (loyaltySettings) return loyaltySettings;
+    const nowIso = "";
+    return {
+      restaurant_id: outlet.restaurant_id,
+      ...DEFAULT_LOYALTY_SETTINGS,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+  }, [walletSettingsOverride, loyaltySettings, outlet.restaurant_id]);
+
+  useEffect(() => {
+    const cleanPhone = normalizeLoyaltyPhone(customerPhone);
+    if (!cleanPhone || !isOnline || !effectiveLoyaltySettings.is_enabled) {
+      if (!cleanPhone) setLoyaltyWalletState(null);
+      return;
+    }
+    if (loyaltyWalletState?.phone === cleanPhone) return;
+
+    let cancelled = false;
+    setLoyaltyBusy(true);
+    const tid = setTimeout(() => {
+      lookupPosLoyaltyWalletAction(restaurantSlug, cleanPhone)
+        .then((res) => {
+          if (cancelled || !res.ok || !res.phoneNormalized) return;
+          setLoyaltyWalletState({
+            phone: res.phoneNormalized,
+            wallet: res.wallet,
+            settings: res.settings,
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setLoyaltyBusy(false);
+        });
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(tid);
+    };
+  }, [
+    customerPhone,
+    isOnline,
+    effectiveLoyaltySettings.is_enabled,
+    loyaltyWalletState?.phone,
+    restaurantSlug,
+  ]);
+
+  const drainOfflineOutbox = useCallback(async () => {
+    if (syncingOutbox) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const current = await listOfflinePosOrders(outletId);
+    if (current.length === 0) {
+      setOfflineQueue([]);
+      return;
+    }
+    setSyncingOutbox(true);
+    let syncedCount = 0;
+    try {
+      for (const item of current) {
+        await updateOfflinePosOrderStatus(item.offlineId, { syncStatus: "syncing" });
+        const res = await syncSingleOfflineOrder(item);
+        if (res.ok) {
+          await removeOfflinePosOrder(item.offlineId);
+          syncedCount += 1;
+        } else {
+          await updateOfflinePosOrderStatus(item.offlineId, {
+            syncStatus: "failed",
+            attempts: item.attempts + 1,
+            lastError: res.error,
+          });
+          if (!res.permanent) break;
+        }
+      }
+      const nextQueue = await listOfflinePosOrders(outletId);
+      setOfflineQueue(nextQueue);
+      if (syncedCount > 0) {
+        setKotSavedMsg(
+          `Synced ${syncedCount} offline ${syncedCount === 1 ? "bill" : "bills"} to cloud`,
+        );
+        setTimeout(() => setKotSavedMsg(null), 4000);
+      }
+    } finally {
+      setSyncingOutbox(false);
+    }
+  }, [outletId, syncingOutbox]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncOnline = () => {
+      const onlineNow = navigator.onLine;
+      setIsOnline(onlineNow);
+      if (onlineNow) {
+        void drainOfflineOutbox();
+      }
+    };
+    setIsOnline(navigator.onLine);
+    window.addEventListener("online", syncOnline);
+    window.addEventListener("offline", syncOnline);
+    return () => {
+      window.removeEventListener("online", syncOnline);
+      window.removeEventListener("offline", syncOnline);
+    };
+  }, [drainOfflineOutbox]);
+
+  const categoryStationMap = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const c of categories) {
+      m.set(c.name.trim().toLowerCase(), c.station_id ?? null);
+    }
+    return m;
+  }, [categories]);
+
+  const stationById = useMemo(
+    () => new Map(stations.map((s) => [s.id, s])),
+    [stations],
+  );
+
+  const trySilentKotPrint = useCallback(
+    async (unsentLines: Line[], tokenNumber: number | null, tabLabel: string) => {
+      if (!printerCfg.silentKot || printerCfg.transport === "browser") return;
+      const groups = new Map<string, { stationName: string; lines: Line[] }>();
+      for (const l of unsentLines) {
+        if (l.product.is_kot_required === false) continue;
+        const stId =
+          l.product.station_id ??
+          categoryStationMap.get((l.product.category ?? "").trim().toLowerCase()) ??
+          null;
+        const st = stId ? stationById.get(stId) : undefined;
+        const key = st ? st.id : "__general__";
+        const cur = groups.get(key) ?? {
+          stationName: st ? st.name : "Main Kitchen",
+          lines: [],
+        };
+        cur.lines.push(l);
+        groups.set(key, cur);
+      }
+
+      for (const grp of groups.values()) {
+        const bytes = buildEscPosKotBytes({
+          outletName: outlet.name,
+          stationName: grp.stationName,
+          billNumber: tabLabel,
+          tokenNumber,
+          tableLabel: tabLabel,
+          orderType,
+          placedAtLabel: new Date().toLocaleTimeString("en-IN"),
+          orderNote: orderNote.trim() || null,
+          items: grp.lines.map((l) => ({
+            name: l.product.name,
+            quantity: Math.max(1, l.qty - (l.sentQty ?? 0)),
+            modifiers: l.selectedOptions.map((o) => formatSelectedOptionLabel(o)),
+            instructions: l.instructions,
+          })),
+          paperWidth: printerCfg.paperWidth,
+        });
+        await dispatchEscPosBytes(printerCfg, bytes, {
+          jobType: "kot",
+          station: grp.stationName,
+        });
+      }
+    },
+    [printerCfg, categoryStationMap, stationById, outlet.name, orderType, orderNote],
+  );
+
+  const trySilentReceiptPrint = useCallback(
+    async (params: {
+      billNumber: string;
+      tokenNumber?: number | null;
+      tenderLabel: string;
+      hasCash: boolean;
+      receiptLines: Line[];
+      subtotalTaxable: number;
+      cgst: number;
+      sgst: number;
+      packing: number;
+      discount: number;
+      loyaltyPointsRedeemed: number;
+      loyaltyDiscount: number;
+      loyaltyPointsEarned: number;
+      rounding: number;
+      total: number;
+    }): Promise<boolean> => {
+      if (!printerCfg.silentReceipt || printerCfg.transport === "browser") {
+        return false;
+      }
+      const bytes = buildEscPosReceiptBytes({
+        outletName: outlet.name,
+        address: outlet.address,
+        gstin: outlet.gstin,
+        fssai: outlet.fssai_license,
+        phone: outlet.phone,
+        billNumber: params.billNumber,
+        source: "pos",
+        tokenNumber: params.tokenNumber,
+        placedAtLabel: new Date().toLocaleString("en-IN"),
+        orderType,
+        customerName: customerName.trim() || null,
+        tenderLabel: params.tenderLabel,
+        items: params.receiptLines.map((l) => ({
+          name: l.product.name,
+          quantity: l.qty,
+          totalPrice: Number((l.unitPrice * l.qty).toFixed(2)),
+          modifiers: l.selectedOptions.map((o) => formatSelectedOptionLabel(o)),
+          instructions: l.instructions,
+        })),
+        orderNote: orderNote.trim() || null,
+        subtotal: params.subtotalTaxable,
+        cgst: params.cgst,
+        sgst: params.sgst,
+        packingCharge: params.packing,
+        discountAmount: params.discount,
+        loyaltyPointsRedeemed: params.loyaltyPointsRedeemed,
+        loyaltyDiscountAmount: params.loyaltyDiscount,
+        loyaltyPointsEarned: params.loyaltyPointsEarned,
+        roundingAmount: params.rounding,
+        totalAmount: params.total,
+        paperWidth: printerCfg.paperWidth,
+        kickDrawer: printerCfg.autoKickCashDrawer && params.hasCash,
+      });
+      const res = await dispatchEscPosBytes(printerCfg, bytes, {
+        jobType: "receipt",
+      });
+      return res.ok;
+    },
+    [printerCfg, outlet, orderType, customerName, orderNote],
+  );
+
   const totals = useMemo(() => {
     let subtotal = 0;
     let gst = 0;
@@ -649,9 +967,34 @@ export function PosBilling({
         ? (subtotal * Math.min(100, discountPct)) / 100
         : Math.max(0, discountFlat);
     const discount = Math.min(subtotal, Number(rawDiscount.toFixed(2)));
-    const netBeforeRound = Math.max(0, subtotal + packing - discount);
+    const netBeforeLoyalty = Math.max(0, subtotal + packing - discount);
+
+    const activeCleanPhone = normalizeLoyaltyPhone(customerPhone);
+    const matchingWallet =
+      activeCleanPhone && loyaltyWalletState?.phone === activeCleanPhone
+        ? loyaltyWalletState.wallet
+        : null;
+    const redeemCap = computeMaxRedeemablePoints({
+      balance: matchingWallet?.points_balance ?? 0,
+      orderSubtotal: netBeforeLoyalty,
+      settings: effectiveLoyaltySettings,
+    });
+    const loyaltyPointsRedeemed =
+      redeemLoyalty && redeemCap.eligible ? redeemCap.maxPoints : 0;
+    const loyaltyDiscount =
+      redeemLoyalty && redeemCap.eligible ? redeemCap.rupeeDiscount : 0;
+
+    const netBeforeRound = Math.max(0, netBeforeLoyalty - loyaltyDiscount);
     const roundedTotal = Math.round(netBeforeRound);
     const rounding = Number((roundedTotal - netBeforeRound).toFixed(2));
+    const earnPreview = activeCleanPhone
+      ? computeEarnedPoints({
+          netPaidAmount: roundedTotal,
+          isFirstVisit: !matchingWallet || matchingWallet.visits_count === 0,
+          settings: effectiveLoyaltySettings,
+        })
+      : { earnedPoints: 0, welcomeBonus: 0, totalCredited: 0 };
+
     return {
       subtotal,
       taxable: subtotal - gst,
@@ -660,10 +1003,24 @@ export function PosBilling({
       gst,
       packing,
       discount,
+      loyaltyRedeemCap: redeemCap,
+      loyaltyPointsRedeemed,
+      loyaltyDiscount,
+      loyaltyPointsEarnedPreview: earnPreview.totalCredited,
       rounding,
       total: roundedTotal,
     };
-  }, [lines, orderType, packingCharge, discountPct, discountFlat]);
+  }, [
+    lines,
+    orderType,
+    packingCharge,
+    discountPct,
+    discountFlat,
+    customerPhone,
+    loyaltyWalletState,
+    effectiveLoyaltySettings,
+    redeemLoyalty,
+  ]);
 
   const transferCurrentBillTo = async (targetTabId: string) => {
     if (!activeTab || activeTab.lines.length === 0 || targetTabId === activeTabId || movingTable) {
@@ -826,6 +1183,7 @@ export function PosBilling({
         await saveTabAction(restaurantSlug, held.id, held.name, held.lines).catch(() => {});
       }
 
+      const unsentSnapshot = tab.lines.filter((l) => l.qty > (l.sentQty ?? 0));
       const res = await sendKotAction(
         restaurantSlug,
         tab.id,
@@ -843,16 +1201,31 @@ export function PosBilling({
         ),
       );
       const short = tab.name.split("·")[0].trim();
+      if (res.sentItems > 0 && unsentSnapshot.length > 0) {
+        void trySilentKotPrint(unsentSnapshot, res.tokenNumber, short);
+      }
+      const stationsLabel =
+        res.stationsSent && res.stationsSent.length > 0
+          ? ` (${res.stationsSent.join(", ")})`
+          : "";
       setKotSavedMsg(
         res.sentItems > 0
-          ? `Sent ${res.sentItems} ${res.sentItems === 1 ? "item" : "items"} to the kitchen for ${short}${res.tokenNumber ? ` · Token #${res.tokenNumber}` : ""}`
+          ? `Sent ${res.sentItems} ${res.sentItems === 1 ? "item" : "items"}${stationsLabel} for ${short}${res.tokenNumber ? ` · Token #${res.tokenNumber}` : ""}`
           : `Nothing new to send for ${short}`,
       );
       setTimeout(() => setKotSavedMsg(null), 3200);
     } finally {
       setSendingKot(false);
     }
-  }, [activeTab, sendingKot, restaurantSlug, outletId, customerName, tabs.length]);
+  }, [
+    activeTab,
+    sendingKot,
+    restaurantSlug,
+    outletId,
+    customerName,
+    tabs.length,
+    trySilentKotPrint,
+  ]);
 
   const clearSettledActiveTab = useCallback(() => {
     const settledId = activeTabId;
@@ -860,7 +1233,11 @@ export function PosBilling({
     const isFloorTable = Boolean(activeTab?.name.includes("·"));
     if (isFloorTable && activeTab) {
       setTabs((prev) =>
-        prev.map((t) => (t.id === settledId ? { ...t, lines: [], orderId: null } : t)),
+        prev.map((t) =>
+          t.id === settledId
+            ? { ...t, lines: [], orderId: null, customerPhone: "", redeemLoyalty: false }
+            : t,
+        ),
       );
       if (wasPersisted) {
         saveTabAction(restaurantSlug, settledId, activeTab.name, []).catch(
@@ -876,7 +1253,112 @@ export function PosBilling({
         deleteTabAction(restaurantSlug, settledId).catch(() => {});
       }
     }
+    setLoyaltyWalletState(null);
   }, [activeTab, activeTabId, restaurantSlug, tabs]);
+
+  const queueBillOffline = useCallback(
+    async (params: {
+      paymentMode: "cash" | "upi" | "card" | "split";
+      allocations?: Array<{ mode: "cash" | "upi" | "card"; amount: number }>;
+      customerDisplay: string;
+      customerPhone?: string | null;
+      customerEmail?: string | null;
+    }) => {
+      const now = new Date();
+      const entry: OfflineQueuedOrder = {
+        offlineId: makeOfflineOrderId(),
+        billNumber: makeLocalOfflineBillNumber(now),
+        outletId,
+        restaurantSlug,
+        createdAt: now.toISOString(),
+        orderType,
+        paymentMode: params.paymentMode,
+        allocations: params.allocations,
+        customerName: params.customerDisplay,
+        customerPhone: params.customerPhone || null,
+        customerEmail:
+          params.customerEmail || `pos+${params.paymentMode}@billjot.local`,
+        instructions: orderNote.trim() || null,
+        subtotalTaxable: Number(totals.taxable.toFixed(2)),
+        cgstAmount: Number(totals.cgst.toFixed(2)),
+        sgstAmount: Number(totals.sgst.toFixed(2)),
+        takeawayCharges: Number(totals.packing.toFixed(2)),
+        discountAmount: Number(totals.discount.toFixed(2)),
+        loyaltyPointsRedeemed: totals.loyaltyPointsRedeemed,
+        loyaltyDiscountAmount: totals.loyaltyDiscount,
+        roundingAmount: Number(totals.rounding.toFixed(2)),
+        totalAmount: Number(totals.total.toFixed(2)),
+        items: lines.map((l) => ({
+          quantity: l.qty,
+          unit_price: l.unitPrice,
+          total_price: Number((l.unitPrice * l.qty).toFixed(2)),
+          instructions: l.instructions?.trim() || undefined,
+          product_config: {
+            product_id: l.product.id,
+            name: l.product.name,
+            base_price: Number(l.product.price),
+            selected_options: l.selectedOptions,
+            gst_rate: Number(l.product.gst_rate ?? 5),
+            hsn_code: l.product.hsn_code,
+            tender_mode: params.paymentMode,
+          },
+        })),
+        syncStatus: "pending",
+        attempts: 0,
+        lastError: null,
+      };
+      await enqueueOfflinePosOrder(entry);
+      const updated = await listOfflinePosOrders(outletId);
+      setOfflineQueue(updated);
+
+      const tenderLabel =
+        params.allocations && params.allocations.length > 0
+          ? params.allocations
+              .map((a) => `${a.mode.toUpperCase()} Rs ${a.amount.toFixed(0)}`)
+              .join(" + ")
+          : params.paymentMode.toUpperCase();
+      const hasCash =
+        params.paymentMode === "cash" ||
+        Boolean(params.allocations?.some((a) => a.mode === "cash"));
+
+      const silentDone = await trySilentReceiptPrint({
+        billNumber: entry.billNumber,
+        tenderLabel,
+        hasCash,
+        receiptLines: lines,
+        subtotalTaxable: entry.subtotalTaxable,
+        cgst: entry.cgstAmount,
+        sgst: entry.sgstAmount,
+        packing: entry.takeawayCharges,
+        discount: entry.discountAmount,
+        loyaltyPointsRedeemed: totals.loyaltyPointsRedeemed,
+        loyaltyDiscount: totals.loyaltyDiscount,
+        loyaltyPointsEarned: totals.loyaltyPointsEarnedPreview,
+        rounding: entry.roundingAmount,
+        total: entry.totalAmount,
+      });
+
+      clearSettledActiveTab();
+      setKotSavedMsg(
+        `Saved ${entry.billNumber} offline (${updated.length} pending sync)`,
+      );
+      setTimeout(() => setKotSavedMsg(null), 4500);
+      if (!silentDone) {
+        setOutboxPreviewOrder(entry);
+        setOutboxModalOpen(true);
+      }
+    },
+    [
+      outletId,
+      restaurantSlug,
+      orderType,
+      orderNote,
+      totals,
+      lines,
+      trySilentReceiptPrint,
+      clearSettledActiveTab,
+    ],
+  );
 
   const tender = useCallback(
     async (mode: Tender) => {
@@ -884,25 +1366,56 @@ export function PosBilling({
       setPosting(mode);
       setError(null);
 
+      const cleanGuestPhone = normalizeLoyaltyPhone(customerPhone);
+
       // A table with a running kitchen order is settled in place: same
-      // order, now with the discount, rounding and payment mode.
+      // order, now with the discount, loyalty, rounding and payment mode.
       if (activeTab?.persisted && activeTab.orderId) {
+        if (!isOnline) {
+          setError("Cannot settle an open kitchen table while offline. Reconnect to sync.");
+          setPosting(null);
+          return;
+        }
         if (saveTimer.current) clearTimeout(saveTimer.current);
         const settled = await settleTabAction(restaurantSlug, activeTab.id, {
           mode,
           lines: activeTab.lines,
           customerName: customerName.trim() || undefined,
+          customerPhone: cleanGuestPhone,
           note: orderNote.trim() || undefined,
           discountPct,
           discountFlat,
+          redeemLoyaltyPoints: totals.loyaltyPointsRedeemed,
         });
         if (!settled.ok) {
           setError(settled.error);
           setPosting(null);
           return;
         }
+        const silentDone = await trySilentReceiptPrint({
+          billNumber: settled.orderId.slice(0, 8),
+          tenderLabel: mode.toUpperCase(),
+          hasCash: mode === "cash",
+          receiptLines: lines,
+          subtotalTaxable: totals.taxable,
+          cgst: totals.cgst,
+          sgst: totals.sgst,
+          packing: totals.packing,
+          discount: totals.discount,
+          loyaltyPointsRedeemed: totals.loyaltyPointsRedeemed,
+          loyaltyDiscount: totals.loyaltyDiscount,
+          loyaltyPointsEarned: totals.loyaltyPointsEarnedPreview,
+          rounding: totals.rounding,
+          total: totals.total,
+        });
         clearSettledActiveTab();
-        router.push(`/r/${restaurantSlug}/pos/receipt/${settled.orderId}`);
+        setPosting(null);
+        if (silentDone) {
+          setKotSavedMsg("Table settled & receipt sent to thermal printer");
+          setTimeout(() => setKotSavedMsg(null), 3500);
+        } else {
+          router.push(`/r/${restaurantSlug}/pos/receipt/${settled.orderId}`);
+        }
         return;
       }
 
@@ -916,6 +1429,23 @@ export function PosBilling({
           : tabTableCode
         : customerName.trim() || "Walk-in";
 
+      if (!isOnline) {
+        try {
+          await queueBillOffline({
+            paymentMode: mode,
+            customerDisplay: resolvedCustomer,
+            customerPhone: cleanGuestPhone,
+          });
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Failed to save bill offline",
+          );
+        } finally {
+          setPosting(null);
+        }
+        return;
+      }
+
       try {
         const res = await fetch("/api/orders", {
           method: "POST",
@@ -928,8 +1458,10 @@ export function PosBilling({
                 : null,
             source: "pos",
             customer_name: resolvedCustomer,
+            customer_phone: cleanGuestPhone || undefined,
             customer_email: `pos+${mode}@billjot.local`,
             payment_mode: mode,
+            loyalty_points_redeemed: totals.loyaltyPointsRedeemed,
             order_type: orderType,
             subtotal: Number(totals.taxable.toFixed(2)),
             takeaway_charges: Number(totals.packing.toFixed(2)),
@@ -958,9 +1490,50 @@ export function PosBilling({
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Order failed");
 
+        const silentDone = await trySilentReceiptPrint({
+          billNumber:
+            json.order.unique_order_id ?? json.order.id.slice(0, 8),
+          tokenNumber: json.order.token_number,
+          tenderLabel: mode.toUpperCase(),
+          hasCash: mode === "cash",
+          receiptLines: lines,
+          subtotalTaxable: totals.taxable,
+          cgst: totals.cgst,
+          sgst: totals.sgst,
+          packing: totals.packing,
+          discount: totals.discount,
+          loyaltyPointsRedeemed: Number(json.order.loyalty_points_redeemed ?? 0),
+          loyaltyDiscount: Number(json.order.loyalty_discount_amount ?? 0),
+          loyaltyPointsEarned: Number(json.order.loyalty_points_earned ?? 0),
+          rounding: totals.rounding,
+          total: Number(json.order.total_amount ?? totals.total),
+        });
         clearSettledActiveTab();
-        router.push(`/r/${restaurantSlug}/pos/receipt/${json.order.id}`);
+        setPosting(null);
+        if (silentDone) {
+          setKotSavedMsg(
+            `Settled ${json.order.unique_order_id ?? ""} · Receipt printed`,
+          );
+          setTimeout(() => setKotSavedMsg(null), 3500);
+        } else {
+          router.push(`/r/${restaurantSlug}/pos/receipt/${json.order.id}`);
+        }
       } catch (e) {
+        if (
+          isNetworkFailure(
+            e,
+            typeof navigator !== "undefined" ? navigator.onLine : isOnline,
+          )
+        ) {
+          setIsOnline(false);
+          await queueBillOffline({
+            paymentMode: mode,
+            customerDisplay: resolvedCustomer,
+            customerPhone: cleanGuestPhone,
+          });
+          setPosting(null);
+          return;
+        }
         setError(e instanceof Error ? e.message : "Order failed");
         setPosting(null);
       }
@@ -969,6 +1542,7 @@ export function PosBilling({
       lines,
       posting,
       customerName,
+      customerPhone,
       activeTab,
       outletId,
       orderType,
@@ -980,6 +1554,9 @@ export function PosBilling({
       discountPct,
       discountFlat,
       clearSettledActiveTab,
+      isOnline,
+      queueBillOffline,
+      trySilentReceiptPrint,
     ],
   );
 
@@ -1066,7 +1643,7 @@ export function PosBilling({
     setSplitCash(String(halfCash));
     setSplitUpi(String(remUpi));
     setSplitCard("0");
-    setSplitPhone("");
+    setSplitPhone(customerPhone);
     setSplitEmail("");
     setSplitPayError(null);
     setSplitPayOpen(true);
@@ -1087,6 +1664,33 @@ export function PosBilling({
       return;
     }
 
+    const effectivePhone =
+      normalizeLoyaltyPhone(splitPhone.trim() || customerPhone) ||
+      splitPhone.trim() ||
+      null;
+
+    if (!isOnline && !(activeTab?.persisted && activeTab.orderId)) {
+      setSplitPayBusy(true);
+      setSplitPayError(null);
+      try {
+        await queueBillOffline({
+          paymentMode: allocations.length > 1 ? "split" : allocations[0].mode,
+          allocations,
+          customerDisplay: resolvePosCustomerDisplay(),
+          customerPhone: effectivePhone,
+          customerEmail: splitEmail.trim() || null,
+        });
+        setSplitPayOpen(false);
+      } catch (err) {
+        setSplitPayError(
+          err instanceof Error ? err.message : "Could not queue split bill offline.",
+        );
+      } finally {
+        setSplitPayBusy(false);
+      }
+      return;
+    }
+
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSplitPayBusy(true);
     setSplitPayError(null);
@@ -1097,12 +1701,13 @@ export function PosBilling({
         hasRunningOrder: Boolean(activeTab?.persisted && activeTab.orderId),
         orderType,
         customerName: resolvePosCustomerDisplay(),
-        customerPhone: splitPhone.trim() || null,
+        customerPhone: effectivePhone,
         customerEmail: splitEmail.trim() || null,
         note: orderNote.trim() || null,
         packingCharge,
         discountPct,
         discountFlat,
+        redeemLoyaltyPoints: totals.loyaltyPointsRedeemed,
         lines: activeTab?.lines ?? [],
         pricingItems: lines.map((l) => ({
           quantity: l.qty,
@@ -1125,8 +1730,53 @@ export function PosBilling({
         return;
       }
       setSplitPayOpen(false);
+      const silentDone = await trySilentReceiptPrint({
+        billNumber: res.orderId.slice(0, 8),
+        tenderLabel: allocations
+          .map((a) => `${a.mode.toUpperCase()} Rs ${a.amount.toFixed(0)}`)
+          .join(" + "),
+        hasCash: allocations.some((a) => a.mode === "cash"),
+        receiptLines: lines,
+        subtotalTaxable: totals.taxable,
+        cgst: totals.cgst,
+        sgst: totals.sgst,
+        packing: totals.packing,
+        discount: totals.discount,
+        loyaltyPointsRedeemed: totals.loyaltyPointsRedeemed,
+        loyaltyDiscount: totals.loyaltyDiscount,
+        loyaltyPointsEarned: totals.loyaltyPointsEarnedPreview,
+        rounding: totals.rounding,
+        total: totals.total,
+      });
       clearSettledActiveTab();
-      router.push(`/r/${restaurantSlug}/pos/receipt/${res.orderId}`);
+      if (silentDone) {
+        setKotSavedMsg("Split payment settled & receipt sent to printer");
+        setTimeout(() => setKotSavedMsg(null), 3500);
+      } else {
+        router.push(`/r/${restaurantSlug}/pos/receipt/${res.orderId}`);
+      }
+    } catch (err) {
+      if (
+        !(activeTab?.persisted && activeTab.orderId) &&
+        isNetworkFailure(
+          err,
+          typeof navigator !== "undefined" ? navigator.onLine : isOnline,
+        )
+      ) {
+        setIsOnline(false);
+        await queueBillOffline({
+          paymentMode: allocations.length > 1 ? "split" : allocations[0].mode,
+          allocations,
+          customerDisplay: resolvePosCustomerDisplay(),
+          customerPhone: effectivePhone,
+          customerEmail: splitEmail.trim() || null,
+        });
+        setSplitPayOpen(false);
+        return;
+      }
+      setSplitPayError(
+        err instanceof Error ? err.message : "Failed to settle split payment.",
+      );
     } finally {
       setSplitPayBusy(false);
     }
@@ -1558,6 +2208,50 @@ export function PosBilling({
 
         {/* Quick links to Tables, Kitchen & Admin */}
         <div className="ml-auto flex items-center gap-1.5 md:order-last md:ml-0">
+          {(!isOnline || offlineQueue.length > 0) && (
+            <Button
+              type="button"
+              variant={!isOnline ? "destructive" : "outline"}
+              size="sm"
+              onClick={() => {
+                setOutboxPreviewOrder(null);
+                setOutboxModalOpen(true);
+              }}
+              className="h-8 px-2.5 text-xs"
+              title="Offline POS Outbox & Auto-Sync"
+            >
+              <CloudOff className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">
+                {!isOnline
+                  ? offlineQueue.length > 0
+                    ? `Offline (${offlineQueue.length})`
+                    : "Offline Mode"
+                  : `Outbox (${offlineQueue.length})`}
+              </span>
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPrinterModalOpen(true)}
+            className="h-8 px-2.5 text-xs"
+            title="Thermal Printer & Cash Drawer Settings"
+          >
+            <Printer
+              className={cn(
+                "h-3.5 w-3.5 sm:mr-1",
+                printerCfg.transport !== "browser" && "text-emerald-600",
+              )}
+            />
+            <span className="hidden lg:inline">
+              {printerCfg.transport === "webusb"
+                ? "USB"
+                : printerCfg.transport === "lan_bridge"
+                  ? "LAN"
+                  : "Print"}
+            </span>
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -2017,6 +2711,64 @@ export function PosBilling({
               )}
             </div>
 
+            {canTakePayment && effectiveLoyaltySettings.is_enabled && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="relative flex-1 min-w-[140px]">
+                  <Gift className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) =>
+                      updateActiveTab((t) => ({
+                        ...t,
+                        customerPhone: e.target.value,
+                        redeemLoyalty: false,
+                      }))
+                    }
+                    placeholder="Guest 10-digit phone (Loyalty)…"
+                    className="h-7 bg-card pl-7 text-xs"
+                  />
+                </div>
+                {loyaltyBusy && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+                {normalizeLoyaltyPhone(customerPhone) && (
+                  <>
+                    {totals.loyaltyRedeemCap.eligible ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateActiveTab((t) => ({
+                            ...t,
+                            redeemLoyalty: !t.redeemLoyalty,
+                          }))
+                        }
+                        className={cn(
+                          "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors",
+                          redeemLoyalty
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20",
+                        )}
+                      >
+                        {redeemLoyalty
+                          ? `Redeemed -₹${totals.loyaltyDiscount.toFixed(0)}`
+                          : `Redeem ${totals.loyaltyRedeemCap.maxPoints}p (-₹${totals.loyaltyRedeemCap.rupeeDiscount.toFixed(0)})`}
+                      </button>
+                    ) : (
+                      <span className="rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                        {loyaltyWalletState?.wallet
+                          ? `${loyaltyWalletState.wallet.points_balance} pts`
+                          : "New member"}
+                        {totals.loyaltyPointsEarnedPreview > 0
+                          ? ` · +${totals.loyaltyPointsEarnedPreview} pts`
+                          : ""}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             {showOrderDetails && (
               <div className="grid gap-2 rounded-xl bg-muted/60 p-2">
                 <Input
@@ -2320,12 +3072,24 @@ export function PosBilling({
               {totals.discount > 0 && (
                 <Row label="Discount" value={-totals.discount} />
               )}
+              {totals.loyaltyDiscount > 0 && (
+                <Row
+                  label={`Loyalty (${totals.loyaltyPointsRedeemed} pts)`}
+                  value={-totals.loyaltyDiscount}
+                />
+              )}
               {totals.rounding !== 0 && (
                 <Row label="Round-off" value={totals.rounding} />
               )}
             </div>
             <Separator className="my-2" />
             <Row label="Grand Total" value={totals.total} bold large />
+            {totals.loyaltyPointsEarnedPreview > 0 && (
+              <div className="mt-1 flex items-center justify-between text-[11px] font-medium text-emerald-700">
+                <span>Loyalty points on settlement</span>
+                <span>+{totals.loyaltyPointsEarnedPreview} pts</span>
+              </div>
+            )}
 
             {kotSavedMsg && (
               <p className="mt-2 rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-center text-xs font-medium text-emerald-700">
@@ -3869,6 +4633,40 @@ export function PosBilling({
             );
             setTimeout(() => setKotSavedMsg(null), 5000);
           }
+        }}
+      />
+
+      <PosPrinterDialog
+        open={printerModalOpen}
+        onOpenChange={setPrinterModalOpen}
+        outletName={outlet.name}
+        config={printerCfg}
+        stations={stations}
+        onSaveConfig={(next) => {
+          setPrinterCfg(next);
+          savePosPrinterConfig(outletId, next);
+          setKotSavedMsg("Saved POS printer settings.");
+          setTimeout(() => setKotSavedMsg(null), 2500);
+        }}
+      />
+
+      <PosOfflineOutboxDialog
+        open={outboxModalOpen}
+        onOpenChange={setOutboxModalOpen}
+        isOnline={isOnline}
+        syncing={syncingOutbox}
+        outlet={outlet}
+        queue={offlineQueue}
+        previewOrder={outboxPreviewOrder}
+        onSelectPreview={setOutboxPreviewOrder}
+        onSyncNow={() => {
+          void drainOfflineOutbox();
+        }}
+        onRemoveOrder={(offlineId) => {
+          removeOfflinePosOrder(offlineId)
+            .then(() => listOfflinePosOrders(outletId))
+            .then(setOfflineQueue)
+            .catch(() => {});
         }}
       />
     </div>

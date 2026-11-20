@@ -11,6 +11,8 @@ type Result = { ok: true } | { ok: false; error: string };
 
 function revalidateMenuSurfaces(slug: string) {
   revalidatePath(`/r/${slug}/admin/menu`);
+  revalidatePath(`/r/${slug}/admin/kitchen`);
+  revalidatePath(`/r/${slug}/kitchen`);
   revalidatePath(`/r/${slug}/pos`);
   revalidatePath(`/r/${slug}`);
 }
@@ -39,8 +41,19 @@ export async function createCategoryAction(
 
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return { ok: false, error: "Enter a category name." };
+  const rawStation = String(formData.get("station_id") ?? "").trim();
+  const stationId = rawStation && rawStation !== "__none__" ? rawStation : null;
 
   const admin = createAdminClient();
+  if (stationId) {
+    const { data: stn } = await admin
+      .from("kitchen_stations")
+      .select("id")
+      .eq("id", stationId)
+      .eq("outlet_id", outlet.id)
+      .maybeSingle();
+    if (!stn) return { ok: false, error: "Selected kitchen station does not belong to this outlet." };
+  }
 
   const { data: maxRow } = await admin
     .from("categories")
@@ -56,8 +69,43 @@ export async function createCategoryAction(
     name,
     emoji: null,
     sort_order: nextSort,
+    station_id: stationId,
     status: "active",
   });
+  if (error) return { ok: false, error: error.message };
+  revalidateMenuSurfaces(slug);
+  return { ok: true };
+}
+
+export async function updateCategoryStationAction(
+  slug: string,
+  categoryId: string,
+  stationId: string | null,
+): Promise<Result> {
+  const restaurant = await getRestaurantBySlug(slug);
+  if (!restaurant) return { ok: false, error: "Restaurant not found." };
+  await requireRole(["admin", "manager"], { restaurantId: restaurant.id });
+
+  const outlet = await getSelectedOutlet(restaurant.id, slug);
+  if (!outlet) return { ok: false, error: "No outlet configured." };
+
+  const admin = createAdminClient();
+  const cleanStation = stationId && stationId !== "__none__" ? stationId : null;
+  if (cleanStation) {
+    const { data: stn } = await admin
+      .from("kitchen_stations")
+      .select("id")
+      .eq("id", cleanStation)
+      .eq("outlet_id", outlet.id)
+      .maybeSingle();
+    if (!stn) return { ok: false, error: "Invalid station." };
+  }
+
+  const { error } = await admin
+    .from("categories")
+    .update({ station_id: cleanStation })
+    .eq("id", categoryId)
+    .eq("outlet_id", outlet.id);
   if (error) return { ok: false, error: error.message };
   revalidateMenuSurfaces(slug);
   return { ok: true };
@@ -205,6 +253,9 @@ export async function createProductAction(
   const hsn_code = String(formData.get("hsn_code") ?? "").trim() || null;
   const description = String(formData.get("description") ?? "").trim() || null;
   const image_url = String(formData.get("image_url") ?? "").trim() || null;
+  const rawStation = String(formData.get("station_id") ?? "").trim();
+  const station_id = rawStation && rawStation !== "__inherit__" ? rawStation : null;
+  const is_kot_required = formData.get("is_kot_required") !== "false";
 
   if (!name) return { ok: false, error: "Enter a product name." };
   if (!category) return { ok: false, error: "Pick a category." };
@@ -218,6 +269,16 @@ export async function createProductAction(
   );
 
   const admin = createAdminClient();
+  if (station_id) {
+    const { data: stn } = await admin
+      .from("kitchen_stations")
+      .select("id")
+      .eq("id", station_id)
+      .eq("outlet_id", outlet.id)
+      .maybeSingle();
+    if (!stn) return { ok: false, error: "Selected kitchen station does not belong to this outlet." };
+  }
+
   const { data: created, error } = await admin
     .from("products")
     .insert({
@@ -231,10 +292,11 @@ export async function createProductAction(
       hsn_code,
       description,
       image_url,
+      station_id,
       status: "active",
       has_toppings: false,
       has_addons: productGroups.length > 0,
-      is_kot_required: true,
+      is_kot_required,
     })
     .select("id")
     .single();
@@ -277,6 +339,9 @@ export async function updateProductAction(
   const hsn_code = String(formData.get("hsn_code") ?? "").trim() || null;
   const description = String(formData.get("description") ?? "").trim() || null;
   const image_url = String(formData.get("image_url") ?? "").trim() || null;
+  const rawStation = String(formData.get("station_id") ?? "").trim();
+  const station_id = rawStation && rawStation !== "__inherit__" ? rawStation : null;
+  const is_kot_required = formData.get("is_kot_required") !== "false";
 
   if (!name || !category || !Number.isFinite(price) || price < 0) {
     return { ok: false, error: "Check the fields." };
@@ -288,6 +353,16 @@ export async function updateProductAction(
   );
 
   const admin = createAdminClient();
+  if (station_id) {
+    const { data: stn } = await admin
+      .from("kitchen_stations")
+      .select("id")
+      .eq("id", station_id)
+      .eq("outlet_id", outlet.id)
+      .maybeSingle();
+    if (!stn) return { ok: false, error: "Selected kitchen station does not belong to this outlet." };
+  }
+
   const { error } = await admin
     .from("products")
     .update({
@@ -300,6 +375,8 @@ export async function updateProductAction(
       hsn_code,
       description,
       image_url,
+      station_id,
+      is_kot_required,
       has_addons: productGroups.length > 0,
     })
     .eq("id", id)

@@ -9,6 +9,7 @@ import {
 } from "@/lib/customizations";
 import { getOutletsForRestaurant, getSelectedOutlet } from "@/lib/outlet-context";
 import { getPublicPaymentConfig } from "@/lib/payments";
+import { getLoyaltySettings } from "@/lib/loyalty";
 import { PosBilling } from "./PosBilling";
 import {
   POS_ROLES,
@@ -22,6 +23,7 @@ import type {
   Category,
   Coupon,
   CustomerTab,
+  KitchenStation,
   Product,
   ProductCustomization,
   TableBooking,
@@ -79,6 +81,8 @@ export default async function PosPage(props: Props) {
     customerTabsRes,
     couponsRes,
     bookingsRes,
+    loyaltySettings,
+    stationsRes,
   ] = await Promise.all([
     supabase
       .from("products")
@@ -121,6 +125,13 @@ export default async function PosPage(props: Props) {
       .gte("reserved_for", bookingWindowStart)
       .lte("reserved_for", bookingWindowEnd)
       .order("reserved_for", { ascending: true }),
+    getLoyaltySettings(admin, restaurant.id),
+    admin
+      .from("kitchen_stations")
+      .select("*")
+      .eq("outlet_id", outlet.id)
+      .eq("status", "active")
+      .order("sort_order"),
   ]);
 
   const productList = (products ?? []) as Product[];
@@ -169,6 +180,8 @@ export default async function PosPage(props: Props) {
       customerTabs={(customerTabsRes.data ?? []) as CustomerTab[]}
       posCoupons={posCoupons}
       initialBookings={(bookingsRes.data ?? []) as TableBooking[]}
+      loyaltySettings={loyaltySettings}
+      stations={(stationsRes.data ?? []) as KitchenStation[]}
       requestedTable={query.table ?? null}
       restaurantSlug={params.slug}
       restaurantName={restaurant.name}

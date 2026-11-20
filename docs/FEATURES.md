@@ -37,9 +37,9 @@ Roles are enforced on the UI, Server Actions, and Supabase RLS (`lib/roles.ts`, 
 
 ## 4. Counter POS, Running Table KOTs & Printing (`/r/[slug]/pos`)
 
-- **Counter POS:** Category tabs, item search, variant/modifier picker, active coupon chips, packing charges, flat/percentage discounts, and single or **multi-tender split settlements** (Cash + UPI + Card), Razorpay/Stripe online payment links, and Customer Khata Tabs.
-- **Running Table Orders, Item Split & Table Merge:** Cashiers and Captains send Kitchen Order Tickets per floor table (`pos_tabs.order_id`); subsequent KOTs append new items with timestamps, highlight late additions on the KDS, support manager-audited item voids, split selected items onto a separate tab (`splitTabItemsAction`), merge or transfer occupied tables, and settle unified bills (`settleTabAction`, `settlePosSplitPaymentAction`).
-- **Thermal & Browser Receipts:** Browser-printable GST receipts (`/r/[slug]/pos/receipt/[id]`) displaying multi-tender payment legs plus an authenticated 80mm ESC/POS byte generator for thermal printers.
+- **Counter POS:** Category tabs, item search, variant/modifier picker, active coupon chips, packing charges, flat/percentage discounts, **phone-number Loyalty Points lookup & 1-tap redemption**, single or **multi-tender split settlements** (Cash + UPI + Card), Razorpay/Stripe online payment links, Customer Khata Tabs, and **POS Offline Mode** (`IndexedDB` catalog snapshot + offline bill outbox + printable 80mm offline receipts + idempotent auto-sync on reconnect).
+- **Running Table Orders, Item Split & Table Merge:** Cashiers and Captains send **station-routed Kitchen Order Tickets** (`insertRoutedKotTickets` grouped by product/category station, skipping `is_kot_required = false` retail items); subsequent KOTs append new items with timestamps, highlight late additions on the KDS, support manager-audited item voids, split selected items onto a separate tab (`splitTabItemsAction`), merge or transfer occupied tables, and settle unified bills (`settleTabAction`, `settlePosSplitPaymentAction`).
+- **Thermal, Silent WebUSB/LAN & Browser Receipts:** Browser-printable GST receipts & price-free KOT slips (`/r/[slug]/pos/receipt/[id]?mode=receipt|kot`), isomorphic 58mm/80mm ESC/POS byte generator (`lib/escpos.ts`), and **POS Terminal Printer & Cash Drawer Setup** supporting zero-dialog WebUSB or local LAN bridge silent printing with automatic RJ11 cash drawer kick (`ESC p`).
 - **Persisted Day-End Z-Register Shifts (`/r/[slug]/admin/register`):** Reconciles Cash, UPI, Card, Online, Split Payments, and Customer Khata sales alongside unsettled open tables and deducted petty cash vouchers; persists opening float, physical denomination counts, conditional cash variance notes, and historical Z-Close audit logs (`register_shifts`) with CSV export.
 
 ---
@@ -59,14 +59,14 @@ Roles are enforced on the UI, Server Actions, and Supabase RLS (`lib/roles.ts`, 
 ## 6. Kitchen Display System (KDS)
 
 - **Admin KDS (`/r/[slug]/admin/kitchen`) & Staff Kitchen Board (`/r/[slug]/kitchen`):**
-  - Live status pipeline (`pending` → `confirmed` → `preparing` → `ready` → `completed`), new-order sound chime alerts, mandatory structured cancellation reasons (`lib/order-cancel.ts`) with instant out-of-stock item toggling, item instructions, and newly appended KOT highlighting.
+  - Live status pipeline (`pending` → `confirmed` → `preparing` → `ready` → `completed`), **1-tap Kitchen Station filter pills** (`Main Kitchen`, `Tandoor & Grill`, `Beverage & Bar`, `Desserts`), item station badges, station-filtered KOT slip printing, new-order sound chime alerts, mandatory structured cancellation reasons (`lib/order-cancel.ts`) with instant out-of-stock item toggling, item instructions, and newly appended KOT highlighting.
 
 ---
 
-## 7. Public Storefront, Coupons & Customer Accounts
+## 7. Public Storefront, Loyalty Wallets, Coupons & Customer Accounts
 
-- **Storefront (`/r/[slug]`):** Dish search, Veg-only toggle, category navigation, bestseller highlights, interactive cart (`/r/[slug]/cart`), dynamic UPI QR + Razorpay/Stripe checkout (`/r/[slug]/checkout`), live order tracking (`/r/[slug]/orders/[id]`), and customer order history & 1-click reorder (`/r/[slug]/me/orders`).
-- **Coupons (`/r/[slug]/admin/customers`):** Percentage or flat discount codes with optional max discount cap, minimum bill requirement, expiry timestamp, usage limit, and channel targeting (`all`, `storefront`, `pos`, `dine_in`).
+- **Storefront (`/r/[slug]`):** Dish search, Veg-only toggle, category navigation, bestseller highlights, interactive cart (`/r/[slug]/cart`), dynamic UPI QR + Razorpay/Stripe checkout (`/r/[slug]/checkout`) with automatic Loyalty points earn preview, live order tracking (`/r/[slug]/orders/[id]`), and customer order history & 1-click reorder (`/r/[slug]/me/orders`).
+- **Phone Loyalty Program & Coupons (`/r/[slug]/admin/customers`):** Configurable Loyalty Rules (`loyalty_settings` — points per ₹100, point value, min bill to earn/redeem, max bill %, welcome bonus), searchable guest phone wallets (`loyalty_wallets`), manual goodwill point adjustments (`loyalty_transactions`), plus percentage/flat promo coupons (`coupons`).
 
 ---
 
@@ -79,11 +79,12 @@ Roles are enforced on the UI, Server Actions, and Supabase RLS (`lib/roles.ts`, 
   - **People's Tabs / Khata:** Regular customer running credit accounts with credit limits, POS tab charging, settlement entries, WhatsApp payment reminders, and CSV export.
   - **Corporate B2B GST Tax Invoices:** Corporate client registry with GSTIN & state code validation, intra-state CGST+SGST vs inter-state IGST calculation (`SAC 996331`), settled-order import, payment tracking, CSV export, and printable A4 Tax Invoices (`/r/[slug]/admin/accounts/invoices/[invoiceId]/print`).
   - **Petty Cash & Outlet Expenses:** Categorized daily operational vouchers synchronized with the Day-End Z-Register.
+- **CA Accounting Pack (`/r/[slug]/admin/reports`):** Multi-range (`Today`, `Yesterday`, `7d`, `30d`, `This Month`, `Last Month`) GST reports with Table 4A B2B Invoices, Table 7 B2CS slabs (deduplicated against Corporate B2B invoices), Table 12 HSN/SAC Summary (`996331`), Table 13 Document Series, Sec 9(5) ECO separation, GSTR-1 CSV & Portal JSON downloads, and zero-balanced **Tally Prime Sales Voucher XML** export (`lib/ca-exports.ts`).
 
 ---
 
 ## 9. Delivery Channels, PWA & Monitoring
 
 - **Delivery Channels (`/r/[slug]/admin/channels`):** Configure platform store IDs, item/option mappings, prep times, busy/offline pause reasons, and retention data scrubbing (`purge_channel_data`).
-- **Progressive Web App (PWA):** Installable web app manifest (`app/manifest.ts`), high-resolution icons (`public/icons/*`), POS-safe Service Worker (`public/sw.js`) with `/offline` fallback, and install prompts across sign-in, workspace, admin, and POS views.
+- **Progressive Web App (PWA):** Installable web app manifest (`app/manifest.ts`), high-resolution icons (`public/icons/*`), POS-safe Service Worker (`public/sw.js`) with POS shell navigation caching (`POS_NAV_CACHE`) & `/offline` fallback, and install prompts across sign-in, workspace, admin, and POS views.
 - **Error Telemetry (`instrumentation.ts`, `lib/monitoring.ts`):** Captures server 5xx exceptions into `server_error_logs`, emits structured `[BILLJOT_5XX]` logs, and dispatches optional webhook or Sentry alerts.

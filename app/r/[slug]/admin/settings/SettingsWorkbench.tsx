@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, Globe, Store } from "lucide-react";
+import { ChefHat, CreditCard, Globe, Store } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -12,16 +12,19 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/PageHeader";
 import type { AdminGatewaySettingsView } from "@/lib/payments";
-import type { AppRole, Outlet } from "@/lib/types";
+import type { AppRole, KitchenStation, Outlet, Printer } from "@/lib/types";
 import { DomainForm } from "./DomainForm";
 import { OutletForm } from "./OutletForm";
 import { PaymentGatewaysForm } from "./PaymentGatewaysForm";
+import { PrintersStationsForm } from "./PrintersStationsForm";
 
 export function SettingsWorkbench({
   slug,
   role,
   outlets,
   gatewayViews,
+  printersByOutlet,
+  stationsByOutlet,
   currentDomain,
   subdomainHost,
 }: {
@@ -29,6 +32,8 @@ export function SettingsWorkbench({
   role: AppRole;
   outlets: Outlet[];
   gatewayViews: Record<string, AdminGatewaySettingsView>;
+  printersByOutlet: Record<string, Printer[]>;
+  stationsByOutlet: Record<string, KitchenStation[]>;
   currentDomain: string | null;
   subdomainHost: string | null;
 }) {
@@ -38,12 +43,14 @@ export function SettingsWorkbench({
   const activeOutlet =
     outlets.find((o) => o.id === selectedOutletId) ?? outlets[0] ?? null;
   const activeGateway = activeOutlet ? gatewayViews[activeOutlet.id] : undefined;
+  const activePrinters = activeOutlet ? (printersByOutlet[activeOutlet.id] ?? []) : [];
+  const activeStations = activeOutlet ? (stationsByOutlet[activeOutlet.id] ?? []) : [];
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Manage outlet details, Razorpay & Stripe payment gateways, GSTIN/FSSAI compliance, and custom domains."
+        description="Manage outlet details, thermal printers & kitchen stations, Razorpay/Stripe gateways, and custom domains."
         actions={
           outlets.length > 1 && activeOutlet ? (
             <Select
@@ -85,6 +92,10 @@ export function SettingsWorkbench({
               <Store className="h-3.5 w-3.5" />
               Outlet Profile &amp; Hours
             </TabsTrigger>
+            <TabsTrigger value="hardware" className="gap-1.5 text-xs">
+              <ChefHat className="h-3.5 w-3.5" />
+              Printers &amp; Kitchen Stations
+            </TabsTrigger>
             {role === "admin" && (
               <TabsTrigger value="domain" className="gap-1.5 text-xs">
                 <Globe className="h-3.5 w-3.5" />
@@ -110,6 +121,17 @@ export function SettingsWorkbench({
               key={activeOutlet.id}
               slug={slug}
               outlet={activeOutlet}
+            />
+          </TabsContent>
+
+          <TabsContent value="hardware" className="mt-4">
+            <PrintersStationsForm
+              key={activeOutlet.id}
+              slug={slug}
+              outletId={activeOutlet.id}
+              outletName={activeOutlet.name}
+              initialPrinters={activePrinters}
+              initialStations={activeStations}
             />
           </TabsContent>
 

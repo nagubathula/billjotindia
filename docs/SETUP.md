@@ -44,6 +44,7 @@ All seed scripts are idempotent and read Supabase credentials from environment /
 - **`scripts/seed-ops-data.mjs`** — Vendors, Purchase Orders, Vendor Payments, Staff HR (employees, 7-day attendance, advances, payroll), Coupons, People's Tabs, Corporate Clients/GST Invoices, and Petty Cash Expenses (`node --env-file=.env.local scripts/seed-ops-data.mjs`)
 - **`scripts/seed-bookings.mjs`** — Upcoming table reservations (including paid cover deposits) and active walk-in waitlist queues across outlets (`node scripts/seed-bookings.mjs`)
 - **`scripts/seed-inventory-and-shifts.mjs`** — Kitchen raw material SKUs, dish recipe BOMs, closed/open register shifts, and sample split-payment POS orders (`node scripts/seed-inventory-and-shifts.mjs`)
+- **`scripts/seed-petpooja-wave.mjs`** — Thermal printers, kitchen stations, category/product station routing, phone-number loyalty rules, wallets & ledger transactions (`node scripts/seed-petpooja-wave.mjs`)
 - **`scripts/create-user.mjs`** / **`scripts/delete-user.mjs`** / **`scripts/attach-brand.mjs`** — Staff user & brand management helpers
 - **`scripts/generate-pwa-icons.mjs`** — Generates raster/vector PWA icons under `public/icons/`
 - **`scripts/clear-all.mjs`** — Resets restaurant/brand data cleanly (use only in non-production/reset scenarios)

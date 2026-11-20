@@ -23,6 +23,7 @@ import type {
   Category,
   CustomizationGroup,
   CustomizationOption,
+  KitchenStation,
   Product,
   ProductCustomization,
 } from "@/lib/types";
@@ -49,7 +50,7 @@ export default async function MenuPage(props: Props) {
   }
 
   const supabase = await createClient();
-  const [{ data: cats }, { data: prods }, { data: grps }, { data: links }] =
+  const [{ data: cats }, { data: prods }, { data: grps }, { data: links }, { data: stns }] =
     await Promise.all([
       supabase
         .from("categories")
@@ -71,11 +72,19 @@ export default async function MenuPage(props: Props) {
         .from("product_customizations")
         .select("*")
         .order("sort_order"),
+      supabase
+        .from("kitchen_stations")
+        .select("*")
+        .eq("outlet_id", outlet.id)
+        .eq("status", "active")
+        .order("sort_order")
+        .order("name"),
     ]);
 
   const categories = (cats ?? []) as Category[];
   const products = (prods ?? []) as Product[];
   const groupList = (grps ?? []) as CustomizationGroup[];
+  const stations = (stns ?? []) as KitchenStation[];
 
   const groupIds = groupList.map((g) => g.id);
   const { data: opts } =
@@ -211,6 +220,7 @@ export default async function MenuPage(props: Props) {
                 products={products}
                 groups={attachableGroups}
                 productGroups={productGroups}
+                stations={stations}
               />
             </CardContent>
           </Card>
@@ -225,7 +235,11 @@ export default async function MenuPage(props: Props) {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-3">
-              <CategoryManager slug={params.slug} categories={categories} />
+              <CategoryManager
+                slug={params.slug}
+                categories={categories}
+                stations={stations}
+              />
             </CardContent>
           </Card>
         </TabsContent>

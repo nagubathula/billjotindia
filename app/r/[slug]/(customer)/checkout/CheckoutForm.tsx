@@ -70,6 +70,7 @@ export function CheckoutForm({
   outletId,
   paymentConfig,
   availableCoupons,
+  loyaltySettings,
   wasCancelled,
 }: {
   restaurantSlug: string;
@@ -77,6 +78,12 @@ export function CheckoutForm({
   outletId: string;
   paymentConfig: PublicPaymentConfig;
   availableCoupons: CouponRuleShape[];
+  loyaltySettings?: {
+    isEnabled: boolean;
+    pointsPer100: number;
+    minOrderForEarn: number;
+    welcomeBonusPoints: number;
+  };
   wasCancelled?: boolean;
 }) {
   const router = useRouter();
@@ -580,6 +587,16 @@ export function CheckoutForm({
                 autoComplete="tel"
                 placeholder="+91 98480 22311"
               />
+              {loyaltySettings?.isEnabled && total >= loyaltySettings.minOrderForEarn && (
+                <p className="text-[11px] font-medium text-emerald-700">
+                  Rewards: Earn +{Math.floor((total / 100) * loyaltySettings.pointsPer100)} loyalty
+                  points on this bill
+                  {loyaltySettings.welcomeBonusPoints > 0
+                    ? ` (+${loyaltySettings.welcomeBonusPoints} welcome pts on 1st visit)`
+                    : ""}
+                  .
+                </p>
+              )}
             </div>
             <div className="grid gap-1.5 sm:col-span-2">
               <Label htmlFor="ck-email">Email (for invoice)</Label>
