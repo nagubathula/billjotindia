@@ -1,4 +1,4 @@
-const SHELL_CACHE = "billjot-shell-v1";
+const SHELL_CACHE = "billjot-shell-v2";
 const STATIC_CACHE = "billjot-static-v1";
 const POS_NAV_CACHE = "billjot-pos-nav-v1";
 const ACTIVE_CACHES = new Set([SHELL_CACHE, STATIC_CACHE, POS_NAV_CACHE]);
@@ -6,6 +6,11 @@ const ACTIVE_CACHES = new Set([SHELL_CACHE, STATIC_CACHE, POS_NAV_CACHE]);
 const PRECACHE_URLS = [
   "/offline",
   "/manifest.webmanifest",
+  "/logo.svg",
+  "/favicon.ico",
+  "/favicon-16x16.png",
+  "/favicon-32x32.png",
+  "/apple-touch-icon.png",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -150,7 +155,12 @@ self.addEventListener("fetch", (event) => {
 
   if (
     url.pathname.startsWith("/icons/") ||
-    url.pathname === "/manifest.webmanifest"
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/logo.svg" ||
+    url.pathname === "/favicon.ico" ||
+    url.pathname === "/favicon-16x16.png" ||
+    url.pathname === "/favicon-32x32.png" ||
+    url.pathname === "/apple-touch-icon.png"
   ) {
     event.respondWith(staleWhileRevalidateShell(request));
     return;

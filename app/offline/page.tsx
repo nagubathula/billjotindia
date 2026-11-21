@@ -1,4 +1,4 @@
-import { Receipt, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { OfflineRetryActions } from "./OfflineRetryActions";
 
@@ -10,9 +10,11 @@ export default function OfflinePage() {
       <Card className="w-full max-w-md rounded-2xl border-border/80 py-7 shadow-float">
         <CardContent className="space-y-6 px-6 text-center sm:px-8">
           <div className="mx-auto flex items-center justify-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-              <Receipt className="h-6 w-6" />
-            </span>
+            <img
+              src="/icons/icon-192.png"
+              alt="Billjot"
+              className="h-12 w-12 rounded-2xl shadow-sm"
+            />
             <span className="grid h-12 w-12 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
               <WifiOff className="h-5 w-5" />
             </span>

@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ChefHat,
   MonitorSmartphone,
-  Receipt,
   ShieldCheck,
 } from "lucide-react";
 
@@ -45,17 +44,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         {/* Top Brand Mark */}
         <div className="relative z-10 flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25">
-            <Receipt className="h-5 w-5 stroke-[2.25]" />
+          <img
+            src="/logo.svg"
+            alt="Billjot"
+            className="h-8 w-auto brightness-0 invert"
+          />
+          <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-emerald-300 uppercase">
+            Console
           </span>
-          <div>
-            <span className="text-lg font-bold tracking-tight text-white">
-              Billjot
-            </span>
-            <span className="ml-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-emerald-300 uppercase">
-              Console
-            </span>
-          </div>
         </div>
 
         {/* Center Copy & Pillars */}
@@ -104,11 +100,12 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="relative flex flex-col justify-between bg-gradient-to-b from-emerald-50/50 via-background to-background px-5 py-10 sm:px-10 dark:from-emerald-950/20">
         {/* Mobile/Tablet Brand Header */}
         <div className="flex items-center justify-center lg:hidden">
-          <Link href="/login" className="inline-flex items-center gap-2.5">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-              <Receipt className="h-5 w-5" />
-            </span>
-            <span className="text-lg font-bold tracking-tight">Billjot</span>
+          <Link href="/login" className="inline-flex items-center" aria-label="Billjot">
+            <img
+              src="/logo.svg"
+              alt="Billjot"
+              className="h-8 w-auto dark:brightness-0 dark:invert"
+            />
           </Link>
         </div>
 

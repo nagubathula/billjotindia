@@ -8,7 +8,6 @@ import {
   LogOut,
   MonitorSmartphone,
   Plus,
-  ReceiptText,
   Store,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -49,17 +48,14 @@ export function WorkspaceSidebar({
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex">
       {/* Brand Header */}
       <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-3.5">
-        <Link href="/dashboard" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-2xs">
-            <ReceiptText className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold leading-tight tracking-tight">
-              Billjot
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              Workspace Console
-            </div>
+        <Link href="/dashboard" className="flex flex-col gap-1">
+          <img
+            src="/logo.svg"
+            alt="Billjot"
+            className="h-6 w-auto self-start dark:brightness-0 dark:invert"
+          />
+          <div className="text-[11px] text-muted-foreground">
+            Workspace Console
           </div>
         </Link>
       </div>

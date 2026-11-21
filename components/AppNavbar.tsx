@@ -3,7 +3,6 @@
 
 import Link from "next/link";
 import { Suspense } from "react";
-import { Receipt } from "lucide-react";
 import { UserMenu } from "./UserMenu";
 
 export function AppNavbar() {
@@ -12,12 +11,14 @@ export function AppNavbar() {
       <div className="mx-auto flex h-13 max-w-5xl items-center justify-between px-5">
         <Link
           href="/dashboard"
-          className="flex items-center gap-2 text-base font-semibold tracking-tight"
+          className="flex items-center"
+          aria-label="Billjot"
         >
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Receipt className="h-4 w-4" />
-          </span>
-          Billjot
+          <img
+            src="/logo.svg"
+            alt="Billjot"
+            className="h-7 w-auto dark:brightness-0 dark:invert"
+          />
         </Link>
         <Suspense fallback={<div className="h-8 w-20 animate-pulse rounded-full bg-muted" />}>
           <UserMenu next="/dashboard" />
